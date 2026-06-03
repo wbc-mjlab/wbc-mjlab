@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-
-from mjlab.envs import ManagerBasedRlEnvCfg
+from typing import Any
 
 from wbc_mjlab.robots.ids import RobotId
 
-EnvCfgBuilder = Callable[[], ManagerBasedRlEnvCfg]
+# Avoid importing mjlab here — tasks.config is loaded while ``wbc_mjlab.tasks``
+# initializes, and mjlab loads the ``wbc_mjlab.mjlab_entry`` hook (circular import).
+EnvCfgBuilder = Callable[[], Any]
 
 
 @dataclass(frozen=True)
