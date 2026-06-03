@@ -36,12 +36,13 @@ def make_wbc_env_cfg(
   robot_id: str | RobotId = "g1",
   *,
   play: bool = False,
+  task_id: str = "Wbc-G1",
   **kwargs,
 ) -> ManagerBasedRlEnvCfg:
   _ensure_builders()
   rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
   try:
-    return _ENV_BUILDERS[rid](play=play, **kwargs)
+    return _ENV_BUILDERS[rid](play=play, task_id=task_id, **kwargs)
   except KeyError as exc:
     raise KeyError(f"No WBC env builder for robot {rid!r}") from exc
 

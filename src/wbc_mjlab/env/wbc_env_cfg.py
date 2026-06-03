@@ -1,6 +1,6 @@
 """Robot-agnostic WBC environment template.
 
-Per-robot wiring lives in ``wbc_mjlab.robots.<id>.configs`` (registered via task presets).
+Per-robot wiring lives in ``wbc_mjlab.robots.<id>.configs`` (registered via task configs).
 """
 
 from mjlab.envs import ManagerBasedRlEnvCfg

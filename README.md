@@ -36,10 +36,10 @@ RSI logic: `env/mdp/sampling.py`. Motion command + reference stack: `env/mdp/com
 data/g1/<dataset>/      # retargeted clips (see data/g1/README.md)
 src/wbc_mjlab/
   env/                  # Shared WBC MDP (rewards, RSI, motion command, …)
-  robots/<id>/          # configs/, rl_cfg, presets.py
+  robots/<id>/          # configs/ (tasks + env builders), rl_cfg
   robots/ids.py         # robot aliases (motion conversion, optional --robot)
   robots/env.py         # env/RL builders (used when registering tasks)
-  tasks/                # mjlab task registration from presets
+  tasks/                # WbcTaskConfig type + mjlab registration
   export/
   rl/
   motion/
@@ -130,8 +130,8 @@ wbc-mjlab-export-tracking-params --task Wbc-G1-NoSE --out /path/to/wbc_tracking_
 
 ## Add a robot or paper preset
 
-1. **Robot:** `robots/<id>/configs/`, `rl_cfg.py`, `presets.py`, assets; register in `robots/env.py`, `robots/ids.py`, and `tasks/__init__.py`.
-2. **Paper preset:** add a builder in `robots/<id>/configs/<method>.py`, register it in `configs/__init__.py`, and point a `WbcTaskPreset` at it via `env_cfg`.
+1. **Robot:** `robots/<id>/configs/`, `rl_cfg.py`, assets; register env builder in `robots/env.py` and tasks in `tasks/__init__.py`.
+2. **Paper task:** add env builder in `robots/<id>/configs/<method>.py`, add a `WbcTaskConfig` entry in `configs/__init__.py`.
 3. Train: `wbc-mjlab-train --task Wbc-<ID> --dataset <name>`
 
 ## Deploy reference
