@@ -9,7 +9,7 @@ from pathlib import Path
 from wbc_mjlab.export.tracking_params_yaml import write_wbc_tracking_params_yaml
 from wbc_mjlab.robots.env import make_wbc_env_cfg
 from wbc_mjlab.tasks import (
-  get_task_preset,
+  get_task_config,
   register_all_wbc_tasks,
   resolve_task_id,
   robot_id_for_run,
@@ -48,15 +48,15 @@ def main() -> None:
     robot_id=args.robot,
     robot_explicit=args.robot is not None,
   )
-  preset = get_task_preset(task_id)
-  env_kw = preset.env_kwargs()
-  cfg = make_wbc_env_cfg(rid, play=args.play, **env_kw)
+  task = get_task_config(task_id)
+  cfg = make_wbc_env_cfg(rid, play=args.play, task_id=task.task_id)
 
+  has_se = "motion_anchor_pos_b" in cfg.observations["actor"].terms
   doc = write_wbc_tracking_params_yaml(
     args.out,
     cfg,
     robot_id=rid,
-    has_state_estimation=preset.has_state_estimation,
+    has_state_estimation=has_se,
   )
   print(
     f"Wrote {args.out} (task={task_id}, robot={rid}, "

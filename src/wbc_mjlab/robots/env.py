@@ -19,10 +19,10 @@ _RL_BUILDERS: dict[RobotId, RlCfgBuilder] = {}
 
 
 def _register_g1() -> None:
-  from wbc_mjlab.robots.g1.env_cfg import g1_wbc_env_cfg
+  from wbc_mjlab.robots.g1.configs import make_g1_wbc_env_cfg
   from wbc_mjlab.robots.g1.rl_cfg import g1_wbc_rl_cfg
 
-  _ENV_BUILDERS["g1"] = g1_wbc_env_cfg
+  _ENV_BUILDERS["g1"] = make_g1_wbc_env_cfg
   _RL_BUILDERS["g1"] = g1_wbc_rl_cfg
 
 
@@ -36,12 +36,13 @@ def make_wbc_env_cfg(
   robot_id: str | RobotId = "g1",
   *,
   play: bool = False,
+  task_id: str = "Wbc-G1",
   **kwargs,
 ) -> ManagerBasedRlEnvCfg:
   _ensure_builders()
   rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
   try:
-    return _ENV_BUILDERS[rid](play=play, **kwargs)
+    return _ENV_BUILDERS[rid](play=play, task_id=task_id, **kwargs)
   except KeyError as exc:
     raise KeyError(f"No WBC env builder for robot {rid!r}") from exc
 
