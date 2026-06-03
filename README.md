@@ -46,6 +46,10 @@ src/wbc_mjlab/
   scripts/
 ```
 
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) · [docs/ROADMAP.md](docs/ROADMAP.md)
+
 ## Install
 
 ```bash
