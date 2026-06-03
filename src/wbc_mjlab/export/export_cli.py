@@ -52,11 +52,12 @@ def main() -> None:
   env_kw = preset.env_kwargs()
   cfg = make_wbc_env_cfg(rid, play=args.play, **env_kw)
 
+  has_se = "motion_anchor_pos_b" in cfg.observations["actor"].terms
   doc = write_wbc_tracking_params_yaml(
     args.out,
     cfg,
     robot_id=rid,
-    has_state_estimation=preset.has_state_estimation,
+    has_state_estimation=has_se,
   )
   print(
     f"Wrote {args.out} (task={task_id}, robot={rid}, "

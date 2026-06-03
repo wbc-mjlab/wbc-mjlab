@@ -1,1 +1,1 @@
-"""G1 assets and env wiring (see ``env_cfg``, ``presets``, ``instance``)."""
+"""G1 assets and env wiring (see ``configs/`` and ``presets``)."""
