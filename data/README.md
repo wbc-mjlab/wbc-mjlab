@@ -68,7 +68,7 @@ wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset>
 wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset> --cache-motion-bundle
 ```
 
-Conversion requires **`--robot`** (MuJoCo asset). Train/play normally use **`--task`** (robot is inferred from the task preset).
+Conversion requires **`--robot`** (MuJoCo asset). Train/play normally use **`--task`** (robot is inferred from the task config).
 
 ## Train / play motion source
 

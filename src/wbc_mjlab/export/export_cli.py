@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI: write ``wbc_tracking_params.yaml`` from a WBC task preset."""
+"""CLI: write ``wbc_tracking_params.yaml`` from a WBC task config."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def main() -> None:
   parser.add_argument(
     "--task",
     default=None,
-    help="WBC task preset (e.g. Wbc-G1-NoSE). Overrides --no-state-estimation.",
+    help="WBC task id (e.g. Wbc-G1-NoSE). Overrides --no-state-estimation.",
   )
   parser.add_argument(
     "--play",

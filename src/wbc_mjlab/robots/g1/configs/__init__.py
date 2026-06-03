@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from mjlab.envs import ManagerBasedRlEnvCfg
+
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.robots.g1.configs.binary_failure import g1_wbc_binary_failure_env_cfg
 from wbc_mjlab.robots.g1.configs.nose import g1_wbc_nose_env_cfg

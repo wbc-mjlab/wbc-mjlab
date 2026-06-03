@@ -2,31 +2,31 @@
 
 **Accumulate whole-body control (WBC) methods and make them easy to reproduce.**
 
-This repo is an [mjlab](https://github.com/mujocolab/mjlab) extension for **universal motion tracking**: one shared MDP, many **task presets** that turn paper-specific knobs (RSI, observations, similarity metrics) into runnable experiments. The goal is not a pile of one-off reproduction scripts—it is a growing library where **Zest**, **BeyondMimic**, **Sonic** / WBC-style tracking, and future papers plug into the same training stack, data layout, and deploy export.
+This repo is an [mjlab](https://github.com/mujocolab/mjlab) extension for **universal motion tracking**: one shared MDP, many **registered tasks** that turn paper-specific knobs (RSI, observations, similarity metrics) into runnable experiments. The goal is not a pile of one-off reproduction scripts—it is a growing library where **Zest**, **BeyondMimic**, **Sonic** / WBC-style tracking, and future papers plug into the same training stack, data layout, and deploy export.
 
-Train on a preset, swap motion datasets, export ONNX + `wbc_tracking_params.yaml` for real robots ([wbc_g1_deploy](../wbc_g1_deploy) for G1).
+Train with `--task`, swap motion datasets, export ONNX + `wbc_tracking_params.yaml` for real robots ([wbc_g1_deploy](../wbc_g1_deploy) for G1).
 
 ## Philosophy
 
 | Principle | What it means here |
 |-----------|-------------------|
-| **Shared MDP** | Rewards, terminations, motion command, assistive wrench, and reference-residual actions live in `env/` once. Robots only wire assets and presets. |
-| **Presets, not forks** | Each paper’s distinguishing choices become a **task preset** (`Wbc-G1-Zest`, …)—same CLI, same logs layout, comparable runs. |
-| **Neutral code, cited methods** | Implementation names stay generic (`similarity_ema`, `binary_failure`). Paper links live in preset descriptions and module docstrings. |
+| **Shared MDP** | Rewards, terminations, motion command, assistive wrench, and reference-residual actions live in `env/` once. Robots wire assets and task configs. |
+| **Tasks, not forks** | Each paper’s distinguishing choices become a **task** (`Wbc-G1-Zest`, …) with an env builder in `robots/<id>/configs/`—same CLI, same logs layout, comparable runs. |
+| **Neutral code, cited methods** | Implementation names stay generic (`similarity_ema`, `binary_failure`). Paper links live in task descriptions and module docstrings. |
 | **Reproducible data path** | Motions under `data/<robot>/<dataset>/`; conversion scripts; optional cached bundles. See [data/README.md](data/README.md). |
 | **Deploy parity** | `Wbc-G1-NoSE` matches deploy-style observations; play exports policy artifacts for `wbc_g1_deploy`. |
 
-## Paper ↔ preset map (G1)
+## Paper ↔ task map (G1)
 
-Presets are starting points for reproduction—not guaranteed bit-for-bit matches to every ablation in each paper. Extend presets as methods land.
+Tasks are starting points for reproduction—not guaranteed bit-for-bit matches to every ablation in each paper. Add new env builders in `configs/` as methods land.
 
-| Method / paper | Task preset | What differs in this repo |
-|----------------|-------------|---------------------------|
-| **WBC** (reference tracking, Table S3 command stack) | `Wbc-G1` | Full actor obs (incl. anchor position), reference-residual actions, assistive wrench curriculum, whole-body similarity RSI |
-| **Zest** (joint-only adaptive RSI) | `Wbc-G1-Zest` | No state-estimation obs; RSI uses **joint position only** (`similarity_ema` + `joint_only`) |
-| **BeyondMimic** (binary failure RSI) | `Wbc-G1-BinaryFailure` | Whole-body RSI with **binary failure** resampling on early termination |
-| **Deploy / no SE** | `Wbc-G1-NoSE` | Same whole-body RSI as `Wbc-G1`, deploy-style obs (no anchor position) |
-| **Sonic** and others | *(add presets)* | Shared stack (motion command, reference features) is ready; paper-specific presets can be added alongside existing RSI/obs variants |
+| Method / paper | Task id | What differs in this repo |
+|----------------|---------|---------------------------|
+| **WBC** (default stack) | `Wbc-G1` | Deploy-style obs, joint-only RSI, assistive wrench, **actor history = 10** |
+| **Zest** | `Wbc-G1-Zest` | Same RSI/obs as deploy stack, no history |
+| **Deploy / no SE** | `Wbc-G1-NoSE` | Same env as Zest (for export parity) |
+| **BeyondMimic** | `Wbc-G1-BinaryFailure` | Full obs, whole-body RSI + binary failure resampling |
+| **Sonic** and others | *(add task)* | Shared motion command stack; add a builder + `WbcTaskConfig` entry |
 
 RSI logic: `env/mdp/sampling.py`. Motion command + reference stack: `env/mdp/commands.py`.
 
@@ -36,7 +36,7 @@ RSI logic: `env/mdp/sampling.py`. Motion command + reference stack: `env/mdp/com
 data/g1/<dataset>/      # retargeted clips (see data/g1/README.md)
 src/wbc_mjlab/
   env/                  # Shared WBC MDP (rewards, RSI, motion command, …)
-  robots/<id>/          # configs/ (tasks + env builders), rl_cfg
+  robots/<id>/configs/  # G1_WBC_TASKS + per-method env builders
   robots/ids.py         # robot aliases (motion conversion, optional --robot)
   robots/env.py         # env/RL builders (used when registering tasks)
   tasks/                # WbcTaskConfig type + mjlab registration
@@ -58,19 +58,19 @@ pip install -e .
 |---------|---------|
 | `wbc-mjlab-train` | Train (wraps `mjlab.scripts.train`) |
 | `wbc-mjlab-play` | Play / eval |
-| `wbc-mjlab-list-envs` | List task presets |
+| `wbc-mjlab-list-envs` | List registered tasks |
 | `wbc-mjlab-csv-to-npz` | Build motion bundles from CSV |
 | `wbc-mjlab-pkl-to-npz` | Build motion bundles from PKL |
 | `wbc-mjlab-export-tracking-params` | Write `wbc_tracking_params.yaml` |
 
-## Task presets (G1)
+## Tasks (G1)
 
 | Task id | Logs under | Purpose |
 |---------|------------|---------|
-| `Wbc-G1` | `logs/rsl_rl/wbc_g1/` | Full actor obs, whole-body RSI (default WBC stack) |
-| `Wbc-G1-NoSE` | `logs/rsl_rl/wbc_g1_nose/` | Deploy-style obs (no anchor position) |
-| `Wbc-G1-Zest` | `logs/rsl_rl/wbc_g1_zest/` | No SE + joint-only RSI (Zest-style) |
-| `Wbc-G1-BinaryFailure` | `logs/rsl_rl/wbc_g1_binary/` | Whole-body RSI + binary failure resampling (BeyondMimic-style) |
+| `Wbc-G1` | `logs/rsl_rl/wbc_g1/` | Joint-only RSI, deploy-style obs, actor history 10 |
+| `Wbc-G1-NoSE` | `logs/rsl_rl/wbc_g1_nose/` | Deploy export (same env as Zest) |
+| `Wbc-G1-Zest` | `logs/rsl_rl/wbc_g1_zest/` | Zest reproduction, no history |
+| `Wbc-G1-BinaryFailure` | `logs/rsl_rl/wbc_g1_binary/` | BeyondMimic-style binary failure RSI |
 
 ```bash
 wbc-mjlab-list-envs
@@ -78,7 +78,7 @@ wbc-mjlab-list-envs
 
 ## Train / play
 
-Pick a **preset** to match the paper you are reproducing, then pass a **dataset**:
+Pick a **task** to match the paper you are reproducing, then pass a **dataset**:
 
 ```bash
 wbc-mjlab-train --task Wbc-G1-Zest --dataset lafan
@@ -114,7 +114,7 @@ Motion source (pick one):
 
 ## Motion conversion
 
-Conversion needs **`--robot`** (MuJoCo asset / scene), not a task preset:
+Conversion needs **`--robot`** (MuJoCo asset / scene), not a task id:
 
 ```bash
 wbc-mjlab-csv-to-npz --robot g1 --dataset lafan
@@ -128,7 +128,7 @@ Checkpoint saves write `params/wbc_tracking/wbc_tracking_params.yaml`.
 wbc-mjlab-export-tracking-params --task Wbc-G1-NoSE --out /path/to/wbc_tracking_params.yaml
 ```
 
-## Add a robot or paper preset
+## Add a robot or paper task
 
 1. **Robot:** `robots/<id>/configs/`, `rl_cfg.py`, assets; register env builder in `robots/env.py` and tasks in `tasks/__init__.py`.
 2. **Paper task:** add env builder in `robots/<id>/configs/<method>.py`, add a `WbcTaskConfig` entry in `configs/__init__.py`.

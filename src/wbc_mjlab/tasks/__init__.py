@@ -56,10 +56,6 @@ def all_wbc_tasks() -> tuple[WbcTaskConfig, ...]:
   return _ALL_TASKS  # type: ignore[return-value]
 
 
-# Back-compat aliases.
-all_wbc_task_presets = all_wbc_tasks
-
-
 def get_task_config(task_id: str) -> WbcTaskConfig:
   _ensure_tasks()
   key = LEGACY_TASK_TO_ID.get(task_id, task_id)
@@ -70,9 +66,6 @@ def get_task_config(task_id: str) -> WbcTaskConfig:
     raise KeyError(f"Unknown WBC task {task_id!r}. Registered: {known}") from exc
 
 
-get_task_preset = get_task_config
-
-
 def list_wbc_task_ids() -> list[str]:
   _ensure_tasks()
   return sorted(_TASK_BY_ID)
@@ -81,9 +74,6 @@ def list_wbc_task_ids() -> list[str]:
 def list_robot_ids_from_tasks() -> list[str]:
   _ensure_tasks()
   return sorted({t.robot_id for t in _ALL_TASKS})  # type: ignore[union-attr]
-
-
-list_robot_ids_from_presets = list_robot_ids_from_tasks
 
 
 def _rl_cfg_for_task(task: WbcTaskConfig):
@@ -109,9 +99,6 @@ def register_wbc_task(task: WbcTaskConfig) -> None:
     rl_cfg=_rl_cfg_for_task(task),
     runner_cls=PolicyOnlyMotionTrackingRunner,
   )
-
-
-register_wbc_task_preset = register_wbc_task
 
 
 def register_all_wbc_tasks() -> None:

@@ -18,7 +18,7 @@ def parse_wbc_argv(
 ) -> tuple[list[str], str, str, bool, bool, str | None, str | None, bool]:
   """Strip WBC flags; return (rest, robot, task_id, no_se, legacy, dataset, dataset_path, cache_motion_bundle).
 
-  ``robot`` is taken from the task preset unless ``--robot`` was passed explicitly.
+  ``robot`` is taken from the task config unless ``--robot`` was passed explicitly.
   """
   rest: list[str] = []
   robot = DEFAULT_ROBOT
