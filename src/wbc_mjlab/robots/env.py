@@ -1,4 +1,4 @@
-"""Build WBC env / RL configs for a physical robot (used by task preset registration)."""
+"""Build WBC env / RL configs for a physical robot (used by task registration)."""
 
 from __future__ import annotations
 

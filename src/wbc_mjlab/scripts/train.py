@@ -1,4 +1,4 @@
-"""Train WBC motion tracking for a chosen task preset and robot.
+"""Train WBC motion tracking for a chosen task and robot.
 
 Usage::
 
