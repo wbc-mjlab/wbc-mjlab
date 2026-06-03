@@ -24,6 +24,18 @@ from mjlab.utils.lab_api.math import (
 )
 from mjlab.viewer.debug_visualizer import DebugVisualizer
 
+from wbc_mjlab.env.mdp.sampling import (
+  AdaptiveSimilarityTermCfg,
+  TrackingSimilarityState,
+  bin_index_for_frame,
+  compile_similarity_terms,
+  sample_adaptive_bins,
+  step_tracking_similarity,
+  update_failure_ema,
+  whole_body_adaptive_similarity_terms,
+  wbc_joint_only_similarity_terms,
+)
+
 if TYPE_CHECKING:
   from collections.abc import Callable
   from typing import Any
@@ -34,52 +46,6 @@ if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
 _DESIRED_FRAME_COLORS = ((1.0, 0.5, 0.5), (0.5, 1.0, 0.5), (0.5, 0.5, 1.0))
-
-AdaptiveSimilarityTerm = Literal[
-  "joint_pos",
-  "anchor_pos",
-  "anchor_ori",
-  "body_pos",
-  "body_ori",
-  "body_lin_vel",
-  "body_ang_vel",
-]
-
-# Default ``std`` values aligned with ``tracking_env_cfg`` reward kernels.
-_DEFAULT_SIMILARITY_STDS: dict[AdaptiveSimilarityTerm, float] = {
-  "joint_pos": 1.0,
-  "anchor_pos": 0.3,
-  "anchor_ori": 0.4,
-  "body_pos": 0.3,
-  "body_ori": 0.4,
-  "body_lin_vel": 1.0,
-  "body_ang_vel": 3.14,
-}
-
-
-@dataclass
-class AdaptiveSimilarityTermCfg:
-  """One exp-kernel term in the per-step RSI similarity score ``s_k``."""
-
-  term: AdaptiveSimilarityTerm
-  weight: float = 1.0
-  std: float | None = None
-
-
-def wbc_joint_only_similarity_terms() -> tuple[AdaptiveSimilarityTermCfg, ...]:
-  """WBC S5 default: joint-position tracking reward only."""
-  return (AdaptiveSimilarityTermCfg(term="joint_pos"),)
-
-
-def whole_body_adaptive_similarity_terms() -> tuple[AdaptiveSimilarityTermCfg, ...]:
-  """Anchor + keybody + joint terms, aligned with ``tracking_env_cfg`` reward weights."""
-  return (
-    AdaptiveSimilarityTermCfg(term="joint_pos", weight=1.0),
-    AdaptiveSimilarityTermCfg(term="anchor_pos", weight=0.5),
-    AdaptiveSimilarityTermCfg(term="anchor_ori", weight=0.5),
-    AdaptiveSimilarityTermCfg(term="body_pos", weight=1.0),
-    AdaptiveSimilarityTermCfg(term="body_ori", weight=1.0),
-  )
 
 
 class MotionLoader:
@@ -241,21 +207,16 @@ class MotionCommand(CommandTerm):
     self.metrics["sampling_top1_bin"] = torch.zeros(self.num_envs, device=self.device)
     self.metrics["assist_gain_mean"] = torch.zeros(self.num_envs, device=self.device)
 
-    self._similarity_terms: list[tuple[AdaptiveSimilarityTerm, float, float]] = []
-    similarity_weight_sum = 0.0
-    for term_cfg in cfg.adaptive_similarity_terms:
-      if term_cfg.weight <= 0.0:
-        continue
-      std = term_cfg.std
-      if std is None:
-        std = _DEFAULT_SIMILARITY_STDS[term_cfg.term]
-      self._similarity_terms.append((term_cfg.term, term_cfg.weight, std))
-      similarity_weight_sum += term_cfg.weight
+    self._similarity_terms, similarity_weight_sum = compile_similarity_terms(
+      cfg.adaptive_similarity_terms
+    )
     if (
       cfg.adaptive_sampling_strategy == "similarity_ema"
       and similarity_weight_sum <= 0.0
     ):
-      raise ValueError("similarity_ema requires at least one adaptive_similarity_terms entry with weight > 0.")
+      raise ValueError(
+        "similarity_ema requires at least one adaptive_similarity_terms entry with weight > 0."
+      )
     self._similarity_term_weight_sum = max(similarity_weight_sum, 1.0e-6)
 
     self._ghost_model: mujoco.MjModel | None = None
@@ -265,9 +226,141 @@ class MotionCommand(CommandTerm):
   def bin_count(self) -> int:
     return self.motion.num_trajectories * self.bins_per_trajectory
 
-  def _sampling_temperature(self) -> float:
-    omega_size = max(1, int(self.bin_valid_mask.sum().item()))
-    return self.cfg.adaptive_temperature_base / math.log(1.0 + omega_size)
+  def _update_failure_levels(self, env_ids: torch.Tensor) -> None:
+    if self.cfg.sampling_mode != "adaptive" or env_ids.numel() == 0:
+      return
+
+    active_mask = self._episode_step_count[env_ids] > 0
+    if not torch.any(active_mask):
+      return
+    env_ids = env_ids[active_mask]
+
+    strategy = self.cfg.adaptive_sampling_strategy
+    update_failure_ema(
+      self.bin_failed_count,
+      strategy=strategy,
+      bins_per_trajectory=self.bins_per_trajectory,
+      alpha=self.cfg.adaptive_alpha,
+      traj_ids=self.trajectory_ids[env_ids],
+      start_bins=self._episode_start_bin[env_ids],
+      episode_terminated=(
+        self._env.termination_manager.terminated[env_ids]
+        if strategy == "binary_failure"
+        else None
+      ),
+      episode_similarity_sum=(
+        self._episode_similarity_sum[env_ids]
+        if strategy == "similarity_ema"
+        else None
+      ),
+      episode_step_count=(
+        self._episode_step_count[env_ids]
+        if strategy == "similarity_ema"
+        else None
+      ),
+    )
+
+  def _set_episode_assist_gain(
+    self, env_ids: torch.Tensor, traj_ids: torch.Tensor, bins: torch.Tensor
+  ) -> None:
+    if not self.cfg.assistive_wrench_enabled:
+      self.episode_assist_gain[env_ids] = 0.0
+      return
+    failure = self.bin_failed_count[traj_ids, bins]
+    similarity = 1.0 - failure
+    eta = max(self.cfg.assistive_eta, 1.0e-6)
+    self.episode_assist_gain[env_ids] = torch.clamp(
+      1.0 - similarity / eta, 0.0, self.cfg.assistive_beta_max
+    )
+
+  def _adaptive_sampling(self, env_ids: torch.Tensor):
+    self._update_failure_levels(env_ids)
+
+    traj_ids, bins, time_steps, probs_valid = sample_adaptive_bins(
+      self.bin_failed_count,
+      self._valid_bin_indices,
+      segment_length=self.motion.segment_length,
+      segment_start_idx=self.motion.segment_start_idx,
+      bin_width_frames=self.bin_width_frames,
+      temperature_base=self.cfg.adaptive_temperature_base,
+      uniform_ratio=self.cfg.adaptive_uniform_ratio,
+      num_samples=len(env_ids),
+      device=self.device,
+    )
+    self.trajectory_ids[env_ids] = traj_ids
+    self.time_steps[env_ids] = time_steps
+    self._episode_start_bin[env_ids] = bins
+    self._set_episode_assist_gain(env_ids, traj_ids, bins)
+
+    num_valid = max(1, probs_valid.shape[0])
+    H = -(probs_valid * (probs_valid + 1e-12).log()).sum()
+    self.metrics["sampling_entropy"][:] = (
+      float(H / math.log(num_valid)) if num_valid > 1 else 1.0
+    )
+    pmax, imax = probs_valid.max(dim=0)
+    self.metrics["sampling_top1_prob"][:] = float(pmax)
+    self.metrics["sampling_top1_bin"][:] = float(imax) / float(num_valid)
+
+  def _uniform_sampling(self, env_ids: torch.Tensor):
+    traj_ids = torch.randint(
+      0, self.motion.num_trajectories, (len(env_ids),), device=self.device
+    )
+    seg_lengths = self.motion.segment_length[traj_ids]
+    local_frames = (
+      sample_uniform(0.0, 1.0, (len(env_ids),), device=self.device)
+      * (seg_lengths.float() - 1.0)
+    ).long()
+    self.trajectory_ids[env_ids] = traj_ids
+    self.time_steps[env_ids] = self.motion.segment_start_idx[traj_ids] + local_frames
+    start_bins = self._bin_index_for_frame(traj_ids, self.time_steps[env_ids])
+    self._episode_start_bin[env_ids] = start_bins
+    self._set_episode_assist_gain(env_ids, traj_ids, start_bins)
+
+    num_valid = max(1, int(self.bin_valid_mask.sum().item()))
+    self.metrics["sampling_entropy"][:] = 1.0
+    self.metrics["sampling_top1_prob"][:] = 1.0 / num_valid
+    self.metrics["sampling_top1_bin"][:] = 0.5
+
+  def _tracking_similarity_state(self) -> TrackingSimilarityState:
+    return TrackingSimilarityState(
+      tracked_joint_pos_error=self._tracked_joint_pos_error(),
+      anchor_pos_error=self.anchor_pos_w - self.robot_anchor_pos_w,
+      anchor_ori_error=quat_error_magnitude(
+        self.anchor_quat_w, self.robot_anchor_quat_w
+      ),
+      body_pos_error=torch.sum(
+        torch.square(self.body_pos_relative_w - self.robot_body_pos_w), dim=-1
+      ),
+      body_ori_error=(
+        quat_error_magnitude(self.body_quat_relative_w, self.robot_body_quat_w) ** 2
+      ),
+      body_lin_vel_error=torch.sum(
+        torch.square(self.body_lin_vel_w - self.robot_body_lin_vel_w), dim=-1
+      ),
+      body_ang_vel_error=torch.sum(
+        torch.square(self.body_ang_vel_w - self.robot_body_ang_vel_w), dim=-1
+      ),
+    )
+
+  def _step_tracking_similarity(self) -> torch.Tensor:
+    return step_tracking_similarity(
+      self._similarity_terms,
+      self._similarity_term_weight_sum,
+      self._tracking_similarity_state(),
+      num_envs=self.num_envs,
+      device=self.device,
+    )
+
+  def _bin_index_for_frame(
+    self, trajectory_ids: torch.Tensor, time_steps: torch.Tensor
+  ):
+    return bin_index_for_frame(
+      segment_start_idx=self.motion.segment_start_idx,
+      time_steps=time_steps,
+      trajectory_ids=trajectory_ids,
+      bin_width_frames=self.bin_width_frames,
+      bins_per_trajectory=self.bins_per_trajectory,
+    )
 
   # --- WBC reference features (Table S3); stacked in ``command`` for the actor. ---
 
@@ -475,198 +568,6 @@ class MotionCommand(CommandTerm):
       self._tracked_joint_vel_error(), dim=-1
     )
     self.metrics["assist_gain_mean"] = self.episode_assist_gain
-
-  def _similarity_term_kernel(
-    self, term: AdaptiveSimilarityTerm, std: float
-  ) -> torch.Tensor:
-    """Exp tracking kernel for one configured similarity term."""
-    std = max(std, 1.0e-6)
-    if term == "joint_pos":
-      error = torch.sum(torch.square(self._tracked_joint_pos_error()), dim=-1)
-      return torch.exp(-error / std**2)
-
-    if term == "anchor_pos":
-      error = torch.sum(
-        torch.square(self.anchor_pos_w - self.robot_anchor_pos_w), dim=-1
-      )
-      return torch.exp(-error / std**2)
-
-    if term == "anchor_ori":
-      error = quat_error_magnitude(self.anchor_quat_w, self.robot_anchor_quat_w) ** 2
-      return torch.exp(-error / std**2)
-
-    if term == "body_pos":
-      error = torch.sum(
-        torch.square(self.body_pos_relative_w - self.robot_body_pos_w), dim=-1
-      )
-      return torch.exp(-error.mean(-1) / std**2)
-
-    if term == "body_ori":
-      error = quat_error_magnitude(
-        self.body_quat_relative_w, self.robot_body_quat_w
-      ) ** 2
-      return torch.exp(-error.mean(-1) / std**2)
-
-    if term == "body_lin_vel":
-      error = torch.sum(
-        torch.square(self.body_lin_vel_w - self.robot_body_lin_vel_w), dim=-1
-      )
-      return torch.exp(-error.mean(-1) / std**2)
-
-    assert term == "body_ang_vel"
-    error = torch.sum(
-      torch.square(self.body_ang_vel_w - self.robot_body_ang_vel_w), dim=-1
-    )
-    return torch.exp(-error.mean(-1) / std**2)
-
-  def _step_tracking_similarity(self) -> torch.Tensor:
-    """Per-step similarity ``s_k``: weighted mean of configured tracking kernels."""
-    if not self._similarity_terms:
-      return torch.ones(self.num_envs, device=self.device)
-
-    similarity = torch.zeros(self.num_envs, device=self.device)
-    for term, weight, std in self._similarity_terms:
-      similarity += weight * self._similarity_term_kernel(term, std)
-    return similarity / self._similarity_term_weight_sum
-
-  def _bin_index_for_frame(self, trajectory_ids: torch.Tensor, time_steps: torch.Tensor):
-    seg_start = self.motion.segment_start_idx[trajectory_ids]
-    local_frames = torch.clamp(time_steps - seg_start, min=0)
-    return torch.clamp(
-      local_frames // self.bin_width_frames,
-      max=self.bins_per_trajectory - 1,
-    )
-
-  def _update_failure_levels(self, env_ids: torch.Tensor) -> None:
-    """Zest S5: EMA failure update on episode completion, keyed by start (traj, bin)."""
-    if self.cfg.sampling_mode != "adaptive" or env_ids.numel() == 0:
-      return
-
-    active_mask = self._episode_step_count[env_ids] > 0
-    if not torch.any(active_mask):
-      return
-    env_ids = env_ids[active_mask]
-
-    traj_ids = self.trajectory_ids[env_ids]
-    start_bins = self._episode_start_bin[env_ids]
-
-    if self.cfg.adaptive_sampling_strategy == "binary_failure":
-      episode_failed = self._env.termination_manager.terminated[env_ids]
-      if not torch.any(episode_failed):
-        return
-      traj_ids = traj_ids[episode_failed]
-      start_bins = start_bins[episode_failed]
-      episode_failure = torch.ones(
-        traj_ids.shape[0], device=self.device, dtype=torch.float32
-      )
-    else:
-      episode_length = torch.clamp(
-        self._episode_step_count[env_ids].float(), min=1.0
-      )
-      episode_similarity = self._episode_similarity_sum[env_ids] / episode_length
-      episode_failure = 1.0 - torch.clamp(episode_similarity, 0.0, 1.0)
-
-    flat_idx = traj_ids * self.bins_per_trajectory + start_bins
-    failure_sum = torch.zeros(self.bin_count, device=self.device)
-    failure_count = torch.zeros(self.bin_count, device=self.device)
-    failure_sum.scatter_add_(0, flat_idx, episode_failure)
-    failure_count.scatter_add_(0, flat_idx, torch.ones_like(episode_failure))
-
-    update_mask = failure_count > 0
-    if not torch.any(update_mask):
-      return
-
-    mean_failure = failure_sum[update_mask] / failure_count[update_mask]
-    flat_failed = self.bin_failed_count.view(-1)
-    alpha = self.cfg.adaptive_alpha
-    flat_failed[update_mask] = (
-      (1.0 - alpha) * flat_failed[update_mask] + alpha * mean_failure
-    )
-
-  def _sampling_probabilities(self) -> torch.Tensor:
-    """Zest S5: floor-smoothed softmax over valid trajectory bins."""
-    valid = self._valid_bin_indices
-    logits = (
-      self.bin_failed_count[valid[:, 0], valid[:, 1]] / self._sampling_temperature()
-    )
-    probs_valid = torch.softmax(logits, dim=0)
-    num_valid = max(1, valid.shape[0])
-    probs_valid = (
-      1.0 - self.cfg.adaptive_uniform_ratio
-    ) * probs_valid + self.cfg.adaptive_uniform_ratio / float(num_valid)
-    return probs_valid
-
-  def _set_episode_assist_gain(
-    self, env_ids: torch.Tensor, traj_ids: torch.Tensor, bins: torch.Tensor
-  ) -> None:
-    if not self.cfg.assistive_wrench_enabled:
-      self.episode_assist_gain[env_ids] = 0.0
-      return
-    failure = self.bin_failed_count[traj_ids, bins]
-    similarity = 1.0 - failure
-    eta = max(self.cfg.assistive_eta, 1.0e-6)
-    self.episode_assist_gain[env_ids] = torch.clamp(
-      1.0 - similarity / eta, 0.0, self.cfg.assistive_beta_max
-    )
-
-  def _adaptive_sampling(self, env_ids: torch.Tensor):
-    self._update_failure_levels(env_ids)
-
-    valid = self._valid_bin_indices
-    probs_valid = self._sampling_probabilities()
-    sampled_valid = torch.multinomial(
-      probs_valid, len(env_ids), replacement=True
-    )
-    traj_ids = valid[sampled_valid, 0]
-    bins = valid[sampled_valid, 1]
-
-    seg_lengths = self.motion.segment_length[traj_ids].float()
-    bin_starts = bins.float() * float(self.bin_width_frames)
-    bin_spans = torch.minimum(
-      torch.full_like(seg_lengths, float(self.bin_width_frames)),
-      torch.clamp(seg_lengths - bin_starts, min=1.0),
-    )
-    local_frames = (
-      bin_starts
-      + sample_uniform(0.0, 1.0, (len(env_ids),), device=self.device) * bin_spans
-    ).long()
-    local_frames = torch.clamp(local_frames, max=(seg_lengths.long() - 1).clamp(min=0))
-
-    self.trajectory_ids[env_ids] = traj_ids
-    self.time_steps[env_ids] = self.motion.segment_start_idx[traj_ids] + local_frames
-    self._episode_start_bin[env_ids] = bins
-    self._set_episode_assist_gain(env_ids, traj_ids, bins)
-
-    num_valid = max(1, valid.shape[0])
-    H = -(probs_valid * (probs_valid + 1e-12).log()).sum()
-    H_norm = H / math.log(num_valid) if num_valid > 1 else 1.0
-    pmax, imax = probs_valid.max(dim=0)
-    self.metrics["sampling_entropy"][:] = H_norm
-    self.metrics["sampling_top1_prob"][:] = pmax
-    self.metrics["sampling_top1_bin"][:] = imax.float() / float(num_valid)
-
-  def _uniform_sampling(self, env_ids: torch.Tensor):
-    traj_ids = torch.randint(
-      0, self.motion.num_trajectories, (len(env_ids),), device=self.device
-    )
-    seg_lengths = self.motion.segment_length[traj_ids]
-    local_frames = (
-      sample_uniform(0.0, 1.0, (len(env_ids),), device=self.device)
-      * (seg_lengths.float() - 1.0)
-    ).long()
-    self.trajectory_ids[env_ids] = traj_ids
-    self.time_steps[env_ids] = self.motion.segment_start_idx[traj_ids] + local_frames
-    self._episode_start_bin[env_ids] = self._bin_index_for_frame(
-      traj_ids, self.time_steps[env_ids]
-    )
-    self._set_episode_assist_gain(
-      env_ids, traj_ids, self._episode_start_bin[env_ids]
-    )
-
-    num_valid = max(1, int(self.bin_valid_mask.sum().item()))
-    self.metrics["sampling_entropy"][:] = 1.0
-    self.metrics["sampling_top1_prob"][:] = 1.0 / num_valid
-    self.metrics["sampling_top1_bin"][:] = 0.5
 
   def _write_reference_state_to_sim(
     self,
@@ -952,7 +853,7 @@ class MotionCommandCfg(MjlabMotionCommandCfg):
   body_names: tuple[str, ...]
   entity_name: str
   actuated_joint_names: tuple[str, ...] = ()
-  """If set, joint tracking metrics/RSI use only these DoFs (e.g. Servant actuators)."""
+  """If set, joint tracking metrics/RSI use only these DoFs (subset of the robot)."""
   pose_range: dict[str, tuple[float, float]] = field(default_factory=dict)
   velocity_range: dict[str, tuple[float, float]] = field(default_factory=dict)
   joint_position_range: tuple[float, float] = (-0.52, 0.52)

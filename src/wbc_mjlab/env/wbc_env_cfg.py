@@ -251,7 +251,7 @@ def make_base_wbc_env_cfg(
     ),
   }
 
-  # Tracking rewards (std/weights aligned with servant/tracking_env_cfg).
+  # Tracking rewards (std/weights aligned with mjlab ``tracking_env_cfg``).
   rewards: dict[str, RewardTermCfg] = {
     "motion_global_root_pos": RewardTermCfg(
       func=mdp.motion_global_anchor_position_error_exp,
