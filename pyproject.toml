@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wbc-mjlab"
+version = "0.1.0"
+description = "Whole-body control motion tracking for mjlab (multi-robot)"
+readme = { file = "README.md", content-type = "text/markdown" }
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10,<3.14"
+dependencies = [
+  "mjlab>=1.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["wbc_mjlab*"]
+
+[tool.ruff]
+indent-width = 2
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[project.scripts]
+wbc-mjlab-list-envs = "wbc_mjlab.scripts.list_envs:main"
+wbc-mjlab-train = "wbc_mjlab.scripts.train:main"
+wbc-mjlab-play = "wbc_mjlab.scripts.play:main"
+wbc-mjlab-csv-to-npz = "wbc_mjlab.motion.csv_to_npz:cli"
+wbc-mjlab-pkl-to-npz = "wbc_mjlab.motion.pkl_to_npz:cli"
+wbc-mjlab-export-tracking-params = "wbc_mjlab.export.export_cli:main"
+
+[project.entry-points."mjlab.tasks"]
+wbc_mjlab = "wbc_mjlab.mjlab_entry"
