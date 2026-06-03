@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-
-from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.rl import RslRlOnPolicyRunnerCfg
+from typing import TYPE_CHECKING, Any
 
 from wbc_mjlab.robots.ids import RobotId, resolve_robot_id
 
-EnvCfgBuilder = Callable[..., ManagerBasedRlEnvCfg]
-RlCfgBuilder = Callable[[], RslRlOnPolicyRunnerCfg]
+if TYPE_CHECKING:
+  from mjlab.envs import ManagerBasedRlEnvCfg
+  from mjlab.rl import RslRlOnPolicyRunnerCfg
+
+EnvCfgBuilder = Callable[..., Any]
+RlCfgBuilder = Callable[[], Any]
 
 _ENV_BUILDERS: dict[RobotId, EnvCfgBuilder] = {}
 _RL_BUILDERS: dict[RobotId, RlCfgBuilder] = {}

@@ -6,6 +6,7 @@ from wbc_mjlab.tasks import (
   LEGACY_TASK_TO_ID,
   list_wbc_task_ids,
   resolve_task_id,
+  robot_id_for_run,
 )
 
 DEFAULT_ROBOT = "g1"
@@ -14,26 +15,33 @@ _KNOWN_TASK_IDS = frozenset(list_wbc_task_ids()) | frozenset(LEGACY_TASK_TO_ID)
 
 def parse_wbc_argv(
   argv: list[str],
-) -> tuple[list[str], str, str, bool, bool, str | None, str | None]:
-  """Strip WBC flags; return (rest, robot, task_id, no_se, legacy, dataset, dataset_path)."""
+) -> tuple[list[str], str, str, bool, bool, str | None, str | None, bool]:
+  """Strip WBC flags; return (rest, robot, task_id, no_se, legacy, dataset, dataset_path, cache_motion_bundle).
+
+  ``robot`` is taken from the task preset unless ``--robot`` was passed explicitly.
+  """
   rest: list[str] = []
   robot = DEFAULT_ROBOT
+  robot_explicit = False
   task: str | None = None
   no_se = False
   used_legacy = False
   dataset: str | None = None
   dataset_path: str | None = None
+  cache_motion_bundle = False
   i = 0
   while i < len(argv):
     arg = argv[i]
     if arg.startswith("--robot="):
       robot = arg.split("=", 1)[1]
+      robot_explicit = True
       i += 1
       continue
     if arg == "--robot":
       if i + 1 >= len(argv):
         raise ValueError("--robot requires a value (e.g. g1)")
       robot = argv[i + 1]
+      robot_explicit = True
       i += 2
       continue
     if arg.startswith("--task="):
@@ -70,6 +78,10 @@ def parse_wbc_argv(
       no_se = True
       i += 1
       continue
+    if arg == "--cache-motion-bundle":
+      cache_motion_bundle = True
+      i += 1
+      continue
     if arg in _KNOWN_TASK_IDS:
       used_legacy = True
       if task is None:
@@ -81,8 +93,17 @@ def parse_wbc_argv(
     rest.append(arg)
     i += 1
 
-  task_id = resolve_task_id(robot, task=task, no_state_estimation=no_se)
-  return rest, robot, task_id, no_se, used_legacy, dataset, dataset_path
+  task_id = resolve_task_id(
+    robot if robot_explicit else None,
+    task=task,
+    no_state_estimation=no_se,
+  )
+  robot = robot_id_for_run(
+    task_id=task_id,
+    robot_id=robot,
+    robot_explicit=robot_explicit,
+  )
+  return rest, robot, task_id, no_se, used_legacy, dataset, dataset_path, cache_motion_bundle
 
 
 def _has_explicit_motion_file(argv: list[str]) -> bool:
@@ -101,6 +122,7 @@ def apply_dataset_motion_file(
   robot: str,
   dataset: str | None = None,
   dataset_path: str | None = None,
+  cache_motion_bundle: bool = False,
 ) -> list[str]:
   """Map ``--dataset`` / ``--dataset-path`` to ``--motion-file`` when not set explicitly."""
   if dataset is None and dataset_path is None:
@@ -111,7 +133,10 @@ def apply_dataset_motion_file(
   from wbc_mjlab.data_paths import resolve_training_motion_file
 
   path = resolve_training_motion_file(
-    robot, dataset=dataset, dataset_path=dataset_path
+    robot,
+    dataset=dataset,
+    dataset_path=dataset_path,
+    cache_motion_bundle=cache_motion_bundle,
   )
   return [*argv, "--motion-file", str(path)]
 

@@ -31,7 +31,11 @@ from tqdm import tqdm
 from wbc_mjlab.motion.tyro_cli import cli as tyro_cli
 from wbc_mjlab.motion.csv_to_npz import MotionLoader
 from wbc_mjlab.motion.motion_z_debias import debias_motion_log_vertical
-from wbc_mjlab.motion.motion_export_bundle import MotionClipExport, export_motion_training_bundle
+from wbc_mjlab.motion.motion_export_bundle import (
+  MotionClipExport,
+  export_motion_clip_npz,
+  npz_output_dir,
+)
 from wbc_mjlab.motion.robot_assets import (
   conversion_scene_cfg,
   get_robot_motion_spec,
@@ -298,6 +302,7 @@ def main(
 
   input_paths = _resolve_input_pkl_paths(input_path)
   clips: list[MotionClipExport] = []
+  npz_output_dir(output_dir).mkdir(parents=True, exist_ok=True)
 
   sim_cfg = SimulationCfg()
   sim_cfg.mujoco.timestep = 1.0 / output_fps
@@ -368,22 +373,25 @@ def main(
         f"foot_sole_z={foot_sole_z:.6f} m"
       )
 
-    clips.append(
-      MotionClipExport(
-        log=log,
-        source_path=pkl_path,
-        joint_names=model_joint_names,
-      )
+    clip = MotionClipExport(
+      log=log,
+      source_path=pkl_path,
+      joint_names=model_joint_names,
     )
+    export_motion_clip_npz(
+      output_dir=output_dir,
+      clip=clip,
+      robot_id=robot_id,
+      robot_body_names=robot_body_names,
+    )
+    clips.append(clip)
 
-  export_motion_training_bundle(
-    output_dir=output_dir,
-    clips=clips,
-    robot_id=robot_id,
-    robot_body_names=list(scene["robot"].body_names),
-    output_fps=output_fps,
-  )
+  print(f"[INFO] Finished {len(clips)} clip(s) in {npz_output_dir(output_dir)}")
+
+
+def cli() -> None:
+  tyro_cli(main, bool_shorthand=("debias_z",))
 
 
 if __name__ == "__main__":
-  tyro_cli(main, bool_shorthand=("debias_z",))
+  cli()

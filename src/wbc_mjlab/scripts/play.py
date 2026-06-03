@@ -43,6 +43,7 @@ from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 from mjlab.viewer.viser.viewer import CheckpointManager, format_time_ago
 
 from wbc_mjlab.deploy_paths import PLAY_ONNX_LATEST_NAME, PLAY_PARAMS_SUBDIR
+from wbc_mjlab.env.mdp.commands import MotionCommand, MotionCommandCfg
 
 
 def _parse_wandb_dt(value: str | datetime) -> datetime:
@@ -233,8 +234,7 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
       )
     log_dir = resume_path.parent
 
-  if cfg.num_envs is not None:
-    env_cfg.scene.num_envs = cfg.num_envs
+  env_cfg.scene.num_envs = cfg.num_envs if cfg.num_envs is not None else 1
   if cfg.video_height is not None:
     env_cfg.viewer.height = cfg.video_height
   if cfg.video_width is not None:
@@ -383,14 +383,18 @@ def main() -> None:
   )
 
   prog = sys.argv[0]
-  rest, robot, task_id, no_se, legacy, dataset, dataset_path = parse_wbc_argv(
-    sys.argv[1:]
+  rest, robot, task_id, no_se, legacy, dataset, dataset_path, cache_motion_bundle = (
+    parse_wbc_argv(sys.argv[1:])
   )
   if legacy:
     print("[WARN] Legacy task id mapped to --task / --no-state-estimation")
-  prepare_wbc_run(robot, task_id=task_id)
+  prepare_wbc_run(task_id=task_id)
   rest = apply_dataset_motion_file(
-    rest, robot=robot, dataset=dataset, dataset_path=dataset_path
+    rest,
+    robot=robot,
+    dataset=dataset,
+    dataset_path=dataset_path,
+    cache_motion_bundle=cache_motion_bundle,
   )
   sys.argv = [prog, *ensure_task_id(rest, task_id)]
 

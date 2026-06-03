@@ -16,6 +16,30 @@ class MotionClipExport:
   joint_names: list[str]
 
 
+def npz_output_dir(output_dir: str | Path) -> Path:
+  return Path(output_dir).expanduser().resolve() / "npz"
+
+
+def export_motion_clip_npz(
+  *,
+  output_dir: str | Path,
+  clip: MotionClipExport,
+  robot_id: str,
+  robot_body_names: list[str],
+) -> Path:
+  """Write one clip to ``<output_dir>/npz/<stem>.npz``."""
+  per_npz = npz_output_dir(output_dir) / f"{clip.source_path.stem}.npz"
+  save_motion_npz(
+    output_path=per_npz,
+    log=clip.log,
+    robot_id=robot_id,
+    joint_names=clip.joint_names,
+    robot_body_names=robot_body_names,
+  )
+  print(f"[INFO] Exported clip: {per_npz}")
+  return per_npz
+
+
 def save_motion_npz(
   *,
   output_path: Path,
@@ -47,6 +71,33 @@ def save_motion_npz(
   np.savez(output_path, **payload)
 
 
+def export_merged_training_bundle(
+  *,
+  output_dir: str | Path,
+  clips: list[MotionClipExport],
+  robot_id: str,
+  robot_body_names: list[str],
+  output_fps: float,
+) -> Path:
+  """Stack clips into ``<output_dir>/<dirname>.npz`` (per-clip files must exist already)."""
+  from wbc_mjlab.motion.stack_bundle import (
+    dataset_bundle_path,
+    write_merged_training_bundle,
+  )
+
+  root = Path(output_dir).expanduser().resolve()
+  root.mkdir(parents=True, exist_ok=True)
+  merged_npz = write_merged_training_bundle(
+    output_path=dataset_bundle_path(root),
+    clips=clips,
+    robot_id=robot_id,
+    output_fps=output_fps,
+  )
+  _ = robot_body_names
+  print(f"[INFO] Exported training bundle: {merged_npz} ({len(clips)} clips)")
+  return merged_npz
+
+
 def export_motion_training_bundle(
   *,
   output_dir: str | Path,
@@ -55,68 +106,19 @@ def export_motion_training_bundle(
   robot_body_names: list[str],
   output_fps: float,
 ) -> Path:
-  """Export ``<output_dir>/<name>.npz`` plus per-clip ``npz/*.npz``."""
-  if not clips:
-    raise ValueError("No motion clips to export")
-
-  root = Path(output_dir).expanduser().resolve()
-  root.mkdir(parents=True, exist_ok=True)
-  npz_dir = root / "npz"
-  npz_dir.mkdir(exist_ok=True)
-
-  merged_stacked: dict[str, list[Any]] = {
-    "joint_pos": [],
-    "joint_vel": [],
-    "body_pos_w": [],
-    "body_quat_w": [],
-    "body_lin_vel_w": [],
-    "body_ang_vel_w": [],
-  }
-  segment_start_idx: list[int] = []
-  segment_length: list[int] = []
-  segment_source: list[str] = []
-  running_start = 0
-
+  """Export per-clip ``npz/*.npz`` and stacked ``<name>.npz``."""
+  npz_output_dir(output_dir).mkdir(parents=True, exist_ok=True)
   for clip in clips:
-    stem = clip.source_path.stem
-    per_npz = npz_dir / f"{stem}.npz"
-    save_motion_npz(
-      output_path=per_npz,
-      log=clip.log,
+    export_motion_clip_npz(
+      output_dir=output_dir,
+      clip=clip,
       robot_id=robot_id,
-      joint_names=clip.joint_names,
       robot_body_names=robot_body_names,
     )
-    print(f"[INFO] Exported clip: {per_npz}")
-
-    length = int(clip.log["joint_pos"].shape[0])
-    for key in merged_stacked:
-      merged_stacked[key].append(clip.log[key])
-    segment_start_idx.append(running_start)
-    segment_length.append(length)
-    segment_source.append(str(clip.source_path.resolve()))
-    running_start += length
-
-  bundle_name = root.name
-  merged_npz = root / f"{bundle_name}.npz"
-  merged_joint_names = clips[0].joint_names
-  save_motion_npz(
-    output_path=merged_npz,
-    log={
-      "fps": [output_fps],
-      "joint_pos": np.concatenate(merged_stacked["joint_pos"], axis=0),
-      "joint_vel": np.concatenate(merged_stacked["joint_vel"], axis=0),
-      "body_pos_w": np.concatenate(merged_stacked["body_pos_w"], axis=0),
-      "body_quat_w": np.concatenate(merged_stacked["body_quat_w"], axis=0),
-      "body_lin_vel_w": np.concatenate(merged_stacked["body_lin_vel_w"], axis=0),
-      "body_ang_vel_w": np.concatenate(merged_stacked["body_ang_vel_w"], axis=0),
-    },
+  return export_merged_training_bundle(
+    output_dir=output_dir,
+    clips=clips,
     robot_id=robot_id,
-    joint_names=merged_joint_names,
     robot_body_names=robot_body_names,
-    segment_start_idx=np.asarray(segment_start_idx, dtype=np.int64),
-    segment_length=np.asarray(segment_length, dtype=np.int64),
-    segment_source=np.asarray(segment_source, dtype=object),
+    output_fps=output_fps,
   )
-  print(f"[INFO] Exported training bundle: {merged_npz} ({len(clips)} clips)")
-  return merged_npz

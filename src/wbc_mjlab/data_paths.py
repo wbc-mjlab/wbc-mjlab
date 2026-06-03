@@ -7,8 +7,8 @@ Typical layout::
 
   data/g1/lafan/
     *.csv              # retargeted clips (or under ``raw/``)
-    lafan.npz          # stacked training bundle (``wbc-mjlab-csv-to-npz``)
-    npz/<clip>.npz     # per-clip exports
+    npz/<clip>.npz     # per-clip exports (source of truth)
+    lafan.npz          # optional cached stack (``--cache-motion-bundle`` on train)
 """
 
 from __future__ import annotations
@@ -57,12 +57,24 @@ def dataset_raw_dir(robot_id: str | RobotId, dataset: str) -> Path:
   return dataset_dir(robot_id, dataset) / "raw"
 
 
+def resolve_dataset_root(robot_id: str | RobotId, dataset: str) -> Path:
+  """Dataset directory: ``data/<robot>/<name>``, with fallback to ``data/<name>``."""
+  canonical = dataset_dir(robot_id, dataset)
+  if canonical.is_dir():
+    return canonical
+  flat = data_root() / dataset.strip()
+  if flat.is_dir():
+    return flat
+  return canonical
+
+
 def resolve_dataset_input_dir(robot_id: str | RobotId, dataset: str) -> Path:
   """Directory to read CSV/PKL clips from (``raw/`` if present, else dataset root)."""
-  raw = dataset_raw_dir(robot_id, dataset)
+  root = resolve_dataset_root(robot_id, dataset)
+  raw = root / "raw"
   if raw.is_dir() and (any(raw.glob("*.csv")) or any(raw.glob("*.pkl"))):
     return raw
-  return dataset_dir(robot_id, dataset)
+  return root
 
 
 def list_datasets(robot_id: str | RobotId = "g1") -> list[str]:
@@ -76,18 +88,27 @@ def list_datasets(robot_id: str | RobotId = "g1") -> list[str]:
   )
 
 
-def resolve_dataset_motion_file(robot_id: str | RobotId, dataset: str) -> Path:
-  path = dataset_bundle_npz(robot_id, dataset)
-  if not path.is_file():
-    raise FileNotFoundError(
-      f"No training bundle at {path}. "
-      f"Convert clips first, e.g. wbc-mjlab-csv-to-npz --robot {resolve_robot_id(robot_id)} "
-      f"--dataset {dataset.strip()}"
-    )
-  return path
+def resolve_dataset_motion_file(
+  robot_id: str | RobotId,
+  dataset: str,
+  *,
+  cache_motion_bundle: bool = False,
+) -> Path:
+  from wbc_mjlab.motion.stack_bundle import ensure_training_motion_bundle
+
+  root = resolve_dataset_root(robot_id, dataset)
+  rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
+  return ensure_training_motion_bundle(
+    root, robot_id=rid, cache_motion_bundle=cache_motion_bundle
+  )
 
 
-def resolve_motion_path(path: str | Path) -> Path:
+def resolve_motion_path(
+  path: str | Path,
+  *,
+  robot_id: str | RobotId = "g1",
+  cache_motion_bundle: bool = False,
+) -> Path:
   """Resolve a training motion NPZ from an explicit file or dataset directory."""
   p = Path(path).expanduser()
   if not p.is_absolute():
@@ -101,6 +122,18 @@ def resolve_motion_path(path: str | Path) -> Path:
     return p
 
   if p.is_dir():
+    from wbc_mjlab.motion.stack_bundle import (
+      ensure_training_motion_bundle,
+      list_clip_npz_files,
+    )
+
+    clips = list_clip_npz_files(p)
+    if clips:
+      rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
+      return ensure_training_motion_bundle(
+        p, robot_id=rid, cache_motion_bundle=cache_motion_bundle
+      )
+
     named = p / f"{p.name}.npz"
     if named.is_file():
       return named
@@ -113,7 +146,8 @@ def resolve_motion_path(path: str | Path) -> Path:
         f"Multiple .npz files in {p}; pass --motion-file explicitly. Found: {names}"
       )
     raise FileNotFoundError(
-      f"No training .npz in {p}. Expected {p.name}.npz or a single *.npz in the folder."
+      f"No training motion in {p}. Expected npz/*.npz, {p.name}.npz, "
+      f"or a single *.npz in the folder."
     )
 
   raise FileNotFoundError(f"Motion path does not exist: {p}")
@@ -124,14 +158,23 @@ def resolve_training_motion_file(
   *,
   dataset: str | None = None,
   dataset_path: str | None = None,
+  cache_motion_bundle: bool = False,
 ) -> Path:
   """Resolve bundled motion NPZ for train/play from dataset name or explicit path."""
   if dataset_path is not None and dataset is not None:
     raise ValueError("Use only one of --dataset or --dataset-path")
   if dataset_path is not None:
-    return resolve_motion_path(dataset_path)
+    return resolve_motion_path(
+      dataset_path,
+      robot_id=robot_id,
+      cache_motion_bundle=cache_motion_bundle,
+    )
   if dataset is not None:
-    return resolve_dataset_motion_file(robot_id, dataset)
+    return resolve_dataset_motion_file(
+      robot_id,
+      dataset,
+      cache_motion_bundle=cache_motion_bundle,
+    )
   raise ValueError("No motion source provided")
 
 
@@ -168,7 +211,8 @@ def resolve_conversion_paths(
     return inp, out
 
   if dataset is not None:
-    out = str(output_dir or dataset_dir(rid, dataset))
+    root = resolve_dataset_root(rid, dataset)
+    out = str(output_dir or root)
     inp = str(input_path or resolve_dataset_input_dir(rid, dataset))
     return inp, out
 

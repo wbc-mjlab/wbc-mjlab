@@ -2,9 +2,9 @@
 
 Usage::
 
-  wbc-mjlab-train --robot g1 --dataset lafan
-  wbc-mjlab-train --task Wbc-G1-Zest --robot g1 --dataset lafan
-  wbc-mjlab-train --robot g1 --no-state-estimation --dataset lafan
+  wbc-mjlab-train --task Wbc-G1 --dataset lafan
+  wbc-mjlab-train --task Wbc-G1-Zest --dataset lafan
+  wbc-mjlab-train --task Wbc-G1 --dataset lafan --cache-motion-bundle
 """
 
 from __future__ import annotations
@@ -98,16 +98,20 @@ _mjlab_os.dump_yaml = _safe_dump_yaml
 
 def main() -> None:
   prog = sys.argv[0]
-  rest, robot, task_id, no_se, legacy, dataset, dataset_path = parse_wbc_argv(
-    sys.argv[1:]
+  rest, robot, task_id, no_se, legacy, dataset, dataset_path, cache_motion_bundle = (
+    parse_wbc_argv(sys.argv[1:])
   )
   if legacy:
     log.warning("Legacy task id mapped to --task / --no-state-estimation")
-  prepare_wbc_run(robot, task_id=task_id)
+  prepare_wbc_run(task_id=task_id)
 
   rest, use_wandb = _filter_argv_for_wandb_flag(rest)
   rest = apply_dataset_motion_file(
-    rest, robot=robot, dataset=dataset, dataset_path=dataset_path
+    rest,
+    robot=robot,
+    dataset=dataset,
+    dataset_path=dataset_path,
+    cache_motion_bundle=cache_motion_bundle,
   )
   rest = _apply_motion_file_shortcut(rest)
   rest = _apply_default_logger(rest, use_wandb=use_wandb)

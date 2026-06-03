@@ -8,13 +8,21 @@ from pathlib import Path
 
 from wbc_mjlab.export.tracking_params_yaml import write_wbc_tracking_params_yaml
 from wbc_mjlab.robots.env import make_wbc_env_cfg
-from wbc_mjlab.robots.ids import resolve_robot_id
-from wbc_mjlab.tasks import get_task_preset, register_all_wbc_tasks, resolve_task_id
+from wbc_mjlab.tasks import (
+  get_task_preset,
+  register_all_wbc_tasks,
+  resolve_task_id,
+  robot_id_for_run,
+)
 
 
 def main() -> None:
   parser = argparse.ArgumentParser(description=__doc__)
-  parser.add_argument("--robot", default="g1")
+  parser.add_argument(
+    "--robot",
+    default=None,
+    help="optional; inferred from --task when omitted",
+  )
   parser.add_argument("--out", type=Path, required=True)
   parser.add_argument("--no-state-estimation", action="store_true")
   parser.add_argument(
@@ -30,11 +38,15 @@ def main() -> None:
   args = parser.parse_args()
   register_all_wbc_tasks()
 
-  rid = resolve_robot_id(args.robot)
   task_id = resolve_task_id(
-    rid,
+    args.robot,
     task=args.task,
     no_state_estimation=args.no_state_estimation,
+  )
+  rid = robot_id_for_run(
+    task_id=task_id,
+    robot_id=args.robot,
+    robot_explicit=args.robot is not None,
   )
   preset = get_task_preset(task_id)
   env_kw = preset.env_kwargs()
