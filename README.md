@@ -126,7 +126,7 @@ wbc-mjlab-csv-to-npz --robot g1 --dataset lafan
 
 ## WBC tracking params YAML
 
-Checkpoint saves write `params/wbc_tracking/wbc_tracking_params.yaml`.
+Checkpoint saves write `params/wbc_tracking_params.yaml` alongside `params/latest.onnx`.
 
 ```bash
 wbc-mjlab-export-tracking-params --task Wbc-G1-NoSE --out /path/to/wbc_tracking_params.yaml

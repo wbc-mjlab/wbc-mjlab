@@ -1,9 +1,11 @@
-"""Layout for ONNX export from ``wbc_mjlab.scripts.play``.
+"""Layout for policy export under ``<run_dir>/params/``.
 
-For whichever task you pass on the CLI, policy ONNX is written to
-``<run_dir>/params/latest.onnx`` right after the checkpoint is loaded, before the
-play viewer opens.
+Training checkpoints and ``wbc-mjlab-play`` write:
+
+- ``latest.onnx`` — policy-only graph
+- ``wbc_tracking_params.yaml`` — deploy interface (joint PD, obs layout, tracking metadata)
 """
 
 PLAY_PARAMS_SUBDIR = "params"
 PLAY_ONNX_LATEST_NAME = "latest.onnx"
+PLAY_TRACKING_PARAMS_NAME = "wbc_tracking_params.yaml"

@@ -14,7 +14,8 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 
 ### Foundation
 
-- [ ] Move G1-specific params from `env/wbc_env_cfg.py` → `robots/g1/configs/base.py`
+- [x] Move G1-specific params from `env/wbc_env_cfg.py` → `robots/g1/configs/base.py`
+- [x] Export `wbc_tracking_params.yaml` next to `params/latest.onnx` (train + play)
 - [ ] Fix / merge `mjlab_entry` circular import if still open
 
 ### Zest parity (`Wbc-G1-Zest`)
@@ -36,6 +37,9 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 - [ ] Zest per-joint action scales and DR (Table S5)
 - [ ] BeyondMimic gaps beyond `Wbc-G1-BinaryFailure`
 - [ ] Additional robots
+
+### Handy Utilities
+- [ ] Dataset visualizer (to play npz)
 
 ### Developer experience (`area:infra`)
 

@@ -196,8 +196,8 @@ def make_base_wbc_env_cfg(
       mode="step",
       params={
         "command_name": "motion",
-        "asset_cfg": SceneEntityCfg("robot", body_names=("torso_link",)),
-        "body_name": "torso_link",
+        "asset_cfg": SceneEntityCfg("robot", body_names=()),
+        "body_name": "",
         "kvp": 1.0,
         "kvd": 10.0,
         "kwp": 200.0,
@@ -229,7 +229,7 @@ def make_base_wbc_env_cfg(
       mode="interval",
       interval_range_s=(1.0, 4.0),
       params={
-        "asset_cfg": SceneEntityCfg("robot", body_names=("torso_link",)),
+        "asset_cfg": SceneEntityCfg("robot", body_names=()),
         "force_range": (-5.0, 5.0),
         "torque_range": (-1.0, 1.0),
       },
