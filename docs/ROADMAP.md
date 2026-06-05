@@ -39,7 +39,7 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 - [ ] Additional robots
 
 ### Handy Utilities
-- [ ] Dataset visualizer (to play npz)
+- [x] Dataset visualizer (to play npz)
 
 ### Developer experience (`area:infra`)
 

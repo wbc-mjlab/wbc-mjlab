@@ -66,6 +66,7 @@ pip install -e .
 | `wbc-mjlab-csv-to-npz` | Build motion bundles from CSV |
 | `wbc-mjlab-pkl-to-npz` | Build motion bundles from PKL |
 | `wbc-mjlab-export-tracking-params` | Write `wbc_tracking_params.yaml` |
+| `wbc-mjlab-vis-data` | Play motion NPZ clips in Viser (browser) |
 
 ## Tasks (G1)
 
@@ -123,6 +124,21 @@ Conversion needs **`--robot`** (MuJoCo asset / scene), not a task id:
 ```bash
 wbc-mjlab-csv-to-npz --robot g1 --dataset lafan
 ```
+
+## Visualize motion NPZ
+
+Play clips in the browser using mjlab's ``MjlabViserScene`` (same stack as
+``viz-nan``). Uses the same ``--robot`` / ``--dataset`` / ``--motion-file`` flags
+as train/play. NPZ files with ``qpos`` play directly; WBC training NPZ
+(``joint_pos`` + ``body_*``) is also supported.
+
+```bash
+wbc-mjlab-vis-data --robot g1 --dataset lafan
+wbc-mjlab-vis-data --motion-file data/g1/lafan/npz/walk1_subject1.npz
+wbc-mjlab-vis-data --dataset-path data/g1/lafan
+```
+
+When a dataset has ``npz/*.npz`` clips, the GUI lists them in a **Motion** dropdown.
 
 ## WBC tracking params YAML
 
