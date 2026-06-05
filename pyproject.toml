@@ -31,6 +31,7 @@ wbc-mjlab-play = "wbc_mjlab.scripts.play:main"
 wbc-mjlab-csv-to-npz = "wbc_mjlab.motion.csv_to_npz:cli"
 wbc-mjlab-pkl-to-npz = "wbc_mjlab.motion.pkl_to_npz:cli"
 wbc-mjlab-export-tracking-params = "wbc_mjlab.export.export_cli:main"
+wbc-mjlab-vis-data = "wbc_mjlab.scripts.vis_data:cli"
 
 [project.entry-points."mjlab.tasks"]
 wbc_mjlab = "wbc_mjlab.mjlab_entry"
