@@ -5,9 +5,9 @@ Adds auto-checkpoint discovery: when no ``--checkpoint-file``,
 looks in ``logs/rsl_rl/<experiment_name>/`` for the latest run folder and
 picks the highest-iteration ``model_<N>.pt`` checkpoint there.
 
-For **any** registered WBC tracking task, policy ONNX is written to
-``<checkpoint_run_dir>/params/latest.onnx`` **before** the play viewer opens (see
-``wbc_mjlab.deploy_paths``; same runner/checkpoint as interactive play).
+For **any** registered WBC tracking task, policy ONNX and
+``wbc_tracking_params.yaml`` are written to ``<checkpoint_run_dir>/params/`` **before**
+the play viewer opens (see ``wbc_mjlab.deploy_paths``).
 
 ``run_play`` below mirrors ``mjlab.scripts.play.run_play`` with that hook inserted;
 keep it aligned when upgrading mjlab.
@@ -87,6 +87,21 @@ def _export_onnx_pre_viewer(
     print(f"[INFO] Pre-viewer ONNX written to {onnx_path.resolve()}")
   except Exception as e:
     print(f"[WARN] Pre-viewer ONNX export failed: {e}")
+    return
+
+  if isinstance(runner, PolicyOnlyMotionTrackingRunner):
+    try:
+      from wbc_mjlab.export.policy_bundle import export_tracking_params_yaml
+      from wbc_mjlab.tasks import last_registered_robot_id
+
+      yaml_path = export_tracking_params_yaml(
+        params_dir,
+        runner.env.unwrapped.cfg,
+        robot_id=last_registered_robot_id(),
+      )
+      print(f"[INFO] WBC tracking params written to {yaml_path.resolve()}")
+    except Exception as e:
+      print(f"[WARN] WBC tracking params export failed: {e}")
 
 
 def _find_latest_checkpoint(experiment_name: str) -> Path | None:

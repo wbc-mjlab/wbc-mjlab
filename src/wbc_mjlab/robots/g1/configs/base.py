@@ -90,6 +90,11 @@ def g1_base_cfg() -> ManagerBasedRlEnvCfg:
   )
   cfg.scene.sensors = (*cfg.scene.sensors, keybodies_ground_cfg)
 
+  cfg.events["assistive_wrench"].params["asset_cfg"].body_names = (
+    G1_ANCHOR_BODY_NAME,
+  )
+  cfg.events["assistive_wrench"].params["body_name"] = G1_ANCHOR_BODY_NAME
+  cfg.events["pull_robot"].params["asset_cfg"].body_names = (G1_ANCHOR_BODY_NAME,)
   cfg.events["foot_friction"].params[
     "asset_cfg"
   ].geom_names = r"^(left|right)_foot[1-7]_collision$"

@@ -144,22 +144,13 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
     if cfg is None:
       return
 
-    from wbc_mjlab.export.tracking_params_yaml import write_wbc_tracking_params_bundle
+    from wbc_mjlab.export.policy_bundle import export_tracking_params_yaml
     from wbc_mjlab.tasks import last_registered_robot_id
 
-    meta = self.build_policy_export_metadata("export")
-    obs_raw = meta.get("observation_names", "")
-    if isinstance(obs_raw, str):
-      obs_names = [x.strip() for x in obs_raw.split(",") if x.strip()]
-    else:
-      obs_names = list(obs_raw)
-    has_se = "motion_anchor_pos_b" in obs_names
-
-    params_dir = Path(log_dir) / "params" / "wbc_tracking"
-    write_wbc_tracking_params_bundle(
+    params_dir = Path(log_dir) / "params"
+    out = export_tracking_params_yaml(
       params_dir,
       cfg,
       robot_id=last_registered_robot_id(),
-      has_state_estimation=has_se,
     )
-    print(f"[INFO] Wrote WBC tracking params -> {params_dir}")
+    print(f"[INFO] Wrote WBC tracking params -> {out}")
