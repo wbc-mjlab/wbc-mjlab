@@ -33,11 +33,32 @@ def _joint_position_action(cfg: Any):
   raise RuntimeError("WBC tracking params: no joint position action in cfg.actions")
 
 
+def _action_mode(action) -> str:
+  name = type(action).__name__
+  if name == "ReferenceJointPositionActionCfg":
+    return "reference_residual"
+  if name == "JointPositionActionCfg":
+    return "default_relative"
+  raise RuntimeError(f"WBC tracking params: unsupported joint action {name!r}")
+
+
 def _actor_term_names(cfg: Any, *, has_state_estimation: bool) -> list[str]:
   terms = list(cfg.observations["actor"].terms.keys())
   if not has_state_estimation:
     terms = [t for t in terms if t not in ("motion_anchor_pos_b", "base_lin_vel")]
   return terms
+
+
+def _actor_history_length(cfg: Any) -> int:
+  """Effective actor observation history length for deploy (1 = no stacking)."""
+  actor = cfg.observations["actor"]
+  if actor.history_length is not None and actor.history_length > 0:
+    return int(actor.history_length)
+  max_term_history = max(
+    (term.history_length for term in actor.terms.values() if term is not None),
+    default=0,
+  )
+  return max(1, max_term_history)
 
 
 def _resolve_scales(action, joint_names: tuple[str, ...]) -> list[float]:
@@ -107,6 +128,7 @@ def build_wbc_tracking_params(
   policy_step_dt = _policy_step_seconds(cfg)
   wbc_command_dim = 10 + len(joint_names)
   actor_names = _actor_term_names(cfg, has_state_estimation=has_state_estimation)
+  actor_history_length = _actor_history_length(cfg)
 
   actor_observations: dict[str, Any] = {}
   for name in actor_names:
@@ -118,7 +140,6 @@ def build_wbc_tracking_params(
     }
 
   motion_cmd = cfg.commands["motion"]
-  action_type = type(action).__name__.replace("Cfg", "")
   stiffness, damping, default_pos = _pd_from_robot(cfg, joint_names)
 
   return {
@@ -130,7 +151,7 @@ def build_wbc_tracking_params(
     "stiffness": stiffness,
     "damping": damping,
     "action": {
-      "type": action_type,
+      "action_mode": _action_mode(action),
       "scale": action_scales,
       "command_name": "motion",
     },
@@ -139,8 +160,8 @@ def build_wbc_tracking_params(
       "anchor_body_name": motion_cmd.anchor_body_name,
       "has_state_estimation": has_state_estimation,
       "wbc_command_dim": wbc_command_dim,
-      "action_mode": "reference_residual",
       "actor_observation_names": actor_names,
+      "actor_history_length": actor_history_length,
     },
   }
 
@@ -197,6 +218,7 @@ def write_wbc_tracking_params_bundle(
       "observation_names",
       "anchor_body_name",
       "wbc_command_dim",
+      "actor_history_length",
     ],
   }
   (directory / MANIFEST_FILENAME).write_text(
