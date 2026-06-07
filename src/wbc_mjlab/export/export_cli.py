@@ -60,7 +60,8 @@ def main() -> None:
   )
   print(
     f"Wrote {args.out} (task={task_id}, robot={rid}, "
-    f"wbc_command_dim={doc['tracking']['wbc_command_dim']})"
+    f"wbc_command_dim={doc['tracking']['wbc_command_dim']}, "
+    f"actor_history_length={doc['tracking']['actor_history_length']})"
   )
 
 

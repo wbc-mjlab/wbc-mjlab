@@ -23,10 +23,10 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   rw["motion_body_ang_vel"].weight = 1.0
   rw["motion_joint_pos"].weight = 1.0
   rw["motion_joint_vel"].weight = 0.5
-  rw["action_rate_l1"].weight = -0.08
-  rw["joint_acc"].weight = -2.0e-6
+  rw["action_rate_l1"].weight = -0.1
+  rw["joint_acc"].weight = -3.0e-6
   rw["survival"].weight = 1.0
-  rw["foot_slip"].weight = -0.03
+  rw["foot_slip"].weight = -0.0
 
   cfg.observations["actor"].history_length = 10
   motion_cmd = cfg.commands["motion"]

@@ -16,7 +16,8 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 
 - [x] Move G1-specific params from `env/wbc_env_cfg.py` → `robots/g1/configs/base.py`
 - [x] Export `wbc_tracking_params.yaml` next to `params/latest.onnx` (train + play)
-- [ ] Fix / merge `mjlab_entry` circular import if still open
+- [x] Fix / merge `mjlab_entry` circular import if still open
+- [ ] Split command in to configurable terms similar to other observations (like projected gravity, etc)
 
 ### Zest parity (`Wbc-G1-Zest`)
 
@@ -28,7 +29,7 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 ### SONIC tracker (§3.1 — not universal token / VLA)
 
 - [ ] Epic: `Wbc-G1-Sonic` — 1 s bins, failure-rate cap, BeyondMimic-style rewards, DR
-- [ ] Target motion command jitter (Table 2)
+- [ ] Introduce motion command jitter (noise) to commands observation (Table 2)
 - [ ] README bib links
 
 ### Paper repro
