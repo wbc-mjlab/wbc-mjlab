@@ -14,9 +14,44 @@ import yaml
 
 from mjlab.utils.string import resolve_expr
 
+from wbc_mjlab.deploy_paths import PLAY_CONFIG_NAME
+
 SCHEMA_VERSION = "wbc_tracking_params_v1"
-PARAMS_FILENAME = "wbc_tracking_params.yaml"
+PARAMS_FILENAME = PLAY_CONFIG_NAME
 MANIFEST_FILENAME = "wbc_tracking_params_manifest.yaml"
+
+# WBC reference obs terms in ``make_base_wbc_env_cfg`` (subset may be removed per task).
+REFERENCE_OBS_TERM_NAMES = (
+  "ref_base_height",
+  "ref_base_lin_vel_b",
+  "ref_base_ang_vel_b",
+  "ref_gravity_b",
+  "ref_joint_pos",
+  "ref_joint_vel",
+)
+
+_MOTION_OBS_PARAM_TERMS = frozenset(
+  {
+    *REFERENCE_OBS_TERM_NAMES,
+    "command",
+    "motion_anchor_pos_b",
+    "motion_anchor_ori_b",
+    "ref_body_pos",
+    "ref_body_ori",
+    "ref_body_lin_vel",
+    "ref_body_ang_vel",
+    "motion_body_lin_vel",
+    "motion_body_ang_vel",
+    "ref_joint_vel",
+    "ref_base_lin_acc_b",
+    "ref_base_ang_acc_b",
+    "body_pos",
+    "body_ori",
+    "assistive_force",
+    "assistive_torque",
+    "assistive_gain",
+  }
+)
 
 
 def _policy_step_seconds(cfg: Any) -> float:
@@ -42,11 +77,16 @@ def _action_mode(action) -> str:
   raise RuntimeError(f"WBC tracking params: unsupported joint action {name!r}")
 
 
-def _actor_term_names(cfg: Any, *, has_state_estimation: bool) -> list[str]:
-  terms = list(cfg.observations["actor"].terms.keys())
-  if not has_state_estimation:
-    terms = [t for t in terms if t not in ("motion_anchor_pos_b", "base_lin_vel")]
-  return terms
+def _actor_term_names(cfg: Any) -> list[str]:
+  return list(cfg.observations["actor"].terms.keys())
+
+
+def _reference_observation_names(actor_names: list[str]) -> list[str]:
+  return [
+    name
+    for name in actor_names
+    if name in REFERENCE_OBS_TERM_NAMES or name == "command"
+  ]
 
 
 def _actor_history_length(cfg: Any) -> int:
@@ -70,14 +110,40 @@ def _resolve_scales(action, joint_names: tuple[str, ...]) -> list[float]:
   raise TypeError(type(sc))
 
 
-def _observation_dim(name: str, *, joint_count: int, wbc_command_dim: int) -> int:
-  if name == "command":
-    return wbc_command_dim
-  if name in ("base_ang_vel", "projected_gravity", "motion_anchor_pos_b", "base_lin_vel"):
+def _observation_dim(name: str, *, joint_count: int) -> int:
+  if name == "ref_base_height":
+    return 1
+  if name in (
+    "ref_base_lin_vel_b",
+    "ref_base_ang_vel_b",
+    "ref_gravity_b",
+    "base_ang_vel",
+    "projected_gravity",
+    "motion_anchor_pos_b",
+    "base_lin_vel",
+  ):
     return 3
-  if name in ("joint_pos", "joint_vel", "actions"):
+  if name in ("ref_joint_pos", "ref_joint_vel", "joint_pos", "joint_vel", "actions"):
     return joint_count
+  if name == "command":
+    return 10 + joint_count
   raise KeyError(f"unexpected actor term {name!r}")
+
+
+def _wbc_command_dim(actor_names: list[str], *, joint_count: int) -> int:
+  if "command" in actor_names:
+    return 10 + joint_count
+  return sum(
+    _observation_dim(name, joint_count=joint_count)
+    for name in actor_names
+    if name in REFERENCE_OBS_TERM_NAMES
+  )
+
+
+def _observation_params(name: str, *, command_name: str) -> dict[str, str]:
+  if name in _MOTION_OBS_PARAM_TERMS:
+    return {"command_name": command_name}
+  return {}
 
 
 def _build_robot_entity(cfg: Any):
@@ -126,17 +192,19 @@ def build_wbc_tracking_params(
   action = _joint_position_action(cfg)
   action_scales = _resolve_scales(action, joint_names)
   policy_step_dt = _policy_step_seconds(cfg)
-  wbc_command_dim = 10 + len(joint_names)
-  actor_names = _actor_term_names(cfg, has_state_estimation=has_state_estimation)
+  actor_names = _actor_term_names(cfg)
+  reference_obs_names = _reference_observation_names(actor_names)
   actor_history_length = _actor_history_length(cfg)
+  wbc_command_dim = _wbc_command_dim(actor_names, joint_count=len(joint_names))
+  command_name = getattr(_joint_position_action(cfg), "command_name", "motion")
 
   actor_observations: dict[str, Any] = {}
   for name in actor_names:
-    dim = _observation_dim(name, joint_count=len(joint_names), wbc_command_dim=wbc_command_dim)
+    dim = _observation_dim(name, joint_count=len(joint_names))
     actor_observations[name] = {
       "dim": dim,
       "scale": [1.0] * dim,
-      "params": {"command_name": "motion"} if name == "command" else {},
+      "params": _observation_params(name, command_name=command_name),
     }
 
   motion_cmd = cfg.commands["motion"]
@@ -160,6 +228,7 @@ def build_wbc_tracking_params(
       "anchor_body_name": motion_cmd.anchor_body_name,
       "has_state_estimation": has_state_estimation,
       "wbc_command_dim": wbc_command_dim,
+      "reference_observation_names": reference_obs_names,
       "actor_observation_names": actor_names,
       "actor_history_length": actor_history_length,
     },
@@ -218,6 +287,7 @@ def write_wbc_tracking_params_bundle(
       "observation_names",
       "anchor_body_name",
       "wbc_command_dim",
+      "reference_observation_names",
       "actor_history_length",
     ],
   }

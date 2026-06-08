@@ -8,7 +8,7 @@ import torch
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
-from mjlab.utils.lab_api.math import quat_error_magnitude
+from mjlab.utils.lab_api.math import quat_apply_inverse, quat_error_magnitude
 
 from .commands import MotionCommand
 
@@ -18,16 +18,16 @@ if TYPE_CHECKING:
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 
+# Zest (Table S4) uses exp(-κ ‖e‖² / σ²) with κ = 1/4. Our kernels use exp(-‖e‖² / std²).
+WBC_KERNEL_KAPPA = 0.25
+
+
 def action_rate_l1(env: ManagerBasedRlEnv) -> torch.Tensor:
   """Penalize action changes with L1 (sum of absolute deltas)."""
   return torch.sum(
     torch.abs(env.action_manager.action - env.action_manager.prev_action),
     dim=1,
   )
-
-
-# Zest (Table S4) uses exp(-κ ‖e‖² / σ²) with κ = 1/4. Our kernels use exp(-‖e‖² / std²).
-WBC_KERNEL_KAPPA = 0.25
 
 
 def wbc_kernel_std(sigma: float, *, dim: int = 1, kappa: float = WBC_KERNEL_KAPPA) -> float:
@@ -82,6 +82,30 @@ def motion_anchor_angular_velocity_error_exp(
     torch.square(command.anchor_ang_vel_w - command.robot_anchor_ang_vel_w),
     dim=-1,
   )
+  return torch.exp(-error / std**2)
+
+
+def motion_anchor_linear_velocity_body_error_exp(
+  env: ManagerBasedRlEnv, command_name: str, std: float
+) -> torch.Tensor:
+  """Root linear velocity tracking in the robot anchor (base) frame."""
+  command = cast(MotionCommand, env.command_manager.get_term(command_name))
+  anchor_quat = command.robot_anchor_quat_w
+  ref_lin_b = quat_apply_inverse(anchor_quat, command.anchor_lin_vel_w)
+  robot_lin_b = quat_apply_inverse(anchor_quat, command.robot_anchor_lin_vel_w)
+  error = torch.sum(torch.square(ref_lin_b - robot_lin_b), dim=-1)
+  return torch.exp(-error / std**2)
+
+
+def motion_anchor_angular_velocity_body_error_exp(
+  env: ManagerBasedRlEnv, command_name: str, std: float
+) -> torch.Tensor:
+  """Root angular velocity tracking in the robot anchor (base) frame."""
+  command = cast(MotionCommand, env.command_manager.get_term(command_name))
+  anchor_quat = command.robot_anchor_quat_w
+  ref_ang_b = quat_apply_inverse(anchor_quat, command.anchor_ang_vel_w)
+  robot_ang_b = quat_apply_inverse(anchor_quat, command.robot_anchor_ang_vel_w)
+  error = torch.sum(torch.square(ref_ang_b - robot_ang_b), dim=-1)
   return torch.exp(-error / std**2)
 
 

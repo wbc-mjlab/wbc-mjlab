@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI: write ``wbc_tracking_params.yaml`` from a WBC task config."""
+"""CLI: write ``config.yaml`` from a WBC task config."""
 
 from __future__ import annotations
 

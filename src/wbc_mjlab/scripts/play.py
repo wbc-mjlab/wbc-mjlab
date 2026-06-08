@@ -6,7 +6,7 @@ looks in ``logs/rsl_rl/<experiment_name>/`` for the latest run folder and
 picks the highest-iteration ``model_<N>.pt`` checkpoint there.
 
 For **any** registered WBC tracking task, policy ONNX and
-``wbc_tracking_params.yaml`` are written to ``<checkpoint_run_dir>/params/`` **before**
+``config.yaml`` are written to ``<checkpoint_run_dir>/params/`` **before**
 the play viewer opens (see ``wbc_mjlab.deploy_paths``).
 
 ``run_play`` below mirrors ``mjlab.scripts.play.run_play`` with that hook inserted;
@@ -42,7 +42,7 @@ from mjlab.utils.wrappers import VideoRecorder
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 from mjlab.viewer.viser.viewer import CheckpointManager, format_time_ago
 
-from wbc_mjlab.deploy_paths import PLAY_ONNX_LATEST_NAME, PLAY_PARAMS_SUBDIR
+from wbc_mjlab.deploy_paths import PLAY_PARAMS_SUBDIR, PLAY_POLICY_ONNX_NAME
 from wbc_mjlab.env.mdp.commands import MotionCommand, MotionCommandCfg
 
 
@@ -58,17 +58,17 @@ def _export_onnx_pre_viewer(
   runner: MjlabOnPolicyRunner,
   log_dir: Path | None,
 ) -> None:
-  """Write ``params/latest.onnx`` using the loaded play runner (before viewer)."""
+  """Write ``params/policy.onnx`` using the loaded play runner (before viewer)."""
   if cfg.agent in ("zero", "random"):
     return
   if log_dir is None:
     return
 
   params_dir = log_dir / PLAY_PARAMS_SUBDIR
-  onnx_path = params_dir / PLAY_ONNX_LATEST_NAME
+  onnx_path = params_dir / PLAY_POLICY_ONNX_NAME
   try:
     params_dir.mkdir(parents=True, exist_ok=True)
-    runner.export_policy_to_onnx(str(params_dir), PLAY_ONNX_LATEST_NAME)
+    runner.export_policy_to_onnx(str(params_dir), PLAY_POLICY_ONNX_NAME)
     if isinstance(runner, PolicyOnlyMotionTrackingRunner):
       metadata = runner.build_policy_export_metadata(log_dir.name)
     else:

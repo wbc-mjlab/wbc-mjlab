@@ -4,7 +4,7 @@
 
 This repo is an [mjlab](https://github.com/mujocolab/mjlab) extension for **universal motion tracking**: one shared MDP, many **registered tasks** that turn paper-specific knobs (RSI, observations, similarity metrics) into runnable experiments. The goal is not a pile of one-off reproduction scripts—it is a growing library where **Zest**, **BeyondMimic**, **Sonic** / WBC-style tracking, and future papers plug into the same training stack, data layout, and deploy export.
 
-Train with `--task`, swap motion datasets, export ONNX + `wbc_tracking_params.yaml` for real robots ([wbc_g1_deploy](../wbc_g1_deploy) for G1).
+Train with `--task`, swap motion datasets, export ONNX + `config.yaml` for real robots ([wbc_g1_deploy](../wbc_g1_deploy) for G1).
 
 ## Philosophy
 
@@ -28,7 +28,7 @@ Tasks are starting points for reproduction—not guaranteed bit-for-bit matches 
 | **BeyondMimic** | `Wbc-G1-BinaryFailure` | Full obs, whole-body RSI + binary failure resampling |
 | **Sonic** and others | *(add task)* | Shared motion command stack; add a builder + `WbcTaskConfig` entry |
 
-RSI logic: `env/mdp/sampling.py`. Motion command + reference stack: `env/mdp/commands.py`.
+RSI logic: `env/mdp/sampling.py`. Motion playback + RSI: `env/mdp/commands.py`. Actor reference features are obs terms in `env/wbc_env_cfg.py` (tasks may drop e.g. `ref_joint_vel`).
 
 ## Layout
 
@@ -65,7 +65,7 @@ pip install -e .
 | `wbc-mjlab-list-envs` | List registered tasks |
 | `wbc-mjlab-csv-to-npz` | Build motion bundles from CSV |
 | `wbc-mjlab-pkl-to-npz` | Build motion bundles from PKL |
-| `wbc-mjlab-export-tracking-params` | Write `wbc_tracking_params.yaml` |
+| `wbc-mjlab-export-tracking-params` | Write `config.yaml` |
 | `wbc-mjlab-vis-data` | Play motion NPZ clips in Viser (browser) |
 
 ## Tasks (G1)
@@ -142,10 +142,10 @@ When a dataset has ``npz/*.npz`` clips, the GUI lists them in a **Motion** dropd
 
 ## WBC tracking params YAML
 
-Checkpoint saves write `params/wbc_tracking_params.yaml` alongside `params/latest.onnx`.
+Checkpoint saves write `params/config.yaml` alongside `params/policy.onnx`.
 
 ```bash
-wbc-mjlab-export-tracking-params --task Wbc-G1-NoSE --out /path/to/wbc_tracking_params.yaml
+wbc-mjlab-export-tracking-params --task Wbc-G1-NoSE --out /path/to/config.yaml
 ```
 
 ## Add a robot or paper task

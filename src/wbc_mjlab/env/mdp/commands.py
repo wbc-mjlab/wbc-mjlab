@@ -408,10 +408,10 @@ class MotionCommand(CommandTerm):
 
   @property
   def command(self) -> torch.Tensor:
-    """WBC reference stack for actor ``generated_commands`` (first obs term).
+    """Legacy stacked WBC reference vector (same layout as default ref obs terms).
 
-    Layout: ref_base_height(1), ref_base_lin_vel_b(3), ref_base_ang_vel_b(3),
-    ref_gravity_b(3), tracked_joint_pos(N). Deploy must pack the same order.
+    Prefer configuring individual reference observation terms in ``wbc_env_cfg``.
+    Kept for ONNX metadata, ``wbc_command_dim``, and legacy deploy bundles.
     """
     return torch.cat(
       [
