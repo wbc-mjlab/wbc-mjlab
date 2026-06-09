@@ -71,6 +71,7 @@ def make_g1_wbc_env_cfg(
   if play:
     cfg.episode_length_s = int(1e9)
     cfg.observations["actor"].enable_corruption = False
+    cfg.curriculum = {}
     cfg.events.pop("push_robot", None)
     motion_cmd = cfg.commands["motion"]
     assert isinstance(motion_cmd, MotionCommandCfg)

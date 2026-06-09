@@ -14,7 +14,7 @@ from mjlab.rl.runner import MjlabOnPolicyRunner
 from wbc_mjlab.env.mdp.commands import MotionCommand
 from mjlab.tasks.tracking.rl.runner import MotionTrackingOnPolicyRunner
 
-from wbc_mjlab.deploy_paths import PLAY_ONNX_LATEST_NAME
+from wbc_mjlab.deploy_paths import PLAY_POLICY_ONNX_NAME
 
 
 def _tracking_policy_onnx_metadata(
@@ -110,22 +110,19 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
     """Checkpoint save + policy-only ONNX (not the motion-embedded graph)."""
     MjlabOnPolicyRunner.save(self, path, infos)
 
-    policy_dir, filename, onnx_path = self._get_export_paths(path)
-    latest_path = policy_dir / PLAY_ONNX_LATEST_NAME
+    policy_dir, _filename, _onnx_path = self._get_export_paths(path)
+    onnx_path = policy_dir / PLAY_POLICY_ONNX_NAME
     try:
-      self.export_policy_to_onnx(str(policy_dir), filename)
-      self.export_policy_to_onnx(str(policy_dir), PLAY_ONNX_LATEST_NAME)
+      self.export_policy_to_onnx(str(policy_dir), PLAY_POLICY_ONNX_NAME)
 
       run_name: str = (
         wandb.run.name if self.logger.logger_type == "wandb" and wandb.run else "local"
       )
       metadata = self.build_policy_export_metadata(run_name)
       attach_metadata_to_onnx(str(onnx_path), metadata)
-      attach_metadata_to_onnx(str(latest_path), metadata)
 
       if self.logger.logger_type in ["wandb"] and self.cfg["upload_model"]:
         wandb.save(str(onnx_path), base_path=str(policy_dir))
-        wandb.save(str(latest_path), base_path=str(policy_dir))
         if self.registry_name is not None:
           wandb.run.use_artifact(self.registry_name)  # type: ignore
           self.registry_name = None

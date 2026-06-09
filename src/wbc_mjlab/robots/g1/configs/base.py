@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.managers.observation_manager import ObservationGroupCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
@@ -105,18 +104,3 @@ def g1_base_cfg() -> ManagerBasedRlEnvCfg:
   cfg.viewer.body_name = G1_ANCHOR_BODY_NAME
 
   return cfg
-
-
-def without_state_estimation(cfg: ManagerBasedRlEnvCfg) -> None:
-  actor = cfg.observations["actor"]
-  cfg.observations["actor"] = ObservationGroupCfg(
-    terms={
-      k: v
-      for k, v in actor.terms.items()
-      if k not in ("motion_anchor_pos_b", "base_lin_vel")
-    },
-    concatenate_terms=actor.concatenate_terms,
-    enable_corruption=actor.enable_corruption,
-    history_length=actor.history_length,
-    flatten_history_dim=actor.flatten_history_dim,
-  )

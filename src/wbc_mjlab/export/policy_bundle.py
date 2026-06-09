@@ -1,11 +1,11 @@
-"""Write deploy-facing artifacts next to ``latest.onnx`` under ``params/``."""
+"""Write deploy-facing artifacts next to ``policy.onnx`` under ``params/``."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from wbc_mjlab.deploy_paths import PLAY_TRACKING_PARAMS_NAME
+from wbc_mjlab.deploy_paths import PLAY_CONFIG_NAME
 from wbc_mjlab.export.tracking_params_yaml import write_wbc_tracking_params_yaml
 
 
@@ -19,9 +19,9 @@ def export_tracking_params_yaml(
   *,
   robot_id: str,
 ) -> Path:
-  """Write ``params/wbc_tracking_params.yaml`` alongside policy ONNX."""
+  """Write ``params/config.yaml`` alongside policy ONNX."""
   params_dir.mkdir(parents=True, exist_ok=True)
-  out = params_dir / PLAY_TRACKING_PARAMS_NAME
+  out = params_dir / PLAY_CONFIG_NAME
   write_wbc_tracking_params_yaml(
     out,
     cfg,

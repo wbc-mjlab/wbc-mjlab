@@ -15,7 +15,7 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 ### Foundation
 
 - [x] Move G1-specific params from `env/wbc_env_cfg.py` → `robots/g1/configs/base.py`
-- [x] Export `wbc_tracking_params.yaml` next to `params/latest.onnx` (train + play)
+- [x] Export `config.yaml` next to `params/policy.onnx` (train + play)
 - [x] Fix / merge `mjlab_entry` circular import if still open
 - [ ] Split command in to configurable terms similar to other observations (like projected gravity, etc)
 

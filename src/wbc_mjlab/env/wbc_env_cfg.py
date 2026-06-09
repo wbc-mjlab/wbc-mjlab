@@ -33,14 +33,45 @@ VELOCITY_RANGE = {
   "yaw": (-0.78, 0.78),
 }
 
+_MOTION_COMMAND = "motion"
+
 
 def make_base_wbc_env_cfg(
   use_reference_residual_action: bool = True,
 ) -> ManagerBasedRlEnvCfg:
-  # Actor: WBC motion command first, then proprio (+ SE terms when enabled).
+  motion = {"command_name": _MOTION_COMMAND}
+  # Actor: WBC reference terms first, then proprio (+ SE terms when enabled).
+  # Reference obs noise: SONIC Table 2 target motion perturbations (actor only;
+  # critic has enable_corruption=False and play mode disables actor corruption).
   actor_terms = {
-    "command": ObservationTermCfg(
-      func=mdp.generated_commands, params={"command_name": "motion"}
+    "ref_base_height": ObservationTermCfg(
+      func=mdp.ref_base_height,
+      params=motion,
+      noise=Unoise(n_min=-0.01, n_max=0.01),
+    ),
+    "ref_base_lin_vel_b": ObservationTermCfg(
+      func=mdp.ref_base_lin_vel_b,
+      params=motion,
+      noise=Unoise(n_min=(-0.1, -0.1, -0.05), n_max=(0.1, 0.1, 0.05)),
+    ),
+    "ref_base_ang_vel_b": ObservationTermCfg(
+      func=mdp.ref_base_ang_vel_b,
+      params=motion,
+      noise=Unoise(n_min=(-0.2, -0.2, -0.3), n_max=(0.2, 0.2, 0.3)),
+    ),
+    "ref_gravity_b": ObservationTermCfg(
+      func=mdp.ref_gravity_b,
+      params=motion,
+      noise=Unoise(n_min=-0.02, n_max=0.02),
+    ),
+    "ref_joint_pos": ObservationTermCfg(
+      func=mdp.ref_joint_pos,
+      params=motion,
+      noise=Unoise(n_min=-0.05, n_max=0.05),
+    ),
+    "ref_joint_vel": ObservationTermCfg(
+      func=mdp.ref_joint_vel,
+      params=motion,
     ),
     "base_ang_vel": ObservationTermCfg(
       func=mdp.builtin_sensor,
@@ -62,7 +93,7 @@ def make_base_wbc_env_cfg(
     "actions": ObservationTermCfg(func=mdp.last_action),
     "motion_anchor_pos_b": ObservationTermCfg(
       func=mdp.motion_anchor_pos_b,
-      params={"command_name": "motion"},
+      params={"command_name": _MOTION_COMMAND},
       noise=Unoise(n_min=-0.25, n_max=0.25),
     ),
     "base_lin_vel": ObservationTermCfg(
@@ -230,8 +261,8 @@ def make_base_wbc_env_cfg(
       interval_range_s=(1.0, 4.0),
       params={
         "asset_cfg": SceneEntityCfg("robot", body_names=()),
-        "force_range": (-5.0, 5.0),
-        "torque_range": (-1.0, 1.0),
+        "force_range": (-0.0, 0.0),
+        "torque_range": (-0.0, 0.0),
       },
     ),
     "encoder_bias": EventTermCfg(
@@ -245,7 +276,7 @@ def make_base_wbc_env_cfg(
       params={
         "asset_cfg": SceneEntityCfg("robot", geom_names=()),
         "operation": "abs",
-        "ranges": (0.3, 1.2),
+        "ranges": (0.3, 1.5),
         "shared_random": True,
       },
     ),
@@ -262,6 +293,16 @@ def make_base_wbc_env_cfg(
       func=mdp.motion_global_anchor_orientation_error_exp,
       weight=1.0,
       params={"command_name": "motion", "std": 0.4},
+    ),
+    "motion_root_lin_vel_b": RewardTermCfg(
+      func=mdp.motion_anchor_linear_velocity_body_error_exp,
+      weight=1.0,
+      params={"command_name": "motion", "std": 1.0},
+    ),
+    "motion_root_ang_vel_b": RewardTermCfg(
+      func=mdp.motion_anchor_angular_velocity_body_error_exp,
+      weight=1.0,
+      params={"command_name": "motion", "std": 1.5},
     ),
     "motion_body_pos": RewardTermCfg(
       func=mdp.motion_relative_body_position_error_exp,
@@ -295,7 +336,7 @@ def make_base_wbc_env_cfg(
     ),
     "action_rate_l1": RewardTermCfg(func=mdp.action_rate_l1, weight=-0.08),
     "joint_acc": RewardTermCfg(
-      func=mdp.joint_acc_l2,
+      func=mdp.joint_acc_l1,
       weight=-2.0e-6,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
