@@ -12,9 +12,6 @@ from wbc_mjlab.env.mdp.commands import (
 )
 from wbc_mjlab.robots.g1.configs.base import g1_base_cfg
 
-_SMOOTHING_CURRICULUM_STEP = 10_000 * 24
-
-
 def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   """Zest-style RSI + assistive wrench, deploy-style obs, actor history length 10."""
   cfg = g1_base_cfg()
@@ -33,29 +30,6 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   rw["joint_acc"].weight = -5.0e-6
   rw["survival"].weight = 1.0
   rw["foot_slip"].weight = -0.0
-
-  # cfg.curriculum = {
-  #   "action_rate_l1": CurriculumTermCfg(
-  #     func=reward_curriculum,
-  #     params={
-  #       "reward_name": "action_rate_l1",
-  #       "stages": [
-  #         {"step": 0, "weight": -0.05},
-  #         {"step": _SMOOTHING_CURRICULUM_STEP, "weight": -0.12},
-  #       ],
-  #     },
-  #   ),
-  #   "joint_acc": CurriculumTermCfg(
-  #     func=reward_curriculum,
-  #     params={
-  #       "reward_name": "joint_acc",
-  #       "stages": [
-  #         {"step": 0, "weight": -1.0e-6},
-  #         {"step": _SMOOTHING_CURRICULUM_STEP, "weight": -6.0e-6},
-  #       ],
-  #     },
-  #   ),
-  # }
 
   cfg.observations["actor"].history_length = 1
   motion_cmd = cfg.commands["motion"]
