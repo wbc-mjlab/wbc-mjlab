@@ -101,6 +101,18 @@ def _actor_history_length(cfg: Any) -> int:
   return max(1, max_term_history)
 
 
+def _actor_history_length(cfg: Any) -> int:
+  """Effective actor observation history length for deploy (1 = no stacking)."""
+  actor = cfg.observations["actor"]
+  if actor.history_length is not None and actor.history_length > 0:
+    return int(actor.history_length)
+  max_term_history = max(
+    (term.history_length for term in actor.terms.values() if term is not None),
+    default=0,
+  )
+  return max(1, max_term_history)
+
+
 def _resolve_scales(action, joint_names: tuple[str, ...]) -> list[float]:
   sc = action.scale
   if isinstance(sc, (int, float)):
