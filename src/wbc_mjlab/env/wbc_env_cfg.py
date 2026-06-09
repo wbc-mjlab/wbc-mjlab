@@ -52,22 +52,22 @@ def make_base_wbc_env_cfg(
     "ref_base_lin_vel_b": ObservationTermCfg(
       func=mdp.ref_base_lin_vel_b,
       params=motion,
-      noise=Unoise(n_min=(-0.5, -0.5, -0.2), n_max=(0.5, 0.5, 0.2)),
+      noise=Unoise(n_min=(-0.1, -0.1, -0.05), n_max=(0.1, 0.1, 0.05)),
     ),
     "ref_base_ang_vel_b": ObservationTermCfg(
       func=mdp.ref_base_ang_vel_b,
       params=motion,
-      noise=Unoise(n_min=(-0.52, -0.52, -0.78), n_max=(0.52, 0.52, 0.78)),
+      noise=Unoise(n_min=(-0.2, -0.2, -0.3), n_max=(0.2, 0.2, 0.3)),
     ),
     "ref_gravity_b": ObservationTermCfg(
       func=mdp.ref_gravity_b,
       params=motion,
-      noise=Unoise(n_min=-0.05, n_max=0.05),
+      noise=Unoise(n_min=-0.02, n_max=0.02),
     ),
     "ref_joint_pos": ObservationTermCfg(
       func=mdp.ref_joint_pos,
       params=motion,
-      noise=Unoise(n_min=-0.1, n_max=0.1),
+      noise=Unoise(n_min=-0.05, n_max=0.05),
     ),
     "ref_joint_vel": ObservationTermCfg(
       func=mdp.ref_joint_vel,
@@ -261,8 +261,8 @@ def make_base_wbc_env_cfg(
       interval_range_s=(1.0, 4.0),
       params={
         "asset_cfg": SceneEntityCfg("robot", body_names=()),
-        "force_range": (-5.0, 5.0),
-        "torque_range": (-1.0, 1.0),
+        "force_range": (-0.0, 0.0),
+        "torque_range": (-0.0, 0.0),
       },
     ),
     "encoder_bias": EventTermCfg(
@@ -276,7 +276,7 @@ def make_base_wbc_env_cfg(
       params={
         "asset_cfg": SceneEntityCfg("robot", geom_names=()),
         "operation": "abs",
-        "ranges": (0.3, 1.2),
+        "ranges": (0.3, 1.5),
         "shared_random": True,
       },
     ),
@@ -336,7 +336,7 @@ def make_base_wbc_env_cfg(
     ),
     "action_rate_l1": RewardTermCfg(func=mdp.action_rate_l1, weight=-0.08),
     "joint_acc": RewardTermCfg(
-      func=mdp.joint_acc_l2,
+      func=mdp.joint_acc_l1,
       weight=-2.0e-6,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),

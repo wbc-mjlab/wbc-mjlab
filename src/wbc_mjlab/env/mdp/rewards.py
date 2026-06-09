@@ -30,6 +30,17 @@ def action_rate_l1(env: ManagerBasedRlEnv) -> torch.Tensor:
   )
 
 
+def joint_acc_l1(
+  env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG
+) -> torch.Tensor:
+  """Penalize joint accelerations with L1 (sum of absolute values)."""
+  asset: Entity = env.scene[asset_cfg.name]
+  return torch.sum(
+    torch.abs(asset.data.joint_acc[:, asset_cfg.joint_ids]),
+    dim=1,
+  )
+
+
 def wbc_kernel_std(sigma: float, *, dim: int = 1, kappa: float = WBC_KERNEL_KAPPA) -> float:
   """Map Zest σ (optionally scaled by √dim) to ``std`` in ``exp(-error / std²)``."""
   return sigma * math.sqrt(dim) / math.sqrt(kappa)

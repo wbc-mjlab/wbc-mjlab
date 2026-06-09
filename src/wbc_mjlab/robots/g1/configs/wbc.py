@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.envs.mdp.curriculums import reward_curriculum
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 
 from wbc_mjlab.env.mdp.commands import (
   MotionCommandCfg,
   wbc_joint_only_similarity_terms,
 )
 from wbc_mjlab.robots.g1.configs.base import g1_base_cfg
+
+_SMOOTHING_CURRICULUM_STEP = 10_000 * 24
 
 
 def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
@@ -25,12 +29,35 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   rw["motion_body_ang_vel"].weight = 1.0
   rw["motion_joint_pos"].weight = 1.0
   rw["motion_joint_vel"].weight = 0.5
-  rw["action_rate_l1"].weight = -0.12
-  rw["joint_acc"].weight = -6.0e-6
+  rw["action_rate_l1"].weight = -0.1
+  rw["joint_acc"].weight = -5.0e-6
   rw["survival"].weight = 1.0
   rw["foot_slip"].weight = -0.0
 
-  cfg.observations["actor"].history_length = 5
+  # cfg.curriculum = {
+  #   "action_rate_l1": CurriculumTermCfg(
+  #     func=reward_curriculum,
+  #     params={
+  #       "reward_name": "action_rate_l1",
+  #       "stages": [
+  #         {"step": 0, "weight": -0.05},
+  #         {"step": _SMOOTHING_CURRICULUM_STEP, "weight": -0.12},
+  #       ],
+  #     },
+  #   ),
+  #   "joint_acc": CurriculumTermCfg(
+  #     func=reward_curriculum,
+  #     params={
+  #       "reward_name": "joint_acc",
+  #       "stages": [
+  #         {"step": 0, "weight": -1.0e-6},
+  #         {"step": _SMOOTHING_CURRICULUM_STEP, "weight": -6.0e-6},
+  #       ],
+  #     },
+  #   ),
+  # }
+
+  cfg.observations["actor"].history_length = 1
   motion_cmd = cfg.commands["motion"]
   assert isinstance(motion_cmd, MotionCommandCfg)
   motion_cmd.adaptive_sampling_strategy = "similarity_ema"
