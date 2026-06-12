@@ -345,11 +345,11 @@ def make_base_wbc_env_cfg(
         "penalty_scale": 1.0,
       },
     ),
-    # "joint_limit": RewardTermCfg(
-    #   func=mdp.joint_pos_limits,
-    #   weight=-10.0,
-    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-    # ),
+    "joint_limit": RewardTermCfg(
+      func=mdp.joint_pos_limits,
+      weight=-10.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+    ),
     "survival": RewardTermCfg(func=mdp.is_alive, weight=1.0),
     "foot_slip": RewardTermCfg(
       func=mdp.feet_slip,
