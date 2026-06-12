@@ -13,6 +13,8 @@ from mjlab.utils.lab_api.math import (
   subtract_frame_transforms,
 )
 
+from wbc_mjlab.actuation.envelope import torque_speed_limits
+
 from .commands import MotionCommand
 
 if TYPE_CHECKING:
@@ -92,6 +94,15 @@ def ref_joint_vel(
   if asset_cfg.joint_ids is not None:
     return command.joint_vel[:, asset_cfg.joint_ids]
   return command.tracked_joint_vel
+
+
+def ref_anchor_ori_6d(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+  """Reference anchor orientation error as 6D rotation matrix columns.
+
+  Same geometry as ``motion_anchor_ori_b``; exposed as a ``ref_*`` term for modular
+  actor layouts that mirror OmniXtreme / SONIC command blocks.
+  """
+  return motion_anchor_ori_b(env, command_name)
 
 
 def ref_base_lin_acc_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
@@ -253,3 +264,54 @@ def keybody_contact_forces(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Te
   assert sensor_data.force is not None
   forces_flat = sensor_data.force.flatten(start_dim=1)
   return torch.sign(forces_flat) * torch.log1p(torch.abs(forces_flat))
+
+
+# --- Actuation (G1 Unitree envelope) ---
+
+
+def joint_mechanical_power(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Per-joint mechanical power τ·ω (actuator generalized force)."""
+  asset: Entity = env.scene[asset_cfg.name]
+  ids = asset_cfg.joint_ids
+  tau = asset.data.qfrc_actuator[:, ids]
+  qd = asset.data.joint_vel[:, ids]
+  return tau * qd
+
+
+def joint_torque_envelope_ratio(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """|τ| / max admissible torque magnitude at current velocity (≈1 at envelope)."""
+  from wbc_mjlab.robots.g1.envelope import g1_joint_envelope_tensors
+
+  asset: Entity = env.scene[asset_cfg.name]
+  ids = asset_cfg.joint_ids
+  tau = asset.data.qfrc_actuator[:, ids]
+  qd = asset.data.joint_vel[:, ids]
+  envl = g1_joint_envelope_tensors(env, asset_cfg)
+  tau_low, tau_high = torque_speed_limits(qd, envl)
+  cap = torch.maximum(tau_high, -tau_low).clamp(min=1.0e-6)
+  return (tau.abs() / cap).flatten(start_dim=1)
+
+
+def joint_torque_envelope_margin(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Normalized distance to torque envelope: 0 on boundary, negative if inside."""
+  from wbc_mjlab.robots.g1.envelope import g1_joint_envelope_tensors
+
+  asset: Entity = env.scene[asset_cfg.name]
+  ids = asset_cfg.joint_ids
+  tau = asset.data.qfrc_actuator[:, ids]
+  qd = asset.data.joint_vel[:, ids]
+  envl = g1_joint_envelope_tensors(env, asset_cfg)
+  tau_low, tau_high = torque_speed_limits(qd, envl)
+  cap = torch.maximum(tau_high, -tau_low).clamp(min=1.0e-6)
+  margin_high = (tau_high - tau) / cap
+  margin_low = (tau - tau_low) / cap
+  return torch.minimum(margin_high, margin_low).flatten(start_dim=1)

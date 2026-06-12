@@ -10,6 +10,8 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_inverse, quat_error_magnitude
 
+from wbc_mjlab.actuation.envelope import torque_speed_limits
+
 from .commands import MotionCommand
 
 if TYPE_CHECKING:
@@ -249,6 +251,59 @@ def self_collision_cost(
     return hit.sum(dim=-1).float()
   assert data.found is not None
   return data.found.squeeze(-1)
+
+
+def _joint_torque_and_vel(
+  env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg
+) -> tuple[torch.Tensor, torch.Tensor]:
+  asset: Entity = env.scene[asset_cfg.name]
+  ids = asset_cfg.joint_ids
+  return asset.data.qfrc_actuator[:, ids], asset.data.joint_vel[:, ids]
+
+
+def mechanical_power_l1(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Sum of positive mechanical power P = τ·ω (motoring only)."""
+  tau, qd = _joint_torque_and_vel(env, asset_cfg)
+  power = tau * qd
+  return torch.sum(torch.clamp(power, min=0.0), dim=-1)
+
+
+def negative_mechanical_power_l2(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  *,
+  power_deadband: float = 0.0,
+  penalty_scale: float = 1.0,
+  joint_names: tuple[str, ...] | None = None,
+) -> torch.Tensor:
+  """Penalize excessive regenerative braking (OmniXtreme power-safety term)."""
+  cfg = (
+    SceneEntityCfg(asset_cfg.name, joint_names=joint_names)
+    if joint_names is not None
+    else asset_cfg
+  )
+  tau, qd = _joint_torque_and_vel(env, cfg)
+  power = tau * qd
+  excess = torch.clamp(-power - power_deadband, min=0.0) / max(penalty_scale, 1.0e-6)
+  return torch.sum(torch.square(excess), dim=-1)
+
+
+def torque_envelope_violation_l2(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalty when applied torque exceeds G1 velocity-dependent envelope."""
+  from wbc_mjlab.robots.g1.envelope import g1_joint_envelope_tensors
+
+  tau, qd = _joint_torque_and_vel(env, asset_cfg)
+  envl = g1_joint_envelope_tensors(env, asset_cfg)
+  tau_low, tau_high = torque_speed_limits(qd, envl)
+  over_high = torch.clamp(tau - tau_high, min=0.0)
+  over_low = torch.clamp(tau_low - tau, min=0.0)
+  return torch.sum(torch.square(over_high) + torch.square(over_low), dim=-1)
 
 
 def feet_slip(
