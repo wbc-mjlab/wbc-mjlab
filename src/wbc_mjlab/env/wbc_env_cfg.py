@@ -336,7 +336,34 @@ def make_base_wbc_env_cfg(
       weight=-2.0e-6,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
+    "neg_regen_power": RewardTermCfg(
+      func=mdp.negative_mechanical_power_l2,
+      weight=0.0,
+      params={
+        "asset_cfg": SceneEntityCfg("robot"),
+        "power_deadband": 0.0,
+        "penalty_scale": 1.0,
+      },
+    ),
+    # "joint_limit": RewardTermCfg(
+    #   func=mdp.joint_pos_limits,
+    #   weight=-10.0,
+    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+    # ),
     "survival": RewardTermCfg(func=mdp.is_alive, weight=1.0),
+    "foot_slip": RewardTermCfg(
+      func=mdp.feet_slip,
+      weight=-0.0,
+      params={
+        "sensor_name": "feet_ground_contact",
+        "asset_cfg": SceneEntityCfg("robot", site_names=()),
+      },
+    ),
+    # "self_collisions": RewardTermCfg(
+    #   func=mdp.self_collision_cost,
+    #   weight=-10.0,
+    #   params={"sensor_name": "self_collision", "force_threshold": 10.0},
+    # ),
   }
 
   terminations: dict[str, TerminationTermCfg] = {
@@ -375,8 +402,14 @@ def make_base_wbc_env_cfg(
       origin_type=ViewerConfig.OriginType.ASSET_BODY,
       entity_name="robot",
       body_name="",
+      distance=2.8,
+      fovy=55.0,
+      elevation=-5.0,
+      azimuth=120.0,
     ),
     sim=SimulationCfg(
+      nconmax=45,
+      njmax=250,
       mujoco=MujocoCfg(timestep=0.005, iterations=10, ls_iterations=20),
     ),
     decimation=4,

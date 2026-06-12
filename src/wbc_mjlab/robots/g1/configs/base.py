@@ -5,7 +5,6 @@ from __future__ import annotations
 import wbc_mjlab.env.mdp as mdp
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
-from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
@@ -123,24 +122,10 @@ def g1_base_cfg() -> ManagerBasedRlEnvCfg:
     params={"sensor_name": "keybodies_ground_contact"},
   )
 
-  cfg.rewards["neg_regen_power"] = RewardTermCfg(
-    func=mdp.negative_mechanical_power_l2,
-    weight=0.0,
-    params={
-      "asset_cfg": SceneEntityCfg("robot"),
-      "power_deadband": 0.0,
-      "penalty_scale": 1.0,
-      "joint_names": G1_KNEE_JOINT_NAMES,
-    },
+  cfg.rewards["foot_slip"].params["asset_cfg"] = SceneEntityCfg(
+    "robot", site_names=G1_FOOT_SITE_NAMES
   )
-  # cfg.rewards["foot_slip"] = RewardTermCfg(
-  #   func=mdp.feet_slip,
-  #   weight=-0.03,
-  #   params={
-  #     "sensor_name": "feet_ground_contact",
-  #     "asset_cfg": SceneEntityCfg("robot", site_names=G1_FOOT_SITE_NAMES),
-  #   },
-  # )
+  cfg.rewards["neg_regen_power"].params["joint_names"] = G1_KNEE_JOINT_NAMES
 
   cfg.sim.nconmax = 35
   cfg.sim.njmax = 250
