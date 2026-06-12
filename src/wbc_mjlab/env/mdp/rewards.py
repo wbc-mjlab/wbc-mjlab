@@ -10,6 +10,8 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_inverse, quat_error_magnitude
 
+from wbc_mjlab.actuation.envelope import torque_speed_limits
+
 from .commands import MotionCommand
 
 if TYPE_CHECKING:
@@ -18,8 +20,27 @@ if TYPE_CHECKING:
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 
-# Zest (Table S4) uses exp(-κ ‖e‖² / σ²) with κ = 1/4. Our kernels use exp(-‖e‖² / std²).
-WBC_KERNEL_KAPPA = 0.25
+def tracking_std_from_sigma(sigma: float, *, dim: int = 1) -> float:
+  """Zest Table S4 ``exp(-κ‖e‖²/σ²)`` with fixed κ=¼ → our ``exp(-‖e‖²/std²)``."""
+  return 2.0 * sigma * math.sqrt(dim)
+
+
+def dim_scaled_std(per_dim: float, *, dim: int) -> float:
+  """``std`` when paper σ is ``per_dim · √dim`` (joints / keybodies)."""
+  return tracking_std_from_sigma(per_dim, dim=dim)
+
+
+def _resolve_tracking_std(
+  std: float | None,
+  *,
+  sigma_per: float | None,
+  dim: int,
+) -> float:
+  if sigma_per is not None:
+    return dim_scaled_std(sigma_per, dim=dim)
+  if std is not None:
+    return std
+  raise ValueError("Either ``std`` or ``sigma_per`` must be set.")
 
 
 def action_rate_l1(env: ManagerBasedRlEnv) -> torch.Tensor:
@@ -41,11 +62,6 @@ def joint_acc_l1(
   )
 
 
-def wbc_kernel_std(sigma: float, *, dim: int = 1, kappa: float = WBC_KERNEL_KAPPA) -> float:
-  """Map Zest σ (optionally scaled by √dim) to ``std`` in ``exp(-error / std²)``."""
-  return sigma * math.sqrt(dim) / math.sqrt(kappa)
-
-
 def _get_body_indexes(
   command: MotionCommand, body_names: tuple[str, ...] | None
 ) -> list[int]:
@@ -54,6 +70,21 @@ def _get_body_indexes(
     for i, name in enumerate(command.cfg.body_names)
     if (body_names is None) or (name in body_names)
   ]
+
+
+def anti_shake_ang_vel_l2(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  threshold: float,
+  body_names: tuple[str, ...] | None = None,
+) -> torch.Tensor:
+  """Penalize high-frequency wrist/head spin above a deadzone (gear_sonic-style)."""
+  command = cast(MotionCommand, env.command_manager.get_term(command_name))
+  body_indexes = _get_body_indexes(command, body_names)
+  ang_vel = command.robot_body_ang_vel_w[:, body_indexes]
+  speed = torch.linalg.norm(ang_vel, dim=-1)
+  excess = torch.relu(speed - threshold)
+  return (excess * excess).mean(dim=-1)
 
 
 def motion_global_anchor_position_error_exp(
@@ -123,16 +154,19 @@ def motion_anchor_angular_velocity_body_error_exp(
 def motion_joint_position_error_exp(
   env: ManagerBasedRlEnv,
   command_name: str,
-  std: float = 1.0,
+  std: float | None = None,
+  sigma_per_joint: float | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Joint position tracking (sum of squared joint errors, same kernel as body terms)."""
+  """Joint position tracking; ``sigma_per_joint`` sets std = σ√n_j (Zest Table S4)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   jnt_ids = asset_cfg.joint_ids
-  error = torch.sum(
-    torch.square(command.joint_pos[:, jnt_ids] - command.robot_joint_pos[:, jnt_ids]),
-    dim=-1,
+  ref_joint = command.joint_pos[:, jnt_ids]
+  robot_joint = command.robot_joint_pos[:, jnt_ids]
+  std = _resolve_tracking_std(
+    std, sigma_per=sigma_per_joint, dim=ref_joint.shape[-1]
   )
+  error = torch.sum(torch.square(ref_joint - robot_joint), dim=-1)
   return torch.exp(-error / std**2)
 
 
@@ -155,15 +189,15 @@ def motion_joint_velocity_error_exp(
 def motion_relative_body_position_error_exp(
   env: ManagerBasedRlEnv,
   command_name: str,
-  std: float,
+  std: float | None = None,
   body_names: tuple[str, ...] | None = None,
   sigma_per_keybody: float | None = None,
-  kappa: float = WBC_KERNEL_KAPPA,
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
-  if sigma_per_keybody is not None:
-    std = wbc_kernel_std(sigma_per_keybody, dim=len(body_indexes), kappa=kappa)
+  std = _resolve_tracking_std(
+    std, sigma_per=sigma_per_keybody, dim=len(body_indexes)
+  )
   error = torch.sum(
     torch.square(
       command.body_pos_relative_w[:, body_indexes]
@@ -177,15 +211,15 @@ def motion_relative_body_position_error_exp(
 def motion_relative_body_orientation_error_exp(
   env: ManagerBasedRlEnv,
   command_name: str,
-  std: float,
+  std: float | None = None,
   body_names: tuple[str, ...] | None = None,
   sigma_per_keybody: float | None = None,
-  kappa: float = WBC_KERNEL_KAPPA,
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
-  if sigma_per_keybody is not None:
-    std = wbc_kernel_std(sigma_per_keybody, dim=len(body_indexes), kappa=kappa)
+  std = _resolve_tracking_std(
+    std, sigma_per=sigma_per_keybody, dim=len(body_indexes)
+  )
   error = (
     quat_error_magnitude(
       command.body_quat_relative_w[:, body_indexes],
@@ -199,15 +233,15 @@ def motion_relative_body_orientation_error_exp(
 def motion_global_body_linear_velocity_error_exp(
   env: ManagerBasedRlEnv,
   command_name: str,
-  std: float,
+  std: float | None = None,
   body_names: tuple[str, ...] | None = None,
   sigma_per_keybody: float | None = None,
-  kappa: float = WBC_KERNEL_KAPPA,
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
-  if sigma_per_keybody is not None:
-    std = wbc_kernel_std(sigma_per_keybody, dim=len(body_indexes), kappa=kappa)
+  std = _resolve_tracking_std(
+    std, sigma_per=sigma_per_keybody, dim=len(body_indexes)
+  )
   error = torch.sum(
     torch.square(
       command.body_lin_vel_w[:, body_indexes]
@@ -249,6 +283,59 @@ def self_collision_cost(
     return hit.sum(dim=-1).float()
   assert data.found is not None
   return data.found.squeeze(-1)
+
+
+def _joint_torque_and_vel(
+  env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg
+) -> tuple[torch.Tensor, torch.Tensor]:
+  asset: Entity = env.scene[asset_cfg.name]
+  ids = asset_cfg.joint_ids
+  return asset.data.qfrc_actuator[:, ids], asset.data.joint_vel[:, ids]
+
+
+def mechanical_power_l1(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Sum of positive mechanical power P = τ·ω (motoring only)."""
+  tau, qd = _joint_torque_and_vel(env, asset_cfg)
+  power = tau * qd
+  return torch.sum(torch.clamp(power, min=0.0), dim=-1)
+
+
+def negative_mechanical_power_l2(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  *,
+  power_deadband: float = 0.0,
+  penalty_scale: float = 1.0,
+  joint_names: tuple[str, ...] | None = None,
+) -> torch.Tensor:
+  """Penalize excessive regenerative braking (OmniXtreme power-safety term)."""
+  cfg = (
+    SceneEntityCfg(asset_cfg.name, joint_names=joint_names)
+    if joint_names is not None
+    else asset_cfg
+  )
+  tau, qd = _joint_torque_and_vel(env, cfg)
+  power = tau * qd
+  excess = torch.clamp(-power - power_deadband, min=0.0) / max(penalty_scale, 1.0e-6)
+  return torch.sum(torch.square(excess), dim=-1)
+
+
+def torque_envelope_violation_l2(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalty when applied torque exceeds G1 velocity-dependent envelope."""
+  from wbc_mjlab.robots.g1.envelope import g1_joint_envelope_tensors
+
+  tau, qd = _joint_torque_and_vel(env, asset_cfg)
+  envl = g1_joint_envelope_tensors(env, asset_cfg)
+  tau_low, tau_high = torque_speed_limits(qd, envl)
+  over_high = torch.clamp(tau - tau_high, min=0.0)
+  over_low = torch.clamp(tau_low - tau, min=0.0)
+  return torch.sum(torch.square(over_high) + torch.square(over_low), dim=-1)
 
 
 def feet_slip(

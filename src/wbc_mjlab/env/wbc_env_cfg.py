@@ -75,7 +75,7 @@ def make_base_wbc_env_cfg(
     ),
     "base_ang_vel": ObservationTermCfg(
       func=mdp.builtin_sensor,
-      params={"sensor_name": "robot/imu_ang_vel"},
+      params={"sensor_name": ""},
       noise=Unoise(n_min=-0.2, n_max=0.2),
     ),
     "projected_gravity": ObservationTermCfg(
@@ -98,7 +98,7 @@ def make_base_wbc_env_cfg(
     ),
     "base_lin_vel": ObservationTermCfg(
       func=mdp.builtin_sensor,
-      params={"sensor_name": "robot/imu_lin_vel"},
+      params={"sensor_name": ""},
       noise=Unoise(n_min=-0.5, n_max=0.5),
     ),
   }
@@ -144,10 +144,6 @@ def make_base_wbc_env_cfg(
     ),
     "ref_base_ang_acc": ObservationTermCfg(
       func=mdp.ref_base_ang_acc_b, params={"command_name": "motion"}
-    ),
-    "keybody_contact_forces": ObservationTermCfg(
-      func=mdp.keybody_contact_forces,
-      params={"sensor_name": "keybodies_ground_contact"},
     ),
     "base_lin_vel": ObservationTermCfg(
       func=mdp.base_lin_vel,
@@ -307,7 +303,7 @@ def make_base_wbc_env_cfg(
     "motion_body_pos": RewardTermCfg(
       func=mdp.motion_relative_body_position_error_exp,
       weight=1.5,
-      params={"command_name": "motion", "std": 0.1},
+      params={"command_name": "motion", "std": 0.15},
     ),
     "motion_body_ori": RewardTermCfg(
       func=mdp.motion_relative_body_orientation_error_exp,
@@ -340,20 +336,24 @@ def make_base_wbc_env_cfg(
       weight=-2.0e-6,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
-    # "mechanical_power": RewardTermCfg(
-    #   func=mdp.electrical_power_cost,
-    #   weight=-1e-6,
-    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-    # ),
-    # "joint_limit": RewardTermCfg(
-    #   func=mdp.joint_pos_limits,
-    #   weight=-10.0,
-    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-    # ),
+    "neg_regen_power": RewardTermCfg(
+      func=mdp.negative_mechanical_power_l2,
+      weight=0.0,
+      params={
+        "asset_cfg": SceneEntityCfg("robot"),
+        "power_deadband": 0.0,
+        "penalty_scale": 1.0,
+      },
+    ),
+    "joint_limit": RewardTermCfg(
+      func=mdp.joint_pos_limits,
+      weight=-10.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+    ),
     "survival": RewardTermCfg(func=mdp.is_alive, weight=1.0),
     "foot_slip": RewardTermCfg(
       func=mdp.feet_slip,
-      weight=-0.03,
+      weight=-0.0,
       params={
         "sensor_name": "feet_ground_contact",
         "asset_cfg": SceneEntityCfg("robot", site_names=()),
@@ -366,6 +366,7 @@ def make_base_wbc_env_cfg(
     # ),
   }
 
+  # Common tracking terminations; ``ee_body_pos`` is full 3D on end effectors (wired in base).
   terminations: dict[str, TerminationTermCfg] = {
     "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
     "anchor_pos": TerminationTermCfg(
@@ -381,7 +382,7 @@ def make_base_wbc_env_cfg(
       },
     ),
     "ee_body_pos": TerminationTermCfg(
-      func=mdp.bad_motion_body_pos_z_only,
+      func=mdp.bad_motion_body_pos,
       params={
         "command_name": "motion",
         "threshold": 0.25,
@@ -408,7 +409,7 @@ def make_base_wbc_env_cfg(
       azimuth=120.0,
     ),
     sim=SimulationCfg(
-      nconmax=35,
+      nconmax=45,
       njmax=250,
       mujoco=MujocoCfg(timestep=0.005, iterations=10, ls_iterations=20),
     ),

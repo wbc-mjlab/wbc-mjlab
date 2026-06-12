@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs.mdp.curriculums import reward_curriculum
-from mjlab.managers.curriculum_manager import CurriculumTermCfg
 
 from wbc_mjlab.env.mdp.commands import (
   MotionCommandCfg,
   wbc_joint_only_similarity_terms,
 )
 from wbc_mjlab.robots.g1.configs.base import g1_base_cfg
+
 
 def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   """Zest-style RSI + assistive wrench, deploy-style obs, actor history length 10."""

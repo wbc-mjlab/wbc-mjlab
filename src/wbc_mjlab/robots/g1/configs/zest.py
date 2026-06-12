@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 
+import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import (
   MotionCommandCfg,
   wbc_joint_only_similarity_terms,
 )
-from wbc_mjlab.robots.g1.configs.base import g1_base_cfg
+from wbc_mjlab.robots.g1.configs.base import G1_MOTION_BODY_NAMES, g1_base_cfg
+
+# Catastrophic ground-contact spike only (Zest §Early Terminations); allows multi-contact skills.
+KEYBODY_GROUND_CONTACT_FORCE_THRESHOLD = 2000.0
 
 
 def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
@@ -29,7 +34,7 @@ def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
   rw["joint_acc"].weight = -6.0e-6
   rw["survival"].weight = 1.0
   rw["foot_slip"].weight = -0.0
-  
+
   motion_cmd = cfg.commands["motion"]
   assert isinstance(motion_cmd, MotionCommandCfg)
   motion_cmd.adaptive_sampling_strategy = "similarity_ema"
@@ -41,4 +46,13 @@ def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
   for key in ("motion_anchor_pos_b", "base_lin_vel", "ref_joint_vel"):
     actor.terms.pop(key, None)
 
+  cfg.terminations["keybody_ground_contact_force"] = TerminationTermCfg(
+    func=mdp.excessive_keybody_ground_contact_force,
+    params={
+      "sensor_name": "keybodies_ground_contact",
+      "body_names": G1_MOTION_BODY_NAMES,
+      "body_slot_order": G1_MOTION_BODY_NAMES,
+      "force_threshold": KEYBODY_GROUND_CONTACT_FORCE_THRESHOLD,
+    },
+  )
   return cfg
