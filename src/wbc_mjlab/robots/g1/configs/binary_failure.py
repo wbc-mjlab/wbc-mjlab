@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 
+import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import (
   MotionCommandCfg,
   whole_body_adaptive_similarity_terms,
 )
-from wbc_mjlab.robots.g1.configs.base import g1_base_cfg
+from wbc_mjlab.robots.g1.configs.base import (
+  G1_EE_TERMINATION_BODY_NAMES,
+  g1_base_cfg,
+)
 
 
 def g1_wbc_binary_failure_env_cfg() -> ManagerBasedRlEnvCfg:
@@ -34,4 +39,13 @@ def g1_wbc_binary_failure_env_cfg() -> ManagerBasedRlEnvCfg:
   motion_cmd.adaptive_similarity_terms = whole_body_adaptive_similarity_terms()
   motion_cmd.adaptive_bin_width_s = 4.0
   motion_cmd.assistive_wrench_enabled = True
+
+  cfg.terminations["ee_body_pos"] = TerminationTermCfg(
+    func=mdp.bad_motion_body_pos_z_only,
+    params={
+      "command_name": "motion",
+      "threshold": 0.25,
+      "body_names": G1_EE_TERMINATION_BODY_NAMES,
+    },
+  )
   return cfg

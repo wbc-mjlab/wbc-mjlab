@@ -366,6 +366,7 @@ def make_base_wbc_env_cfg(
     # ),
   }
 
+  # Common tracking terminations; EE height checks are BeyondMimic-only (see binary_failure cfg).
   terminations: dict[str, TerminationTermCfg] = {
     "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
     "anchor_pos": TerminationTermCfg(
@@ -378,14 +379,6 @@ def make_base_wbc_env_cfg(
         "asset_cfg": SceneEntityCfg("robot"),
         "command_name": "motion",
         "threshold": 0.8,
-      },
-    ),
-    "ee_body_pos": TerminationTermCfg(
-      func=mdp.bad_motion_body_pos_z_only,
-      params={
-        "command_name": "motion",
-        "threshold": 0.25,
-        "body_names": (),
       },
     ),
   }
