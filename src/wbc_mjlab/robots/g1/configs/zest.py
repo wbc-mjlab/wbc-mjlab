@@ -34,7 +34,7 @@ def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
   rw["joint_acc"].weight = -6.0e-6
   rw["survival"].weight = 1.0
   rw["foot_slip"].weight = -0.0
-  
+
   motion_cmd = cfg.commands["motion"]
   assert isinstance(motion_cmd, MotionCommandCfg)
   motion_cmd.adaptive_sampling_strategy = "similarity_ema"

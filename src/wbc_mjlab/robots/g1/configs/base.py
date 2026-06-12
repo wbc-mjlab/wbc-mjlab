@@ -38,6 +38,11 @@ G1_EE_TERMINATION_BODY_NAMES: tuple[str, ...] = (
   "right_wrist_yaw_link",
 )
 
+G1_WRIST_BODY_NAMES: tuple[str, ...] = (
+  "left_wrist_yaw_link",
+  "right_wrist_yaw_link",
+)
+
 G1_KNEE_JOINT_NAMES: tuple[str, ...] = ("left_knee_joint", "right_knee_joint")
 
 G1_FOOT_SITE_NAMES: tuple[str, ...] = ("left_foot", "right_foot")
@@ -115,6 +120,7 @@ def g1_base_cfg() -> ManagerBasedRlEnvCfg:
     "asset_cfg"
   ].geom_names = r"^(left|right)_foot[1-7]_collision$"
   cfg.events["base_com"].params["asset_cfg"].body_names = (G1_ANCHOR_BODY_NAME,)
+  cfg.terminations["ee_body_pos"].params["body_names"] = G1_EE_TERMINATION_BODY_NAMES
 
   cfg.observations["critic"].terms["keybody_contact_forces"] = ObservationTermCfg(
     func=mdp.keybody_contact_forces,

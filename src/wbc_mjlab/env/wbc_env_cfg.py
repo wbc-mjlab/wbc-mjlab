@@ -303,7 +303,7 @@ def make_base_wbc_env_cfg(
     "motion_body_pos": RewardTermCfg(
       func=mdp.motion_relative_body_position_error_exp,
       weight=1.5,
-      params={"command_name": "motion", "std": 0.1},
+      params={"command_name": "motion", "std": 0.15},
     ),
     "motion_body_ori": RewardTermCfg(
       func=mdp.motion_relative_body_orientation_error_exp,
@@ -366,7 +366,7 @@ def make_base_wbc_env_cfg(
     # ),
   }
 
-  # Common tracking terminations; EE height checks are BeyondMimic-only (see binary_failure cfg).
+  # Common tracking terminations; ``ee_body_pos`` is full 3D on end effectors (wired in base).
   terminations: dict[str, TerminationTermCfg] = {
     "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
     "anchor_pos": TerminationTermCfg(
@@ -379,6 +379,14 @@ def make_base_wbc_env_cfg(
         "asset_cfg": SceneEntityCfg("robot"),
         "command_name": "motion",
         "threshold": 0.8,
+      },
+    ),
+    "ee_body_pos": TerminationTermCfg(
+      func=mdp.bad_motion_body_pos,
+      params={
+        "command_name": "motion",
+        "threshold": 0.25,
+        "body_names": (),
       },
     ),
   }
