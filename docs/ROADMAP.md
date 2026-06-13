@@ -17,14 +17,14 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 - [x] Move G1-specific params from `env/wbc_env_cfg.py` → `robots/g1/configs/base.py`
 - [x] Export `config.yaml` next to `params/policy.onnx` (train + play)
 - [x] Fix / merge `mjlab_entry` circular import if still open
-- [ ] Split command in to configurable terms similar to other observations (like projected gravity, etc)
+- [x] Split command in to configurable terms similar to other observations (like projected gravity, etc)
 
 ### Zest parity (`Wbc-G1-Zest`)
 
-- [ ] Dwell on last frame at clip end, then timeout reset (not failure)
-- [ ] Enable joint position limit reward; add joint torque limit (Table S4)
-- [ ] Optional: L_max-normalized similarity EMA (§S5)
-- [ ] Clarify `Wbc-G1` actor history=10 vs Zest (no history)
+- [x] Dwell on last frame at clip end, then timeout reset (not failure)
+- [x] Enable joint position limit reward; add joint torque limit (Table S4)
+- [x] Optional: L_max-normalized similarity EMA (§S5)
+- [x] Clarify `Wbc-G1` actor history=10 vs Zest (no history)
 
 ### SONIC tracker (§3.1 — not universal token / VLA)
 
@@ -34,8 +34,7 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 
 ### Paper repro
 
-- [ ] SONIC universal policy (FSQ, multi-encoder, multi-frame command)
-- [ ] Zest per-joint action scales and DR (Table S5)
+- [x] Zest per-joint action scales and DR (Table S5)
 - [ ] BeyondMimic gaps beyond `Wbc-G1-BinaryFailure`
 - [ ] Additional robots
 

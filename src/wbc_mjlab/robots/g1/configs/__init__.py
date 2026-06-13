@@ -16,8 +16,7 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
     task_id="Wbc-G1",
     robot_id="g1",
     description=(
-      "Full WBC stack: Zest RSI + whole-body tracking, regen-power safety, "
-      "actor history=10."
+      "Default deploy-style WBC: joint-only RSI, mjlab tracking rewards, actor history=1."
     ),
     experiment_name="wbc_g1",
     build_env_cfg=g1_wbc_env_cfg,
