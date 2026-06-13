@@ -8,7 +8,7 @@ Typical layout::
   data/g1/lafan/
     *.csv              # retargeted clips (or under ``raw/``)
     npz/<clip>.npz     # per-clip exports (source of truth)
-    lafan.npz          # optional cached stack (``--cache-motion-bundle`` on train)
+    lafan.npz          # optional on-disk cache (``--cache-motion-bundle`` only)
 """
 
 from __future__ import annotations
@@ -94,11 +94,11 @@ def resolve_dataset_motion_file(
   *,
   cache_motion_bundle: bool = False,
 ) -> Path:
-  from wbc_mjlab.motion.stack_bundle import ensure_training_motion_bundle
+  from wbc_mjlab.motion.stack_bundle import resolve_training_motion_source
 
   root = resolve_dataset_root(robot_id, dataset)
   rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
-  return ensure_training_motion_bundle(
+  return resolve_training_motion_source(
     root, robot_id=rid, cache_motion_bundle=cache_motion_bundle
   )
 
@@ -123,14 +123,16 @@ def resolve_motion_path(
 
   if p.is_dir():
     from wbc_mjlab.motion.stack_bundle import (
-      ensure_training_motion_bundle,
       list_clip_npz_files,
+      resolve_training_motion_source,
     )
 
     clips = list_clip_npz_files(p)
-    if clips:
+    if clips and not cache_motion_bundle:
+      return p
+    if clips or cache_motion_bundle:
       rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
-      return ensure_training_motion_bundle(
+      return resolve_training_motion_source(
         p, robot_id=rid, cache_motion_bundle=cache_motion_bundle
       )
 

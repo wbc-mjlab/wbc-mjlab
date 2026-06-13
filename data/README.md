@@ -1,6 +1,6 @@
 # Motion data
 
-Motion clips for WBC tracking live under **`data/<robot>/<dataset_name>/`**.
+Motion libraries for WBC tracking live under **`data/<robot>/<dataset_name>/`**.
 
 **Nothing is bundled in the repo yet** — download datasets locally (see robot guides below) or convert your own clips. We plan to add a small **`samples/`** folder later with a few simple motions from one of the public datasets so you can smoke-test convert / train / play without a full download.
 
@@ -22,8 +22,9 @@ data/<robot>/<dataset>/
 ```
 
 - Put source clips in the dataset folder or in **`raw/`** — converters prefer `raw/` when it contains `.csv` or `.pkl` files.
-- **`npz/`** is written by the conversion tools; train/play stack from there at startup.
-- **`<dataset>.npz`** is optional: created when you pass **`--cache-motion-bundle`** on train/play.
+- **`npz/`** is written by the conversion tools; train/play load clips from there in memory by default.
+- **`<dataset>.npz`** is optional: written only when you pass **`--cache-motion-bundle`** on train/play.
+- **`params/motion_library.yaml`** is written automatically on **play** from the loaded motion bundle — no sidecar manifest in the dataset folder.
 
 ## Supported formats
 
@@ -61,10 +62,10 @@ wbc-mjlab-csv-to-npz --robot <robot> --dataset <dataset>
 # or
 wbc-mjlab-pkl-to-npz --robot <robot> --dataset <dataset>
 
-# 2. Train (stacks npz/*.npz at startup; temp bundle unless cached)
+# 2. Train (loads npz/*.npz in memory; no stacked file unless cached)
 wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset>
 
-# 3. Optional: write <dataset>/<dataset>.npz for faster reruns
+# 3. Optional: write <dataset>/<dataset>.npz for faster startup
 wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset> --cache-motion-bundle
 ```
 
@@ -76,11 +77,12 @@ Pick one:
 
 | Flag | Resolves to |
 |------|-------------|
-| `--dataset <name>` | `data/<robot>/<name>/npz/*.npz` (or reuse fresh `<name>.npz`) |
-| `--dataset-path <dir>` | stack `npz/*.npz` in that folder |
+| `--dataset <name>` | `data/<robot>/<name>/` (loads `npz/*.npz` in memory) |
+| `--dataset-path <dir>` | load `npz/*.npz` in that folder |
 | `--dataset-path <file>.npz` | that file directly |
 | `--motion-file <file>.npz` | explicit NPZ path |
-| `--cache-motion-bundle` | also write `<dataset>/<dataset>.npz` when stacking |
+| `--motion-file <dataset-dir>` | dataset folder with `npz/*.npz` |
+| `--cache-motion-bundle` | write/read `<dataset>/<dataset>.npz` instead of in-memory stack |
 
 Conversion accepts **`--dataset-path <dir>`** as the input/output root (same role as `data/<robot>/<name>/`).
 

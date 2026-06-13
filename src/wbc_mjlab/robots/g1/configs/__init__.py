@@ -15,7 +15,10 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
   WbcTaskConfig(
     task_id="Wbc-G1",
     robot_id="g1",
-    description="Deploy-style obs, joint-only RSI, actor history length 10.",
+    description=(
+      "Full WBC stack: Zest RSI + whole-body tracking, regen-power safety, "
+      "actor history=10."
+    ),
     experiment_name="wbc_g1",
     build_env_cfg=g1_wbc_env_cfg,
   ),
@@ -29,14 +32,14 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
   WbcTaskConfig(
     task_id="Wbc-G1-Zest",
     robot_id="g1",
-    description="No state estimation, joint-only RSI (Zest-style adaptive sampling).",
+    description="No state estimation, reward-aligned RSI (Zest paper).",
     experiment_name="wbc_g1_zest",
     build_env_cfg=g1_wbc_zest_env_cfg,
   ),
   WbcTaskConfig(
     task_id="Wbc-G1-BinaryFailure",
     robot_id="g1",
-    description="Full obs, whole-body RSI with binary failure resampling (BeyondMimic-style).",
+    description="Full obs, whole-body RSI with binary failure (BeyondMimic paper).",
     experiment_name="wbc_g1_binary",
     build_env_cfg=g1_wbc_binary_failure_env_cfg,
   ),

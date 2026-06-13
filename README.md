@@ -4,7 +4,7 @@
 
 This repo is an [mjlab](https://github.com/mujocolab/mjlab) extension for **universal motion tracking**: one shared MDP, many **registered tasks** that turn paper-specific knobs (RSI, observations, similarity metrics) into runnable experiments. The goal is not a pile of one-off reproduction scripts—it is a growing library where **Zest**, **BeyondMimic**, **Sonic** / WBC-style tracking, and future papers plug into the same training stack, data layout, and deploy export.
 
-Train with `--task`, swap motion datasets, export ONNX + `config.yaml` for real robots ([wbc_g1_deploy](../wbc_g1_deploy) for G1).
+Train with `--task`, point at a motion library (`--dataset` / `--motion-file`), export ONNX + `config.yaml` for real robots ([wbc_g1_deploy](../wbc_g1_deploy) for G1).
 
 ## Philosophy
 
@@ -13,7 +13,7 @@ Train with `--task`, swap motion datasets, export ONNX + `config.yaml` for real 
 | **Shared MDP** | Rewards, terminations, motion command, assistive wrench, and reference-residual actions live in `env/` once. Robots wire assets and task configs. |
 | **Tasks, not forks** | Each paper’s distinguishing choices become a **task** (`Wbc-G1-Zest`, …) with an env builder in `robots/<id>/configs/`—same CLI, same logs layout, comparable runs. |
 | **Neutral code, cited methods** | Implementation names stay generic (`similarity_ema`, `binary_failure`). Paper links live in task descriptions and module docstrings. |
-| **Reproducible data path** | Motions under `data/<robot>/<dataset>/`; conversion scripts; optional cached bundles. See [data/README.md](data/README.md). |
+| **Reproducible data path** | Motion libraries under `data/<robot>/<dataset>/`; conversion scripts; optional cached bundles. See [data/README.md](data/README.md). |
 | **Deploy parity** | `Wbc-G1-NoSE` matches deploy-style observations; play exports policy artifacts for `wbc_g1_deploy`. |
 
 ## Paper ↔ task map (G1)
@@ -98,7 +98,7 @@ wbc-mjlab-train --task Wbc-G1 --dataset lafan
 wbc-mjlab-train --task Wbc-G1 --dataset lafan --cache-motion-bundle
 ```
 
-Training stacks `npz/*.npz` at startup (temp file). Pass **`--cache-motion-bundle`** to also write `data/g1/lafan/lafan.npz` for faster reruns.
+Training loads `npz/*.npz` in memory by default (no temp stack). Pass **`--cache-motion-bundle`** to write or reuse `data/g1/lafan/lafan.npz` on disk.
 
 **Shorthand** (default task `Wbc-G1` for robot `g1`):
 
@@ -111,11 +111,11 @@ Motion source (pick one):
 
 | Flag | Resolves to |
 |------|-------------|
-| `--dataset lafan` | stack `data/g1/lafan/npz/*.npz` (or reuse fresh `lafan.npz`) |
-| `--dataset-path /path/to/lafan/` | stack `npz/*.npz` in that folder |
+| `--dataset lafan` | load `data/g1/lafan/npz/*.npz` in memory (or `lafan.npz` with `--cache-motion-bundle`) |
+| `--dataset-path /path/to/lafan/` | load `npz/*.npz` in that folder |
 | `--dataset-path /path/to/custom.npz` | that file |
-| `--motion-file …` | explicit NPZ |
-| `--cache-motion-bundle` | also write `<dataset>/<dataset>.npz` when stacking |
+| `--motion-file …` | explicit NPZ or dataset directory |
+| `--cache-motion-bundle` | write/read `<dataset>/<dataset>.npz` on disk |
 
 ## Motion conversion
 

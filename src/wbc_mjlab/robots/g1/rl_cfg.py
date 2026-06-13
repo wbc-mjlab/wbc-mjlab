@@ -1,4 +1,4 @@
-"""G1 RSL-RL / PPO configuration for the ``Wbc`` task."""
+"""G1 RSL-RL / PPO configuration for motion-library WBC."""
 
 from mjlab.rl import (
   RslRlModelCfg,
@@ -6,10 +6,12 @@ from mjlab.rl import (
   RslRlPpoAlgorithmCfg,
 )
 
+
 def g1_wbc_rl_cfg() -> RslRlOnPolicyRunnerCfg:
+  """Default PPO stack for all G1 WBC tasks (motion library, not one-clip tracking)."""
   return RslRlOnPolicyRunnerCfg(
     actor=RslRlModelCfg(
-      hidden_dims=(512, 256, 128),
+      hidden_dims=(1024, 512, 256, 128),
       activation="elu",
       obs_normalization=True,
       distribution_cfg={
@@ -19,7 +21,7 @@ def g1_wbc_rl_cfg() -> RslRlOnPolicyRunnerCfg:
       },
     ),
     critic=RslRlModelCfg(
-      hidden_dims=(512, 512, 256),
+      hidden_dims=(1024, 1024, 512, 256),
       activation="elu",
       obs_normalization=True,
     ),
@@ -27,7 +29,7 @@ def g1_wbc_rl_cfg() -> RslRlOnPolicyRunnerCfg:
       value_loss_coef=1.0,
       use_clipped_value_loss=True,
       clip_param=0.2,
-      entropy_coef=0.004,
+      entropy_coef=0.005,
       num_learning_epochs=5,
       num_mini_batches=4,
       learning_rate=1.0e-3,
@@ -40,5 +42,5 @@ def g1_wbc_rl_cfg() -> RslRlOnPolicyRunnerCfg:
     experiment_name="wbc_g1",
     save_interval=250,
     num_steps_per_env=24,
-    max_iterations=120_000,
+    max_iterations=200_000,
   )

@@ -12,9 +12,10 @@ from mjlab.envs.mdp.actions import JointPositionAction
 from mjlab.rl.exporter_utils import attach_metadata_to_onnx
 from mjlab.rl.runner import MjlabOnPolicyRunner
 from wbc_mjlab.env.mdp.commands import MotionCommand
+from wbc_mjlab.env.mdp.sampling import load_rsi_bin_stats
 from mjlab.tasks.tracking.rl.runner import MotionTrackingOnPolicyRunner
 
-from wbc_mjlab.deploy_paths import PLAY_POLICY_ONNX_NAME
+from wbc_mjlab.deploy_paths import PLAY_PARAMS_SUBDIR, PLAY_POLICY_ONNX_NAME
 
 
 def _tracking_policy_onnx_metadata(
@@ -56,6 +57,17 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
   large libraries). At runtime the reference should come from an external
   source, not from inside the policy graph).
   """
+
+  def __init__(
+    self,
+    env: VecEnv,
+    train_cfg: dict,
+    log_dir: str | None = None,
+    device: str = "cpu",
+    registry_name: str | None = None,
+  ):
+    super().__init__(env, train_cfg, log_dir, device)
+    self.registry_name = registry_name
 
   def export_policy_to_onnx(
     self, path: str, filename: str = "policy.onnx", verbose: bool = False
@@ -110,10 +122,12 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
     """Checkpoint save + policy-only ONNX (not the motion-embedded graph)."""
     MjlabOnPolicyRunner.save(self, path, infos)
 
-    policy_dir, _filename, _onnx_path = self._get_export_paths(path)
-    onnx_path = policy_dir / PLAY_POLICY_ONNX_NAME
+    log_dir = Path(path).parent
+    params_dir = log_dir / PLAY_PARAMS_SUBDIR
+    onnx_path = params_dir / PLAY_POLICY_ONNX_NAME
     try:
-      self.export_policy_to_onnx(str(policy_dir), PLAY_POLICY_ONNX_NAME)
+      params_dir.mkdir(parents=True, exist_ok=True)
+      self.export_policy_to_onnx(str(params_dir), PLAY_POLICY_ONNX_NAME)
 
       run_name: str = (
         wandb.run.name if self.logger.logger_type == "wandb" and wandb.run else "local"
@@ -122,7 +136,7 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
       attach_metadata_to_onnx(str(onnx_path), metadata)
 
       if self.logger.logger_type in ["wandb"] and self.cfg["upload_model"]:
-        wandb.save(str(onnx_path), base_path=str(policy_dir))
+        wandb.save(str(onnx_path), base_path=str(params_dir))
         if self.registry_name is not None:
           wandb.run.use_artifact(self.registry_name)  # type: ignore
           self.registry_name = None
@@ -130,24 +144,58 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
       print(f"[WARN] Policy-only ONNX export failed (training continues): {e}")
 
     try:
-      self._export_wbc_tracking_params_yaml(path)
+      self._export_deploy_params(log_dir)
     except Exception as e:
-      print(f"[WARN] WBC tracking params YAML failed (training continues): {e}")
+      print(f"[WARN] Deploy params export failed (training continues): {e}")
 
-  def _export_wbc_tracking_params_yaml(self, log_dir: str) -> None:
+  def load(
+    self,
+    path: str,
+    load_cfg: dict | None = None,
+    strict: bool = True,
+    map_location: str | None = None,
+  ) -> dict:
+    infos = super().load(path, load_cfg=load_cfg, strict=strict, map_location=map_location)
+    self._maybe_load_rsi_bin_stats(path)
+    return infos
+
+  def _motion_command(self) -> MotionCommand | None:
+    env = cast(ManagerBasedRlEnv, self.env.unwrapped)
+    if "motion" not in env.command_manager.active_terms:
+      return None
+    return cast(MotionCommand, env.command_manager.get_term("motion"))
+
+  def _export_deploy_params(self, log_dir: Path) -> None:
     if int(os.environ.get("RANK", "0")) != 0:
       return
     cfg = getattr(self.env.unwrapped, "cfg", None)
     if cfg is None:
       return
 
-    from wbc_mjlab.export.policy_bundle import export_tracking_params_yaml
+    from wbc_mjlab.export.policy_bundle import export_deploy_params
     from wbc_mjlab.tasks import last_registered_robot_id
 
-    params_dir = Path(log_dir) / "params"
-    out = export_tracking_params_yaml(
-      params_dir,
+    yaml_path, rsi_path, _manifest_path = export_deploy_params(
+      log_dir,
       cfg,
+      cast(ManagerBasedRlEnv, self.env.unwrapped),
       robot_id=last_registered_robot_id(),
     )
-    print(f"[INFO] Wrote WBC tracking params -> {out}")
+    print(f"[INFO] Wrote WBC tracking params -> {yaml_path}")
+    if rsi_path is not None:
+      print(f"[INFO] Wrote RSI bin stats -> {rsi_path}")
+
+  def _maybe_load_rsi_bin_stats(self, checkpoint_path: str) -> None:
+    motion_cmd = self._motion_command()
+    if motion_cmd is None or not motion_cmd.cfg.rsi.persist_failure_levels:
+      return
+
+    log_dir = Path(checkpoint_path).parent
+    candidates = (
+      log_dir / PLAY_PARAMS_SUBDIR / motion_cmd.cfg.rsi.failure_levels_filename,
+      log_dir / motion_cmd.cfg.rsi.failure_levels_filename,
+    )
+    for src in candidates:
+      if load_rsi_bin_stats(src, motion_cmd):
+        print(f"[INFO] Restored RSI bin stats from {src}")
+        return

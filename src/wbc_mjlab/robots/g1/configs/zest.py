@@ -1,50 +1,108 @@
-"""Zest-style env config."""
+"""Zest env config (arXiv:2511.02367)."""
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 
 import wbc_mjlab.env.mdp as mdp
-from wbc_mjlab.env.mdp.commands import (
-  MotionCommandCfg,
-  wbc_joint_only_similarity_terms,
+from wbc_mjlab.env.mdp.commands import MotionCommandCfg
+from wbc_mjlab.robots.g1.configs.base import (
+  G1_ENDEFFECTOR_BODY_NAMES,
+  G1_MOTION_BODY_NAMES,
+  g1_base_cfg,
 )
-from wbc_mjlab.robots.g1.configs.base import G1_MOTION_BODY_NAMES, g1_base_cfg
 
 # Catastrophic ground-contact spike only (Zest §Early Terminations); allows multi-contact skills.
 KEYBODY_GROUND_CONTACT_FORCE_THRESHOLD = 2000.0
 
+# Zest Table S4: exp(-κ‖e‖²/σ²) with κ = 1/4.
+_TRACKING_KAPPA = 0.25
+
+# Seven positive tracking terms (Table S4); no separate keybody vel / joint vel terms.
+_ZEST_TRACKING_REWARDS = (
+  "motion_global_root_pos",
+  "motion_global_root_ori",
+  "motion_root_lin_vel_b",
+  "motion_root_ang_vel_b",
+  "motion_body_pos",
+  "motion_body_ori",
+  "motion_joint_pos",
+)
+
+
+def _apply_tracking_kappa(rw, *names: str) -> None:
+  for name in names:
+    rw[name].params["kappa"] = _TRACKING_KAPPA
+
 
 def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
-  """No SE, joint-only similarity RSI, adaptive bins, assistive wrench."""
+  """No SE, reward-aligned RSI similarity, adaptive bins, assistive wrench."""
   cfg = g1_base_cfg()
   rw = cfg.rewards
-  rw["motion_global_root_pos"].weight = 0.8
+
+  # --- Table S4 tracking (all weight 1.0) ---
+  rw["motion_global_root_pos"].weight = 1.0
+  rw["motion_global_root_pos"].params["std"] = 0.4
   rw["motion_global_root_ori"].weight = 1.0
+  rw["motion_global_root_ori"].params["std"] = 0.5
   rw["motion_root_lin_vel_b"].weight = 1.0
+  rw["motion_root_lin_vel_b"].params["std"] = 0.6
   rw["motion_root_ang_vel_b"].weight = 1.0
-  rw["motion_body_pos"].weight = 1.5
+  rw["motion_root_ang_vel_b"].params["std"] = 1.5
+  rw["motion_body_pos"].weight = 1.0
+  rw["motion_body_pos"].params.pop("std", None)
+  rw["motion_body_pos"].params["sigma_per_keybody"] = 0.2
+  rw["motion_body_pos"].params["body_error_aggregate"] = "sum"
+  rw["motion_body_pos"].params["body_names"] = G1_ENDEFFECTOR_BODY_NAMES
   rw["motion_body_ori"].weight = 1.0
-  rw["motion_body_lin_vel"].weight = 1.0
-  rw["motion_body_ang_vel"].weight = 1.0
+  rw["motion_body_ori"].params.pop("std", None)
+  rw["motion_body_ori"].params["sigma_per_keybody"] = 0.4
+  rw["motion_body_ori"].params["body_error_aggregate"] = "sum"
+  rw["motion_body_ori"].params["body_names"] = G1_ENDEFFECTOR_BODY_NAMES
   rw["motion_joint_pos"].weight = 1.0
-  rw["motion_joint_vel"].weight = 0.5
-  rw["action_rate_l1"].weight = -0.12
-  rw["joint_acc"].weight = -6.0e-6
+  rw["motion_joint_pos"].params.pop("std", None)
+  rw["motion_joint_pos"].params.pop("per_joint", None)
+  rw["motion_joint_pos"].params["sigma_per_joint"] = 0.3
+
+  _apply_tracking_kappa(rw, *_ZEST_TRACKING_REWARDS)
+
+  # Not in Table S4 (disable extras inherited from the WBC template).
+  rw["motion_body_lin_vel"].weight = 0.0
+  rw["motion_body_ang_vel"].weight = 0.0
+  rw["motion_joint_vel"].weight = 0.0
+  rw["foot_slip"].weight = 0.0
+  rw["neg_regen_power"].weight = 0.0
+  rw["angular_momentum"].weight = 0.0
+
   rw["survival"].weight = 1.0
-  rw["foot_slip"].weight = -0.0
+  rw["action_rate_l1"].weight = -0.1
+  rw["joint_acc"].weight = -1.0e-5
+  rw["joint_limit"].weight = -10.0
+  rw["actuator_torque_soft_limit"].weight = -1.0
+  rw["actuator_torque_soft_limit"].params["soft_ratio"] = 0.9
 
   motion_cmd = cfg.commands["motion"]
   assert isinstance(motion_cmd, MotionCommandCfg)
-  motion_cmd.adaptive_sampling_strategy = "similarity_ema"
-  motion_cmd.adaptive_similarity_terms = wbc_joint_only_similarity_terms()
-  motion_cmd.adaptive_bin_width_s = 4.0
   motion_cmd.assistive_wrench_enabled = True
+  motion_cmd.rsi = replace(
+    motion_cmd.rsi,
+    similarity_from_rewards=True,
+    bin_width_s=4.0,
+    similarity_norm_by_remaining_clip=True,
+    min_bin_span_ratio=0.5,
+    persist_failure_levels=True,
+  )
 
   actor = cfg.observations["actor"]
   for key in ("motion_anchor_pos_b", "base_lin_vel", "ref_joint_vel"):
     actor.terms.pop(key, None)
+
+  # Zest paper: anchor early termination + catastrophic contact only (no EE tracking cutoff).
+  cfg.terminations.pop("ee_body_pos", None)
+  cfg.terminations["anchor_pos"].params["threshold"] = 0.35
 
   cfg.terminations["keybody_ground_contact_force"] = TerminationTermCfg(
     func=mdp.excessive_keybody_ground_contact_force,

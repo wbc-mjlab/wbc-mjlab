@@ -1,3 +1,14 @@
+"""Motion-tracking and regularization rewards for WBC tasks.
+
+All ``motion_*`` terms share optional kernel params:
+
+- ``kappa`` — exponential stiffness (default ``1.0``; Zest uses ``0.25``)
+- ``std`` / ``sigma_per_joint`` / ``sigma_per_keybody`` — error scale
+- ``per_joint`` / ``per_keybody`` — mean of per-DoF/per-body exponentials
+- ``body_error_aggregate`` — ``mean`` (default) or ``sum`` over keybodies
+- ``body_names`` — subset of tracked bodies (default: all command bodies)
+"""
+
 from __future__ import annotations
 
 import math
@@ -21,12 +32,12 @@ _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 
 def tracking_std_from_sigma(sigma: float, *, dim: int = 1) -> float:
-  """Zest Table S4 ``exp(-κ‖e‖²/σ²)`` with fixed κ=¼ → our ``exp(-‖e‖²/std²)``."""
+  """Map per-DoF σ to aggregate ``std`` with ``std = 2σ√dim`` (Table S4 convention)."""
   return 2.0 * sigma * math.sqrt(dim)
 
 
 def dim_scaled_std(per_dim: float, *, dim: int) -> float:
-  """``std`` when paper σ is ``per_dim · √dim`` (joints / keybodies)."""
+  """``std`` when σ scales as ``per_dim · √dim`` over joints or keybodies."""
   return tracking_std_from_sigma(per_dim, dim=dim)
 
 
@@ -41,6 +52,81 @@ def _resolve_tracking_std(
   if std is not None:
     return std
   raise ValueError("Either ``std`` or ``sigma_per`` must be set.")
+
+
+def _tracking_exp(
+  error: torch.Tensor,
+  *,
+  std: float,
+  kappa: float = 1.0,
+) -> torch.Tensor:
+  std = max(std, 1.0e-6)
+  return torch.exp(-kappa * error / std**2)
+
+
+def _body_sq_error_per_keybody(
+  command: MotionCommand,
+  body_indexes: list[int],
+  *,
+  relative_pos: bool,
+  relative_ori: bool,
+  lin_vel: bool,
+  ang_vel: bool,
+) -> torch.Tensor:
+  if relative_pos:
+    diff = (
+      command.body_pos_relative_w[:, body_indexes]
+      - command.robot_body_pos_w[:, body_indexes]
+    )
+    return torch.sum(torch.square(diff), dim=-1)
+  if relative_ori:
+    error = quat_error_magnitude(
+      command.body_quat_relative_w[:, body_indexes],
+      command.robot_body_quat_w[:, body_indexes],
+    )
+    return error**2
+  if lin_vel:
+    diff = (
+      command.body_lin_vel_w[:, body_indexes]
+      - command.robot_body_lin_vel_w[:, body_indexes]
+    )
+    return torch.sum(torch.square(diff), dim=-1)
+  assert ang_vel
+  diff = (
+    command.body_ang_vel_w[:, body_indexes]
+    - command.robot_body_ang_vel_w[:, body_indexes]
+  )
+  return torch.sum(torch.square(diff), dim=-1)
+
+
+def _motion_keybody_tracking_exp(
+  sq_error_per_body: torch.Tensor,
+  *,
+  std: float | None,
+  sigma_per_keybody: float | None,
+  per_keybody: bool,
+  body_error_aggregate: str,
+  kappa: float,
+  num_bodies: int,
+) -> torch.Tensor:
+  if per_keybody:
+    if sigma_per_keybody is None:
+      raise ValueError("``sigma_per_keybody`` is required when ``per_keybody`` is True.")
+    std_b = tracking_std_from_sigma(sigma_per_keybody, dim=1)
+    return _tracking_exp(sq_error_per_body, std=std_b, kappa=kappa).mean(dim=-1)
+
+  std_eff = _resolve_tracking_std(
+    std, sigma_per=sigma_per_keybody, dim=num_bodies
+  )
+  if body_error_aggregate == "sum":
+    error = sq_error_per_body.sum(dim=-1)
+  elif body_error_aggregate == "mean":
+    error = sq_error_per_body.mean(dim=-1)
+  else:
+    raise ValueError(
+      f"Unsupported body_error_aggregate {body_error_aggregate!r}; use 'mean' or 'sum'."
+    )
+  return _tracking_exp(error, std=std_eff, kappa=kappa)
 
 
 def action_rate_l1(env: ManagerBasedRlEnv) -> torch.Tensor:
@@ -78,7 +164,7 @@ def anti_shake_ang_vel_l2(
   threshold: float,
   body_names: tuple[str, ...] | None = None,
 ) -> torch.Tensor:
-  """Penalize high-frequency wrist/head spin above a deadzone (gear_sonic-style)."""
+  """Penalize high-frequency wrist spin above a deadzone (SONIC-style anti-shake)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   ang_vel = command.robot_body_ang_vel_w[:, body_indexes]
@@ -88,47 +174,47 @@ def anti_shake_ang_vel_l2(
 
 
 def motion_global_anchor_position_error_exp(
-  env: ManagerBasedRlEnv, command_name: str, std: float
+  env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   error = torch.sum(
     torch.square(command.anchor_pos_w - command.robot_anchor_pos_w), dim=-1
   )
-  return torch.exp(-error / std**2)
+  return _tracking_exp(error, std=std, kappa=kappa)
 
 
 def motion_global_anchor_orientation_error_exp(
-  env: ManagerBasedRlEnv, command_name: str, std: float
+  env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   error = quat_error_magnitude(command.anchor_quat_w, command.robot_anchor_quat_w) ** 2
-  return torch.exp(-error / std**2)
+  return _tracking_exp(error, std=std, kappa=kappa)
 
 
 def motion_anchor_linear_velocity_error_exp(
-  env: ManagerBasedRlEnv, command_name: str, std: float
+  env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   error = torch.sum(
     torch.square(command.anchor_lin_vel_w - command.robot_anchor_lin_vel_w),
     dim=-1,
   )
-  return torch.exp(-error / std**2)
+  return _tracking_exp(error, std=std, kappa=kappa)
 
 
 def motion_anchor_angular_velocity_error_exp(
-  env: ManagerBasedRlEnv, command_name: str, std: float
+  env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   error = torch.sum(
     torch.square(command.anchor_ang_vel_w - command.robot_anchor_ang_vel_w),
     dim=-1,
   )
-  return torch.exp(-error / std**2)
+  return _tracking_exp(error, std=std, kappa=kappa)
 
 
 def motion_anchor_linear_velocity_body_error_exp(
-  env: ManagerBasedRlEnv, command_name: str, std: float
+  env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
   """Root linear velocity tracking in the robot anchor (base) frame."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
@@ -136,11 +222,11 @@ def motion_anchor_linear_velocity_body_error_exp(
   ref_lin_b = quat_apply_inverse(anchor_quat, command.anchor_lin_vel_w)
   robot_lin_b = quat_apply_inverse(anchor_quat, command.robot_anchor_lin_vel_w)
   error = torch.sum(torch.square(ref_lin_b - robot_lin_b), dim=-1)
-  return torch.exp(-error / std**2)
+  return _tracking_exp(error, std=std, kappa=kappa)
 
 
 def motion_anchor_angular_velocity_body_error_exp(
-  env: ManagerBasedRlEnv, command_name: str, std: float
+  env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
   """Root angular velocity tracking in the robot anchor (base) frame."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
@@ -148,7 +234,7 @@ def motion_anchor_angular_velocity_body_error_exp(
   ref_ang_b = quat_apply_inverse(anchor_quat, command.anchor_ang_vel_w)
   robot_ang_b = quat_apply_inverse(anchor_quat, command.robot_anchor_ang_vel_w)
   error = torch.sum(torch.square(ref_ang_b - robot_ang_b), dim=-1)
-  return torch.exp(-error / std**2)
+  return _tracking_exp(error, std=std, kappa=kappa)
 
 
 def motion_joint_position_error_exp(
@@ -156,34 +242,57 @@ def motion_joint_position_error_exp(
   command_name: str,
   std: float | None = None,
   sigma_per_joint: float | None = None,
+  per_joint: bool = False,
+  *,
+  kappa: float = 1.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Joint position tracking; ``sigma_per_joint`` sets std = σ√n_j (Zest Table S4)."""
+  """Joint position tracking with optional per-joint exponential kernels.
+
+  Default: ``exp(-κ Σ e_i² / std²)`` with ``std = 2σ√n`` when ``sigma_per_joint`` is set.
+  ``per_joint=True``: mean over joints of ``exp(-κ e_i² / (2σ)²)``.
+  """
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   jnt_ids = asset_cfg.joint_ids
   ref_joint = command.joint_pos[:, jnt_ids]
   robot_joint = command.robot_joint_pos[:, jnt_ids]
-  std = _resolve_tracking_std(
+  sq_err = torch.square(ref_joint - robot_joint)
+  if per_joint:
+    if sigma_per_joint is None:
+      raise ValueError("``sigma_per_joint`` is required when ``per_joint`` is True.")
+    std_j = tracking_std_from_sigma(sigma_per_joint, dim=1)
+    return _tracking_exp(sq_err, std=std_j, kappa=kappa).mean(dim=-1)
+  std_eff = _resolve_tracking_std(
     std, sigma_per=sigma_per_joint, dim=ref_joint.shape[-1]
   )
-  error = torch.sum(torch.square(ref_joint - robot_joint), dim=-1)
-  return torch.exp(-error / std**2)
+  return _tracking_exp(torch.sum(sq_err, dim=-1), std=std_eff, kappa=kappa)
 
 
 def motion_joint_velocity_error_exp(
   env: ManagerBasedRlEnv,
   command_name: str,
-  std: float = 1.0,
+  std: float | None = 1.0,
+  sigma_per_joint: float | None = None,
+  per_joint: bool = False,
+  *,
+  kappa: float = 1.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Joint velocity tracking (sum of squared joint vel errors, same kernel as joint pos)."""
+  """Joint velocity tracking; same kernel options as ``motion_joint_position_error_exp``."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   jnt_ids = asset_cfg.joint_ids
-  error = torch.sum(
-    torch.square(command.joint_vel[:, jnt_ids] - command.robot_joint_vel[:, jnt_ids]),
-    dim=-1,
+  sq_err = torch.square(
+    command.joint_vel[:, jnt_ids] - command.robot_joint_vel[:, jnt_ids]
   )
-  return torch.exp(-error / std**2)
+  if per_joint:
+    if sigma_per_joint is None:
+      raise ValueError("``sigma_per_joint`` is required when ``per_joint`` is True.")
+    std_j = tracking_std_from_sigma(sigma_per_joint, dim=1)
+    return _tracking_exp(sq_err, std=std_j, kappa=kappa).mean(dim=-1)
+  std_eff = _resolve_tracking_std(
+    std, sigma_per=sigma_per_joint, dim=sq_err.shape[-1]
+  )
+  return _tracking_exp(torch.sum(sq_err, dim=-1), std=std_eff, kappa=kappa)
 
 
 def motion_relative_body_position_error_exp(
@@ -192,20 +301,25 @@ def motion_relative_body_position_error_exp(
   std: float | None = None,
   body_names: tuple[str, ...] | None = None,
   sigma_per_keybody: float | None = None,
+  per_keybody: bool = False,
+  body_error_aggregate: str = "mean",
+  *,
+  kappa: float = 1.0,
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
-  std = _resolve_tracking_std(
-    std, sigma_per=sigma_per_keybody, dim=len(body_indexes)
+  sq_err = _body_sq_error_per_keybody(
+    command, body_indexes, relative_pos=True, relative_ori=False, lin_vel=False, ang_vel=False
   )
-  error = torch.sum(
-    torch.square(
-      command.body_pos_relative_w[:, body_indexes]
-      - command.robot_body_pos_w[:, body_indexes]
-    ),
-    dim=-1,
+  return _motion_keybody_tracking_exp(
+    sq_err,
+    std=std,
+    sigma_per_keybody=sigma_per_keybody,
+    per_keybody=per_keybody,
+    body_error_aggregate=body_error_aggregate,
+    kappa=kappa,
+    num_bodies=len(body_indexes),
   )
-  return torch.exp(-error.mean(-1) / std**2)
 
 
 def motion_relative_body_orientation_error_exp(
@@ -214,20 +328,25 @@ def motion_relative_body_orientation_error_exp(
   std: float | None = None,
   body_names: tuple[str, ...] | None = None,
   sigma_per_keybody: float | None = None,
+  per_keybody: bool = False,
+  body_error_aggregate: str = "mean",
+  *,
+  kappa: float = 1.0,
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
-  std = _resolve_tracking_std(
-    std, sigma_per=sigma_per_keybody, dim=len(body_indexes)
+  sq_err = _body_sq_error_per_keybody(
+    command, body_indexes, relative_pos=False, relative_ori=True, lin_vel=False, ang_vel=False
   )
-  error = (
-    quat_error_magnitude(
-      command.body_quat_relative_w[:, body_indexes],
-      command.robot_body_quat_w[:, body_indexes],
-    )
-    ** 2
+  return _motion_keybody_tracking_exp(
+    sq_err,
+    std=std,
+    sigma_per_keybody=sigma_per_keybody,
+    per_keybody=per_keybody,
+    body_error_aggregate=body_error_aggregate,
+    kappa=kappa,
+    num_bodies=len(body_indexes),
   )
-  return torch.exp(-error.mean(-1) / std**2)
 
 
 def motion_global_body_linear_velocity_error_exp(
@@ -236,38 +355,82 @@ def motion_global_body_linear_velocity_error_exp(
   std: float | None = None,
   body_names: tuple[str, ...] | None = None,
   sigma_per_keybody: float | None = None,
+  per_keybody: bool = False,
+  body_error_aggregate: str = "mean",
+  *,
+  kappa: float = 1.0,
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
-  std = _resolve_tracking_std(
-    std, sigma_per=sigma_per_keybody, dim=len(body_indexes)
+  sq_err = _body_sq_error_per_keybody(
+    command, body_indexes, relative_pos=False, relative_ori=False, lin_vel=True, ang_vel=False
   )
-  error = torch.sum(
-    torch.square(
-      command.body_lin_vel_w[:, body_indexes]
-      - command.robot_body_lin_vel_w[:, body_indexes]
-    ),
-    dim=-1,
+  return _motion_keybody_tracking_exp(
+    sq_err,
+    std=std,
+    sigma_per_keybody=sigma_per_keybody,
+    per_keybody=per_keybody,
+    body_error_aggregate=body_error_aggregate,
+    kappa=kappa,
+    num_bodies=len(body_indexes),
   )
-  return torch.exp(-error.mean(-1) / std**2)
 
 
 def motion_global_body_angular_velocity_error_exp(
   env: ManagerBasedRlEnv,
   command_name: str,
-  std: float,
+  std: float | None = None,
   body_names: tuple[str, ...] | None = None,
+  sigma_per_keybody: float | None = None,
+  per_keybody: bool = False,
+  body_error_aggregate: str = "mean",
+  *,
+  kappa: float = 1.0,
 ) -> torch.Tensor:
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
-  error = torch.sum(
-    torch.square(
-      command.body_ang_vel_w[:, body_indexes]
-      - command.robot_body_ang_vel_w[:, body_indexes]
-    ),
-    dim=-1,
+  sq_err = _body_sq_error_per_keybody(
+    command, body_indexes, relative_pos=False, relative_ori=False, lin_vel=False, ang_vel=True
   )
-  return torch.exp(-error.mean(-1) / std**2)
+  return _motion_keybody_tracking_exp(
+    sq_err,
+    std=std,
+    sigma_per_keybody=sigma_per_keybody,
+    per_keybody=per_keybody,
+    body_error_aggregate=body_error_aggregate,
+    kappa=kappa,
+    num_bodies=len(body_indexes),
+  )
+
+
+def actuator_torque_soft_limit(
+  env: ManagerBasedRlEnv,
+  soft_ratio: float = 0.95,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalize actuator forces approaching MuJoCo torque limits (normalized soft margin)."""
+  asset: Entity = env.scene[asset_cfg.name]
+  forces = asset.data.actuator_force
+  ctrl_ids = asset.indexing.ctrl_ids
+  tau_max = env.sim.model.actuator_forcerange[:, ctrl_ids, 1]
+  ratio = torch.abs(forces) / tau_max.clamp(min=1.0e-6)
+  violation = torch.clamp(ratio - soft_ratio, min=0.0)
+  return torch.sum(violation, dim=-1)
+
+
+def angular_momentum_penalty(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  *,
+  axes: str = "xy",
+) -> torch.Tensor:
+  """Penalize whole-body angular momentum (roll/pitch by default)."""
+  angmom = env.scene[sensor_name].data
+  if axes == "xy":
+    return torch.sum(torch.square(angmom[..., :2]), dim=-1)
+  if axes == "xyz":
+    return torch.sum(torch.square(angmom), dim=-1)
+  raise ValueError(f"Unsupported axes {axes!r}; use 'xy' or 'xyz'.")
 
 
 def self_collision_cost(

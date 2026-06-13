@@ -1,13 +1,11 @@
-"""BeyondMimic-style env config."""
+"""BeyondMimic-style env config (binary-failure adaptive RSI)."""
 
 from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 
-from wbc_mjlab.env.mdp.commands import (
-  MotionCommandCfg,
-  whole_body_adaptive_similarity_terms,
-)
+from wbc_mjlab.env.mdp.commands import MotionCommandCfg
+from wbc_mjlab.env.mdp.sampling import keybody_similarity_preset
 from wbc_mjlab.robots.g1.configs.base import g1_base_cfg
 
 
@@ -30,8 +28,8 @@ def g1_wbc_binary_failure_env_cfg() -> ManagerBasedRlEnvCfg:
 
   motion_cmd = cfg.commands["motion"]
   assert isinstance(motion_cmd, MotionCommandCfg)
-  motion_cmd.adaptive_sampling_strategy = "binary_failure"
-  motion_cmd.adaptive_similarity_terms = whole_body_adaptive_similarity_terms()
-  motion_cmd.adaptive_bin_width_s = 4.0
   motion_cmd.assistive_wrench_enabled = True
+  motion_cmd.rsi.strategy = "binary_failure"
+  motion_cmd.rsi.similarity_terms = keybody_similarity_preset()
+  motion_cmd.rsi.bin_width_s = 4.0
   return cfg
