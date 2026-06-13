@@ -50,6 +50,7 @@ def save_motion_npz(
   segment_start_idx: np.ndarray | None = None,
   segment_length: np.ndarray | None = None,
   segment_source: np.ndarray | None = None,
+  segment_names: np.ndarray | None = None,
 ) -> None:
   _ = robot_body_names
   output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,6 +69,8 @@ def save_motion_npz(
     payload["segment_start_idx"] = segment_start_idx
     payload["segment_length"] = segment_length
     payload["segment_source"] = segment_source
+    if segment_names is not None:
+      payload["segment_names"] = segment_names
   np.savez(output_path, **payload)
 
 

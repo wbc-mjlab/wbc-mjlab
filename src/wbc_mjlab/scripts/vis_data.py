@@ -90,6 +90,14 @@ def _resolve_motion_dir_and_npz(
     return None, npz_path
 
   if dataset_path is not None:
+    from wbc_mjlab.data_paths import resolve_dataset_root as _resolve_root
+
+    root = _resolve_root(robot_id, dataset_path) if not Path(dataset_path).is_dir() else Path(dataset_path).resolve()
+    if not root.is_dir():
+      root = Path(dataset_path).expanduser().resolve()
+    clips = list_clip_npz_files(root)
+    if clips and not cache_motion_bundle:
+      return root / "npz", clips[0]
     npz_path = resolve_training_motion_file(
       robot_id,
       dataset_path=dataset_path,

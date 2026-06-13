@@ -3,6 +3,8 @@
 Per-robot wiring lives in ``wbc_mjlab.robots.<id>.configs`` (registered via task configs).
 """
 
+from dataclasses import replace
+
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
@@ -23,6 +25,7 @@ from mjlab.viewer import ViewerConfig
 
 import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp import AssistiveWrenchEvent, MotionCommandCfg
+from wbc_mjlab.env.mdp.sampling import AdaptiveSimilarityTermCfg, RsiCfg
 
 VELOCITY_RANGE = {
   "x": (-0.5, 0.5),
@@ -34,6 +37,39 @@ VELOCITY_RANGE = {
 }
 
 _MOTION_COMMAND = "motion"
+
+# --- Motion command / RSI base template (task configs override ``motion_cmd.rsi``). ---
+MOTION_POSE_RANGE = {
+  "x": (-0.05, 0.05),
+  "y": (-0.05, 0.05),
+  "z": (-0.01, 0.01),
+  "roll": (-0.1, 0.1),
+  "pitch": (-0.1, 0.1),
+  "yaw": (-0.2, 0.2),
+}
+MOTION_JOINT_POSITION_RANGE = (-0.1, 0.1)
+MOTION_RESAMPLING_TIME_RANGE = (1.0e9, 1.0e9)
+
+BASE_RSI_SIMILARITY_TERMS: tuple[AdaptiveSimilarityTermCfg, ...] = (
+  AdaptiveSimilarityTermCfg(term="joint_pos", weight=1.0),
+)
+BASE_RSI_CFG = RsiCfg(
+  sampling_mode="adaptive",
+  strategy="similarity_ema",
+  similarity_terms=BASE_RSI_SIMILARITY_TERMS,
+  bin_width_s=4.0,
+  uniform_ratio=0.15,
+  alpha=0.005,
+  temperature_base=1.0,
+  similarity_norm_by_remaining_clip=False,
+  min_bin_span_ratio=0.0,
+  persist_failure_levels=False,
+  failure_levels_filename="rsi_bin_stats.npz",
+)
+
+ASSISTIVE_WRENCH_ENABLED = True
+ASSISTIVE_BETA_MAX = 0.6
+ASSISTIVE_ETA = 0.8
 
 
 def make_base_wbc_env_cfg(
@@ -161,6 +197,14 @@ def make_base_wbc_env_cfg(
       func=mdp.assistive_wrench_gain,
       params={"command_name": "motion"},
     ),
+    "motion_segment_phase": ObservationTermCfg(
+      func=mdp.motion_segment_phase,
+      params={"command_name": _MOTION_COMMAND},
+    ),
+    "motion_tracking_step_rewards": ObservationTermCfg(
+      func=mdp.motion_tracking_step_rewards,
+      params={"command_name": _MOTION_COMMAND},
+    ),
   }
 
   observations = {
@@ -196,21 +240,15 @@ def make_base_wbc_env_cfg(
   commands: dict[str, CommandTermCfg] = {
     "motion": MotionCommandCfg(
       entity_name="robot",
-      resampling_time_range=(1.0e9, 1.0e9),
+      resampling_time_range=MOTION_RESAMPLING_TIME_RANGE,
       debug_vis=True,
-      pose_range={
-        "x": (-0.05, 0.05),
-        "y": (-0.05, 0.05),
-        "z": (-0.01, 0.01),
-        "roll": (-0.1, 0.1),
-        "pitch": (-0.1, 0.1),
-        "yaw": (-0.2, 0.2),
-      },
+      pose_range=MOTION_POSE_RANGE,
       velocity_range=VELOCITY_RANGE,
-      joint_position_range=(-0.1, 0.1),
-      adaptive_bin_width_s=4.0,
-      adaptive_sampling_strategy="similarity_ema",
-      assistive_wrench_enabled=True,
+      joint_position_range=MOTION_JOINT_POSITION_RANGE,
+      rsi=replace(BASE_RSI_CFG),
+      assistive_wrench_enabled=ASSISTIVE_WRENCH_ENABLED,
+      assistive_beta_max=ASSISTIVE_BETA_MAX,
+      assistive_eta=ASSISTIVE_ETA,
       motion_file="",
       anchor_body_name="",
       body_names=(),
@@ -359,6 +397,25 @@ def make_base_wbc_env_cfg(
         "asset_cfg": SceneEntityCfg("robot", site_names=()),
       },
     ),
+    "actuator_torque_soft_limit": RewardTermCfg(
+      func=mdp.actuator_torque_soft_limit,
+      weight=0.0,
+      params={"soft_ratio": 0.95, "asset_cfg": SceneEntityCfg("robot")},
+    ),
+    "angular_momentum": RewardTermCfg(
+      func=mdp.angular_momentum_penalty,
+      weight=0.0,
+      params={"sensor_name": "robot/root_angmom", "axes": "xy"},
+    ),
+    "anti_shake": RewardTermCfg(
+      func=mdp.anti_shake_ang_vel_l2,
+      weight=0.0,
+      params={
+        "command_name": "motion",
+        "threshold": 5.0,
+        "body_names": (),
+      },
+    ),
     # "self_collisions": RewardTermCfg(
     #   func=mdp.self_collision_cost,
     #   weight=-10.0,
@@ -382,7 +439,7 @@ def make_base_wbc_env_cfg(
       },
     ),
     "ee_body_pos": TerminationTermCfg(
-      func=mdp.bad_motion_body_pos,
+      func=mdp.bad_motion_body_pos_z_only,
       params={
         "command_name": "motion",
         "threshold": 0.25,
@@ -409,7 +466,7 @@ def make_base_wbc_env_cfg(
       azimuth=120.0,
     ),
     sim=SimulationCfg(
-      nconmax=45,
+      nconmax=64,
       njmax=250,
       mujoco=MujocoCfg(timestep=0.005, iterations=10, ls_iterations=20),
     ),

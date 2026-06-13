@@ -5,6 +5,8 @@ import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
+from pathlib import Path
+
 import mujoco
 import numpy as np
 import torch
@@ -26,14 +28,16 @@ from mjlab.viewer.debug_visualizer import DebugVisualizer
 
 from wbc_mjlab.env.mdp.sampling import (
   AdaptiveSimilarityTermCfg,
+  RsiCfg,
   TrackingSimilarityState,
   bin_index_for_frame,
+  build_bin_valid_mask,
   compile_similarity_terms,
+  resolve_tracking_reward_indices,
   sample_adaptive_bins,
+  step_tracking_reward_similarity,
   step_tracking_similarity,
   update_failure_ema,
-  whole_body_adaptive_similarity_terms,
-  wbc_joint_only_similarity_terms,
 )
 
 if TYPE_CHECKING:
@@ -49,7 +53,7 @@ _DESIRED_FRAME_COLORS = ((1.0, 0.5, 0.5), (0.5, 1.0, 0.5), (0.5, 0.5, 1.0))
 
 
 class MotionLoader:
-  """Load a flat motion NPZ, optionally with multi-trajectory segment metadata."""
+  """Load a motion library from a bundled NPZ or a dataset directory (``npz/*.npz``)."""
 
   def __init__(
     self,
@@ -59,52 +63,108 @@ class MotionLoader:
     step_dt: float,
     device: str = "cpu",
   ) -> None:
-    data = np.load(motion_file)
-    self.joint_pos = torch.tensor(data["joint_pos"], dtype=torch.float32, device=device)
-    self.joint_vel = torch.tensor(data["joint_vel"], dtype=torch.float32, device=device)
-    self._body_pos_w = torch.tensor(
-      data["body_pos_w"], dtype=torch.float32, device=device
+    from wbc_mjlab.motion.stack_bundle import (
+      list_clip_npz_files,
+      stack_clip_arrays_from_paths,
     )
-    self._body_quat_w = torch.tensor(
-      data["body_quat_w"], dtype=torch.float32, device=device
-    )
-    self._body_lin_vel_w = torch.tensor(
-      data["body_lin_vel_w"], dtype=torch.float32, device=device
-    )
-    self._body_ang_vel_w = torch.tensor(
-      data["body_ang_vel_w"], dtype=torch.float32, device=device
-    )
-    self._body_indexes = body_indexes
-    self.body_pos_w = self._body_pos_w[:, self._body_indexes]
-    self.body_quat_w = self._body_quat_w[:, self._body_indexes]
-    self.body_lin_vel_w = self._body_lin_vel_w[:, self._body_indexes]
-    self.body_ang_vel_w = self._body_ang_vel_w[:, self._body_indexes]
-    self.time_step_total = self.joint_pos.shape[0]
 
-    if "segment_start_idx" in data and "segment_length" in data:
-      self.segment_start_idx = torch.tensor(
-        data["segment_start_idx"], dtype=torch.long, device=device
+    body_idx = body_indexes.detach().cpu().numpy()
+    source = Path(motion_file).expanduser().resolve()
+    self.motion_source = str(source)
+
+    if source.is_dir():
+      clip_paths = list_clip_npz_files(source)
+      if not clip_paths:
+        raise FileNotFoundError(
+          f"No clip NPZs in {source / 'npz'}; convert clips or pass a .npz bundle."
+        )
+      stacked = stack_clip_arrays_from_paths(clip_paths)
+      seg_start = stacked.segment_start_idx
+      seg_len = stacked.segment_length
+      self._load_arrays(
+        joint_pos=stacked.joint_pos,
+        joint_vel=stacked.joint_vel,
+        body_pos_w=stacked.body_pos_w,
+        body_quat_w=stacked.body_quat_w,
+        body_lin_vel_w=stacked.body_lin_vel_w,
+        body_ang_vel_w=stacked.body_ang_vel_w,
+        seg_start=seg_start,
+        seg_len=seg_len,
+        body_idx=body_idx,
+        anchor_body_index=anchor_body_index,
+        step_dt=step_dt,
+        device=device,
       )
-      self.segment_length = torch.tensor(
-        data["segment_length"], dtype=torch.long, device=device
-      )
-    else:
-      self.segment_start_idx = torch.tensor([0], dtype=torch.long, device=device)
-      self.segment_length = torch.tensor(
-        [self.time_step_total], dtype=torch.long, device=device
+      return
+
+    if not source.is_file():
+      raise FileNotFoundError(f"Motion source not found: {source}")
+
+    with np.load(source, allow_pickle=True) as data:
+      if "segment_start_idx" in data and "segment_length" in data:
+        seg_start = np.asarray(data["segment_start_idx"], dtype=np.int64)
+        seg_len = np.asarray(data["segment_length"], dtype=np.int64)
+      else:
+        total = int(data["joint_pos"].shape[0])
+        seg_start = np.asarray([0], dtype=np.int64)
+        seg_len = np.asarray([total], dtype=np.int64)
+
+      self._load_arrays(
+        joint_pos=np.asarray(data["joint_pos"]),
+        joint_vel=np.asarray(data["joint_vel"]),
+        body_pos_w=np.asarray(data["body_pos_w"]),
+        body_quat_w=np.asarray(data["body_quat_w"]),
+        body_lin_vel_w=np.asarray(data["body_lin_vel_w"]),
+        body_ang_vel_w=np.asarray(data["body_ang_vel_w"]),
+        seg_start=seg_start,
+        seg_len=seg_len,
+        body_idx=body_idx,
+        anchor_body_index=anchor_body_index,
+        step_dt=step_dt,
+        device=device,
       )
 
+  def _load_arrays(
+    self,
+    *,
+    joint_pos: np.ndarray,
+    joint_vel: np.ndarray,
+    body_pos_w: np.ndarray,
+    body_quat_w: np.ndarray,
+    body_lin_vel_w: np.ndarray,
+    body_ang_vel_w: np.ndarray,
+    seg_start: np.ndarray,
+    seg_len: np.ndarray,
+    body_idx: np.ndarray,
+    anchor_body_index: int,
+    step_dt: float,
+    device: str,
+  ) -> None:
+    self.joint_pos = torch.as_tensor(joint_pos, dtype=torch.float32, device=device)
+    self.joint_vel = torch.as_tensor(joint_vel, dtype=torch.float32, device=device)
+    self.body_pos_w = torch.as_tensor(
+      np.asarray(body_pos_w[:, body_idx], dtype=np.float32), device=device
+    )
+    self.body_quat_w = torch.as_tensor(
+      np.asarray(body_quat_w[:, body_idx], dtype=np.float32), device=device
+    )
+    self.body_lin_vel_w = torch.as_tensor(
+      np.asarray(body_lin_vel_w[:, body_idx], dtype=np.float32), device=device
+    )
+    self.body_ang_vel_w = torch.as_tensor(
+      np.asarray(body_ang_vel_w[:, body_idx], dtype=np.float32), device=device
+    )
+    self.time_step_total = int(self.joint_pos.shape[0])
+
+    self.segment_start_idx = torch.tensor(seg_start, dtype=torch.long, device=device)
+    self.segment_length = torch.tensor(seg_len, dtype=torch.long, device=device)
     self.num_trajectories = int(self.segment_start_idx.shape[0])
     self.segment_end_idx = self.segment_start_idx + self.segment_length
 
-    anchor_lin_vel = self._body_lin_vel_w[:, anchor_body_index]
-    anchor_ang_vel = self._body_ang_vel_w[:, anchor_body_index]
-    self.anchor_lin_acc_w = torch.gradient(
-      anchor_lin_vel, spacing=step_dt, dim=0
-    )[0]
-    self.anchor_ang_acc_w = torch.gradient(
-      anchor_ang_vel, spacing=step_dt, dim=0
-    )[0]
+    anchor_lin_vel = self.body_lin_vel_w[:, anchor_body_index]
+    anchor_ang_vel = self.body_ang_vel_w[:, anchor_body_index]
+    self.anchor_lin_acc_w = torch.gradient(anchor_lin_vel, spacing=step_dt, dim=0)[0]
+    self.anchor_ang_acc_w = torch.gradient(anchor_ang_vel, spacing=step_dt, dim=0)[0]
 
 
 class MotionCommand(CommandTerm):
@@ -152,31 +212,35 @@ class MotionCommand(CommandTerm):
     self.body_quat_relative_w[:, :, 0] = 1.0
 
     self.bin_width_frames = max(
-      1, int(math.ceil(cfg.adaptive_bin_width_s / max(env.step_dt, 1.0e-6)))
+      1, int(math.ceil(cfg.rsi.bin_width_s / max(env.step_dt, 1.0e-6)))
     )
     segment_bins = torch.ceil(
       self.motion.segment_length.float() / float(self.bin_width_frames)
     ).long()
     self.bins_per_trajectory = max(1, int(segment_bins.max().item()))
-    self.bin_valid_mask = torch.zeros(
-      self.motion.num_trajectories,
-      self.bins_per_trajectory,
-      dtype=torch.bool,
+    self.bin_valid_mask = build_bin_valid_mask(
+      self.motion.segment_length,
+      bins_per_trajectory=self.bins_per_trajectory,
+      bin_width_frames=self.bin_width_frames,
+      min_bin_span_ratio=cfg.rsi.min_bin_span_ratio,
       device=self.device,
     )
-    for traj_idx in range(self.motion.num_trajectories):
-      n_bins = int(segment_bins[traj_idx].item())
-      self.bin_valid_mask[traj_idx, :n_bins] = True
+    self._valid_bin_indices = self.bin_valid_mask.nonzero(as_tuple=False)
+    if self._valid_bin_indices.numel() == 0:
+      raise ValueError(
+        "No valid RSI bins after applying min_bin_span_ratio; "
+        "lower min_bin_span_ratio or use shorter bin_width_s."
+      )
 
-    self.bin_failed_count = torch.zeros(
+    self.bin_failure_levels = torch.zeros(
       self.motion.num_trajectories,
       self.bins_per_trajectory,
       dtype=torch.float,
       device=self.device,
     )
-    self._valid_bin_indices = self.bin_valid_mask.nonzero(as_tuple=False)
 
     self._episode_similarity_sum = torch.zeros(self.num_envs, device=self.device)
+    self._episode_similarity_denom = torch.ones(self.num_envs, device=self.device)
     self._episode_step_count = torch.zeros(
       self.num_envs, dtype=torch.long, device=self.device
     )
@@ -208,16 +272,20 @@ class MotionCommand(CommandTerm):
     self.metrics["assist_gain_mean"] = torch.zeros(self.num_envs, device=self.device)
 
     self._similarity_terms, similarity_weight_sum = compile_similarity_terms(
-      cfg.adaptive_similarity_terms
+      cfg.rsi.similarity_terms
     )
+    self._similarity_term_weight_sum = max(similarity_weight_sum, 1.0e-6)
     if (
-      cfg.adaptive_sampling_strategy == "similarity_ema"
+      cfg.rsi.strategy == "similarity_ema"
+      and not cfg.rsi.similarity_from_rewards
       and similarity_weight_sum <= 0.0
     ):
       raise ValueError(
-        "similarity_ema requires at least one adaptive_similarity_terms entry with weight > 0."
+        "similarity_ema requires at least one rsi.similarity_terms entry with weight > 0 "
+        "when similarity_from_rewards=False."
       )
-    self._similarity_term_weight_sum = max(similarity_weight_sum, 1.0e-6)
+    self._tracking_reward_indices: list[int] | None = None
+    self._tracking_reward_weight_sum = 0.0
 
     self._ghost_model: mujoco.MjModel | None = None
     self._ghost_color = np.array(cfg.viz.ghost_color, dtype=np.float32)
@@ -226,8 +294,24 @@ class MotionCommand(CommandTerm):
   def bin_count(self) -> int:
     return self.motion.num_trajectories * self.bins_per_trajectory
 
+  def _set_episode_similarity_denom(
+    self, env_ids: torch.Tensor, traj_ids: torch.Tensor, time_steps: torch.Tensor
+  ) -> None:
+    if not self.cfg.rsi.similarity_norm_by_remaining_clip:
+      return
+    seg_start = self.motion.segment_start_idx[traj_ids]
+    seg_len = self.motion.segment_length[traj_ids]
+    local_step = torch.clamp(time_steps - seg_start, min=0)
+    remaining = seg_len - local_step
+    max_episode = float(self._env.max_episode_length)
+    norm = torch.minimum(
+      remaining.float(),
+      torch.full_like(remaining.float(), max_episode),
+    )
+    self._episode_similarity_denom[env_ids] = torch.clamp(norm, min=1.0)
+
   def _update_failure_levels(self, env_ids: torch.Tensor) -> None:
-    if self.cfg.sampling_mode != "adaptive" or env_ids.numel() == 0:
+    if self.cfg.rsi.sampling_mode != "adaptive" or env_ids.numel() == 0:
       return
 
     active_mask = self._episode_step_count[env_ids] > 0
@@ -235,12 +319,13 @@ class MotionCommand(CommandTerm):
       return
     env_ids = env_ids[active_mask]
 
-    strategy = self.cfg.adaptive_sampling_strategy
+    rsi = self.cfg.rsi
+    strategy = rsi.strategy
     update_failure_ema(
-      self.bin_failed_count,
+      self.bin_failure_levels,
       strategy=strategy,
       bins_per_trajectory=self.bins_per_trajectory,
-      alpha=self.cfg.adaptive_alpha,
+      alpha=rsi.alpha,
       traj_ids=self.trajectory_ids[env_ids],
       start_bins=self._episode_start_bin[env_ids],
       episode_terminated=(
@@ -258,6 +343,14 @@ class MotionCommand(CommandTerm):
         if strategy == "similarity_ema"
         else None
       ),
+      similarity_denom=(
+        self._episode_similarity_denom[env_ids]
+        if rsi.similarity_norm_by_remaining_clip and strategy == "similarity_ema"
+        else None
+      ),
+      norm_by_remaining_clip=(
+        rsi.similarity_norm_by_remaining_clip and strategy == "similarity_ema"
+      ),
     )
 
   def _set_episode_assist_gain(
@@ -266,7 +359,7 @@ class MotionCommand(CommandTerm):
     if not self.cfg.assistive_wrench_enabled:
       self.episode_assist_gain[env_ids] = 0.0
       return
-    failure = self.bin_failed_count[traj_ids, bins]
+    failure = self.bin_failure_levels[traj_ids, bins]
     similarity = 1.0 - failure
     eta = max(self.cfg.assistive_eta, 1.0e-6)
     self.episode_assist_gain[env_ids] = torch.clamp(
@@ -275,21 +368,23 @@ class MotionCommand(CommandTerm):
 
   def _adaptive_sampling(self, env_ids: torch.Tensor):
     self._update_failure_levels(env_ids)
+    rsi = self.cfg.rsi
 
     traj_ids, bins, time_steps, probs_valid = sample_adaptive_bins(
-      self.bin_failed_count,
+      self.bin_failure_levels,
       self._valid_bin_indices,
       segment_length=self.motion.segment_length,
       segment_start_idx=self.motion.segment_start_idx,
       bin_width_frames=self.bin_width_frames,
-      temperature_base=self.cfg.adaptive_temperature_base,
-      uniform_ratio=self.cfg.adaptive_uniform_ratio,
+      temperature_base=rsi.temperature_base,
+      uniform_ratio=rsi.uniform_ratio,
       num_samples=len(env_ids),
       device=self.device,
     )
     self.trajectory_ids[env_ids] = traj_ids
     self.time_steps[env_ids] = time_steps
     self._episode_start_bin[env_ids] = bins
+    self._set_episode_similarity_denom(env_ids, traj_ids, time_steps)
     self._set_episode_assist_gain(env_ids, traj_ids, bins)
 
     num_valid = max(1, probs_valid.shape[0])
@@ -314,6 +409,7 @@ class MotionCommand(CommandTerm):
     self.time_steps[env_ids] = self.motion.segment_start_idx[traj_ids] + local_frames
     start_bins = self._bin_index_for_frame(traj_ids, self.time_steps[env_ids])
     self._episode_start_bin[env_ids] = start_bins
+    self._set_episode_similarity_denom(env_ids, traj_ids, self.time_steps[env_ids])
     self._set_episode_assist_gain(env_ids, traj_ids, start_bins)
 
     num_valid = max(1, int(self.bin_valid_mask.sum().item()))
@@ -342,7 +438,30 @@ class MotionCommand(CommandTerm):
       ),
     )
 
+  def _ensure_tracking_reward_indices(self) -> None:
+    if self._tracking_reward_indices is not None:
+      return
+    rsi = self.cfg.rsi
+    self._tracking_reward_indices, self._tracking_reward_weight_sum = (
+      resolve_tracking_reward_indices(
+        self._env.reward_manager,
+        name_prefix=rsi.tracking_reward_prefix,
+      )
+    )
+    if not self._tracking_reward_indices:
+      raise ValueError(
+        "similarity_from_rewards requires at least one reward term "
+        f"matching prefix {rsi.tracking_reward_prefix!r} with weight > 0."
+      )
+
   def _step_tracking_similarity(self) -> torch.Tensor:
+    if self.cfg.rsi.similarity_from_rewards:
+      self._ensure_tracking_reward_indices()
+      return step_tracking_reward_similarity(
+        self._env.reward_manager._step_reward,
+        self._tracking_reward_indices,
+        self._tracking_reward_weight_sum,
+      )
     return step_tracking_similarity(
       self._similarity_terms,
       self._similarity_term_weight_sum,
@@ -451,7 +570,8 @@ class MotionCommand(CommandTerm):
   @property
   def body_pos_w(self) -> torch.Tensor:
     return (
-      self.motion.body_pos_w[self.time_steps] + self._env.scene.env_origins[:, None, :]
+      self.motion.body_pos_w[self.time_steps]
+      + self._env.scene.env_origins[:, None, :]
     )
 
   @property
@@ -469,21 +589,21 @@ class MotionCommand(CommandTerm):
   @property
   def anchor_pos_w(self) -> torch.Tensor:
     return (
-      self.motion.body_pos_w[self.time_steps, self.motion_anchor_body_index]
+      self.motion.body_pos_w[self.time_steps][:, self.motion_anchor_body_index]
       + self._env.scene.env_origins
     )
 
   @property
   def anchor_quat_w(self) -> torch.Tensor:
-    return self.motion.body_quat_w[self.time_steps, self.motion_anchor_body_index]
+    return self.motion.body_quat_w[self.time_steps][:, self.motion_anchor_body_index]
 
   @property
   def anchor_lin_vel_w(self) -> torch.Tensor:
-    return self.motion.body_lin_vel_w[self.time_steps, self.motion_anchor_body_index]
+    return self.motion.body_lin_vel_w[self.time_steps][:, self.motion_anchor_body_index]
 
   @property
   def anchor_ang_vel_w(self) -> torch.Tensor:
-    return self.motion.body_ang_vel_w[self.time_steps, self.motion_anchor_body_index]
+    return self.motion.body_ang_vel_w[self.time_steps][:, self.motion_anchor_body_index]
 
   @property
   def anchor_lin_acc_w(self) -> torch.Tensor:
@@ -588,17 +708,19 @@ class MotionCommand(CommandTerm):
     self.robot.reset(env_ids=env_ids)
 
   def _resample_command(self, env_ids: torch.Tensor):
-    if self.cfg.sampling_mode == "start":
+    rsi = self.cfg.rsi
+    if rsi.sampling_mode == "start":
       self.trajectory_ids[env_ids] = 0
       self.time_steps[env_ids] = self.motion.segment_start_idx[0]
       self._episode_start_bin[env_ids] = 0
       start_traj = self.trajectory_ids[env_ids]
       start_bins = self._episode_start_bin[env_ids]
+      self._set_episode_similarity_denom(env_ids, start_traj, self.time_steps[env_ids])
       self._set_episode_assist_gain(env_ids, start_traj, start_bins)
-    elif self.cfg.sampling_mode == "uniform":
+    elif rsi.sampling_mode == "uniform":
       self._uniform_sampling(env_ids)
     else:
-      assert self.cfg.sampling_mode == "adaptive"
+      assert rsi.sampling_mode == "adaptive"
       self._adaptive_sampling(env_ids)
 
     root_pos = self.body_pos_w[env_ids, 0].clone()
@@ -688,7 +810,7 @@ class MotionCommand(CommandTerm):
     self._update_command(advance_time=dt > 0.0)
 
   def _update_command(self, *, advance_time: bool = True):
-    if self.cfg.adaptive_sampling_strategy == "similarity_ema" and advance_time:
+    if self.cfg.rsi.strategy == "similarity_ema" and advance_time:
       self._episode_similarity_sum += self._step_tracking_similarity()
       self._episode_step_count += 1
 
@@ -857,17 +979,7 @@ class MotionCommandCfg(MjlabMotionCommandCfg):
   pose_range: dict[str, tuple[float, float]] = field(default_factory=dict)
   velocity_range: dict[str, tuple[float, float]] = field(default_factory=dict)
   joint_position_range: tuple[float, float] = (-0.52, 0.52)
-  adaptive_bin_width_s: float = 4.0
-  adaptive_uniform_ratio: float = 0.15
-  adaptive_alpha: float = 0.005
-  adaptive_temperature_base: float = 1.0
-  adaptive_sampling_strategy: Literal["binary_failure", "similarity_ema"] = (
-    "similarity_ema"
-  )
-  adaptive_similarity_terms: tuple[AdaptiveSimilarityTermCfg, ...] = field(
-    default_factory=wbc_joint_only_similarity_terms
-  )
-  sampling_mode: Literal["adaptive", "uniform", "start"] = "adaptive"
+  rsi: RsiCfg = field(default_factory=RsiCfg)
   assistive_wrench_enabled: bool = True
   assistive_beta_max: float = 0.6
   assistive_eta: float = 0.8

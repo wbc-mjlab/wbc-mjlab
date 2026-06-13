@@ -5,9 +5,10 @@ Adds auto-checkpoint discovery: when no ``--checkpoint-file``,
 looks in ``logs/rsl_rl/<experiment_name>/`` for the latest run folder and
 picks the highest-iteration ``model_<N>.pt`` checkpoint there.
 
-For **any** registered WBC tracking task, policy ONNX and
-``config.yaml`` are written to ``<checkpoint_run_dir>/params/`` **before**
-the play viewer opens (see ``wbc_mjlab.deploy_paths``).
+For **any** registered WBC tracking task, policy ONNX,
+``config.yaml``, and ``motion_library.yaml`` are written to
+``<checkpoint_run_dir>/params/`` **before** the play viewer opens
+(see ``wbc_mjlab.deploy_paths``).
 
 ``run_play`` below mirrors ``mjlab.scripts.play.run_play`` with that hook inserted;
 keep it aligned when upgrading mjlab.
@@ -91,17 +92,23 @@ def _export_onnx_pre_viewer(
 
   if isinstance(runner, PolicyOnlyMotionTrackingRunner):
     try:
-      from wbc_mjlab.export.policy_bundle import export_tracking_params_yaml
+      from wbc_mjlab.export.policy_bundle import export_deploy_params
       from wbc_mjlab.tasks import last_registered_robot_id
 
-      yaml_path = export_tracking_params_yaml(
-        params_dir,
+      yaml_path, rsi_path, manifest_path = export_deploy_params(
+        log_dir,
         runner.env.unwrapped.cfg,
+        runner.env.unwrapped,
         robot_id=last_registered_robot_id(),
+        write_motion_library=True,
       )
       print(f"[INFO] WBC tracking params written to {yaml_path.resolve()}")
+      if rsi_path is not None:
+        print(f"[INFO] RSI bin stats written to {rsi_path.resolve()}")
+      if manifest_path is not None:
+        print(f"[INFO] Motion library manifest written to {manifest_path.resolve()}")
     except Exception as e:
-      print(f"[WARN] WBC tracking params export failed: {e}")
+      print(f"[WARN] Deploy params export failed: {e}")
 
 
 def _find_latest_checkpoint(experiment_name: str) -> Path | None:
@@ -178,7 +185,7 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
   if is_tracking_task and cfg._demo_mode:
     motion_cmd = env_cfg.commands["motion"]
     assert isinstance(motion_cmd, MotionCommandCfg)
-    motion_cmd.sampling_mode = "uniform"
+    motion_cmd.rsi.sampling_mode = "uniform"
 
   if is_tracking_task:
     motion_cmd = env_cfg.commands["motion"]

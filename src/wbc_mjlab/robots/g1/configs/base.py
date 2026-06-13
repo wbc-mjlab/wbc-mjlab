@@ -38,6 +38,8 @@ G1_EE_TERMINATION_BODY_NAMES: tuple[str, ...] = (
   "right_wrist_yaw_link",
 )
 
+G1_ENDEFFECTOR_BODY_NAMES: tuple[str, ...] = G1_EE_TERMINATION_BODY_NAMES
+
 G1_WRIST_BODY_NAMES: tuple[str, ...] = (
   "left_wrist_yaw_link",
   "right_wrist_yaw_link",
@@ -92,7 +94,6 @@ def g1_base_cfg() -> ManagerBasedRlEnvCfg:
 
   motion_cmd = cfg.commands["motion"]
   assert isinstance(motion_cmd, MotionCommandCfg)
-  motion_cmd.sampling_mode = "adaptive"
   motion_cmd.anchor_body_name = G1_ANCHOR_BODY_NAME
   motion_cmd.body_names = G1_MOTION_BODY_NAMES
 

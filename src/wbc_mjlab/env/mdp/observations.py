@@ -315,3 +315,33 @@ def joint_torque_envelope_margin(
   margin_high = (tau_high - tau) / cap
   margin_low = (tau - tau_low) / cap
   return torch.minimum(margin_high, margin_low).flatten(start_dim=1)
+
+
+def motion_segment_phase(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+  """Normalized clip progress in ``[0, 1]`` (privileged critic feature)."""
+  command = _motion_command(env, command_name)
+  seg_start = command.motion.segment_start_idx[command.trajectory_ids]
+  seg_len = command.motion.segment_length[command.trajectory_ids].float().clamp(min=1.0)
+  local_step = (command.time_steps - seg_start).float()
+  phase = local_step / seg_len
+  return phase.clamp(0.0, 1.0).unsqueeze(-1)
+
+
+def motion_tracking_step_rewards(
+  env: ManagerBasedRlEnv, command_name: str
+) -> torch.Tensor:
+  """Unweighted per-step ``motion_*`` reward values (privileged critic feature)."""
+  if not hasattr(env, "reward_manager"):
+    n_terms = sum(1 for name in env.cfg.rewards if name.startswith("motion_"))
+    return torch.zeros(env.num_envs, n_terms, device=env.device)
+
+  command = _motion_command(env, command_name)
+  if not hasattr(command, "_critic_motion_reward_indices"):
+    reward_manager = env.reward_manager
+    command._critic_motion_reward_indices = [
+      idx
+      for idx, name in enumerate(reward_manager._term_names)
+      if name.startswith("motion_")
+    ]
+  indices = command._critic_motion_reward_indices
+  return env.reward_manager._step_reward[:, indices]
