@@ -1,58 +1,93 @@
-"""Default WBC env config (deploy-style tracking, standalone from Zest)."""
+"""Default WBC env: Zest Table S4 core + deploy extras (EE z cutoff, foot slip, anti-shake)."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 
+import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
-from wbc_mjlab.env.mdp.sampling import joint_pos_similarity_preset
-from wbc_mjlab.robots.g1.configs.base import g1_base_cfg
+from wbc_mjlab.robots.g1.configs.base import (
+  G1_EE_TERMINATION_BODY_NAMES,
+  G1_MOTION_BODY_NAMES,
+  G1_WRIST_BODY_NAMES,
+  g1_base_cfg,
+)
 
-# Zest Table S4 joint kernel: exp(-κ‖e‖²/σ²) with κ=1/4, σ=0.3 per DoF.
-_JOINT_TRACKING_KAPPA = 0.25
-_JOINT_TRACKING_SIGMA = 0.4
+# Zest Table S4: exp(-κ‖e‖²/σ²) with κ = 1/4.
+_TRACKING_KAPPA = 0.25
+
+_TRACKING_REWARDS = (
+  "motion_global_root_pos",
+  "motion_global_root_ori",
+  "motion_root_lin_vel_b",
+  "motion_root_ang_vel_b",
+  "motion_body_pos",
+  "motion_body_ori",
+  "motion_joint_pos",
+)
+
+
+def _apply_tracking_kappa(rw, *names: str) -> None:
+  for name in names:
+    rw[name].params["kappa"] = _TRACKING_KAPPA
 
 
 def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Joint-only RSI, assistive wrench, deploy-style actor obs, mjlab tracking rewards."""
+  """Zest tracking + RSI on all keybodies, plus EE height resets and light regularizers."""
   cfg = g1_base_cfg()
   rw = cfg.rewards
 
-  rw["motion_global_root_pos"].weight = 0.5
-  rw["motion_global_root_pos"].params["std"] = 0.5
+  # --- Zest Table S4 tracking (all weight 1.0); whole-body keybodies ---
+  rw["motion_global_root_pos"].weight = 1.0
+  rw["motion_global_root_pos"].params["std"] = 0.4
   rw["motion_global_root_ori"].weight = 1.0
-  rw["motion_global_root_ori"].params["std"] = 0.4
+  rw["motion_global_root_ori"].params["std"] = 0.5
   rw["motion_root_lin_vel_b"].weight = 1.0
-  rw["motion_root_lin_vel_b"].params["std"] = 1.0
+  rw["motion_root_lin_vel_b"].params["std"] = 0.6
   rw["motion_root_ang_vel_b"].weight = 1.0
   rw["motion_root_ang_vel_b"].params["std"] = 1.5
-  rw["motion_body_pos"].weight = 1.5
-  rw["motion_body_pos"].params["std"] = 0.2
+  rw["motion_body_pos"].weight = 1.0
+  rw["motion_body_pos"].params.pop("std", None)
+  rw["motion_body_pos"].params["sigma_per_keybody"] = 0.2
+  rw["motion_body_pos"].params["body_error_aggregate"] = "sum"
+  rw["motion_body_pos"].params["body_names"] = G1_MOTION_BODY_NAMES
   rw["motion_body_ori"].weight = 1.0
-  rw["motion_body_ori"].params["std"] = 0.4
-  rw["motion_body_lin_vel"].weight = 1.0
-  rw["motion_body_lin_vel"].params["std"] = 1.0
-  rw["motion_body_ang_vel"].weight = 1.0
-  rw["motion_body_ang_vel"].params["std"] = 3.14
+  rw["motion_body_ori"].params.pop("std", None)
+  rw["motion_body_ori"].params["sigma_per_keybody"] = 0.4
+  rw["motion_body_ori"].params["body_error_aggregate"] = "sum"
+  rw["motion_body_ori"].params["body_names"] = G1_MOTION_BODY_NAMES
   rw["motion_joint_pos"].weight = 1.0
-  rw["motion_joint_pos"].params["std"] = 0.5
+  rw["motion_joint_pos"].params.pop("std", None)
   rw["motion_joint_pos"].params.pop("per_joint", None)
-  rw["motion_joint_pos"].params["sigma_per_joint"] = _JOINT_TRACKING_SIGMA
-  rw["motion_joint_pos"].params["kappa"] = _JOINT_TRACKING_KAPPA
-  rw["motion_joint_vel"].weight = 0.5
-  rw["motion_joint_vel"].params["std"] = 2.0
+  rw["motion_joint_pos"].params["sigma_per_joint"] = 0.3
 
-  rw["action_rate_l1"].weight = -0.12
-  rw["joint_acc"].weight = -5.0e-6
-  rw["survival"].weight = 1.0
-  rw["foot_slip"].weight = 0.0
-  rw["joint_limit"].weight = 0.0
-  rw["actuator_torque_soft_limit"].weight = 0.0
+  _apply_tracking_kappa(rw, *_TRACKING_REWARDS)
+
+  # --- WBC extras (mjlab whole-body vel; not in Zest Table S4) ---
+  rw["motion_body_lin_vel"].weight = 0.5
+  rw["motion_body_lin_vel"].params["std"] = 1.0
+  rw["motion_body_lin_vel"].params["body_names"] = G1_MOTION_BODY_NAMES
+  rw["motion_body_ang_vel"].weight = 0.5
+  rw["motion_body_ang_vel"].params["std"] = 3.14
+  rw["motion_body_ang_vel"].params["body_names"] = G1_MOTION_BODY_NAMES
+  rw["motion_joint_vel"].weight = 0.0
   rw["neg_regen_power"].weight = 0.0
-  rw["anti_shake"].weight = 0.0
   rw["angular_momentum"].weight = 0.0
+
+  rw["survival"].weight = 1.0
+  rw["action_rate_l1"].weight = -0.1
+  rw["joint_acc"].weight = -5.0e-6
+  rw["joint_limit"].weight = -10.0
+  rw["actuator_torque_soft_limit"].weight = -1.0
+  rw["actuator_torque_soft_limit"].params["soft_ratio"] = 0.9
+
+  rw["foot_slip"].weight = -0.0
+  rw["anti_shake"].weight = 0.0
+  # rw["anti_shake"].params["body_names"] = G1_WRIST_BODY_NAMES
+  # rw["anti_shake"].params["threshold"] = 1.5
 
   cfg.observations["actor"].history_length = 1
 
@@ -61,17 +96,34 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   motion_cmd.assistive_wrench_enabled = True
   motion_cmd.rsi = replace(
     motion_cmd.rsi,
-    strategy="similarity_ema",
-    similarity_terms=joint_pos_similarity_preset(),
-    similarity_from_rewards=False,
+    similarity_from_rewards=True,
     bin_width_s=4.0,
-    min_bin_span_ratio=0.0,
-    similarity_norm_by_remaining_clip=False,
-    persist_failure_levels=False,
+    similarity_norm_by_remaining_clip=True,
+    min_bin_span_ratio=0.5,
+    persist_failure_levels=True,
   )
 
   actor = cfg.observations["actor"]
   for key in ("motion_anchor_pos_b", "base_lin_vel", "ref_joint_vel"):
     actor.terms.pop(key, None)
+
+  cfg.terminations["anchor_pos"].params["threshold"] = 0.35
+  cfg.terminations["ee_body_pos"] = TerminationTermCfg(
+    func=mdp.bad_motion_body_pos_z_only,
+    params={
+      "command_name": "motion",
+      "threshold": 0.25,
+      "body_names": G1_EE_TERMINATION_BODY_NAMES,
+    },
+  )
+  cfg.terminations["keybody_ground_contact_force"] = TerminationTermCfg(
+    func=mdp.excessive_keybody_ground_contact_force,
+    params={
+      "sensor_name": "keybodies_ground_contact",
+      "body_names": G1_MOTION_BODY_NAMES,
+      "body_slot_order": G1_MOTION_BODY_NAMES,
+      "force_threshold": 2000.0,
+    },
+  )
 
   return cfg

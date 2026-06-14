@@ -28,7 +28,7 @@ def main() -> None:
   parser.add_argument(
     "--task",
     default=None,
-    help="WBC task id (e.g. Wbc-G1-NoSE). Overrides --no-state-estimation.",
+    help="WBC task id (e.g. Wbc-G1-Zest). Overrides --no-state-estimation.",
   )
   parser.add_argument(
     "--play",

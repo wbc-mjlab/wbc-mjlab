@@ -482,6 +482,9 @@ class MotionCommand(CommandTerm):
     )
 
   # --- WBC reference features (Table S3); stacked in ``command`` for the actor. ---
+  #
+  # TODO(SE obs): Optional MotionCommand properties for SE task actor layouts (full anchor /
+  # keybody xyz+ori reference command). Non-SE ``command`` stack and default actor terms stay.
 
   @property
   def ref_base_height(self) -> torch.Tensor:

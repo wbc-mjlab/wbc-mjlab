@@ -6,9 +6,8 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.robots.g1.configs.binary_failure import g1_wbc_binary_failure_env_cfg
-from wbc_mjlab.robots.g1.configs.nose import g1_wbc_nose_env_cfg
 from wbc_mjlab.robots.g1.configs.wbc import g1_wbc_env_cfg
-from wbc_mjlab.robots.g1.configs.zest import g1_wbc_zest_env_cfg
+from wbc_mjlab.robots.g1.configs.zest import g1_wbc_zest_env_cfg, g1_wbc_zest_se_env_cfg
 from wbc_mjlab.tasks.config import WbcTaskConfig
 
 G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
@@ -16,24 +15,24 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
     task_id="Wbc-G1",
     robot_id="g1",
     description=(
-      "Default deploy-style WBC: joint-only RSI, mjlab tracking rewards, actor history=1."
+      "Zest Table S4 tracking + RSI, EE z resets, light foot slip / anti-shake, history=1."
     ),
     experiment_name="wbc_g1",
     build_env_cfg=g1_wbc_env_cfg,
   ),
   WbcTaskConfig(
-    task_id="Wbc-G1-NoSE",
-    robot_id="g1",
-    description="Deploy-style obs, same env as Zest (no history).",
-    experiment_name="wbc_g1_nose",
-    build_env_cfg=g1_wbc_nose_env_cfg,
-  ),
-  WbcTaskConfig(
     task_id="Wbc-G1-Zest",
     robot_id="g1",
-    description="No state estimation, reward-aligned RSI (Zest paper).",
+    description="Zest paper repro: no SE, reward-aligned RSI.",
     experiment_name="wbc_g1_zest",
     build_env_cfg=g1_wbc_zest_env_cfg,
+  ),
+  WbcTaskConfig(
+    task_id="Wbc-G1-Zest-SE",
+    robot_id="g1",
+    description="Zest rewards/RSI with motion_anchor_pos_b + base_lin_vel only.",
+    experiment_name="wbc_g1_zest_se",
+    build_env_cfg=g1_wbc_zest_se_env_cfg,
   ),
   WbcTaskConfig(
     task_id="Wbc-G1-BinaryFailure",
@@ -93,7 +92,7 @@ __all__ = [
   "get_g1_task_config",
   "g1_wbc_binary_failure_env_cfg",
   "g1_wbc_env_cfg",
-  "g1_wbc_nose_env_cfg",
   "g1_wbc_zest_env_cfg",
+  "g1_wbc_zest_se_env_cfg",
   "make_g1_wbc_env_cfg",
 ]
