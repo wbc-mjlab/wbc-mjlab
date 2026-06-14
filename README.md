@@ -14,7 +14,7 @@ Train with `--task`, point at a motion library (`--dataset` / `--motion-file`), 
 | **Tasks, not forks** | Each paper’s distinguishing choices become a **task** (`Wbc-G1-Zest`, …) with an env builder in `robots/<id>/configs/`—same CLI, same logs layout, comparable runs. |
 | **Neutral code, cited methods** | Implementation names stay generic (`similarity_ema`, `binary_failure`). Paper links live in task descriptions and module docstrings. |
 | **Reproducible data path** | Motion libraries under `data/<robot>/<dataset>/`; conversion scripts; optional cached bundles. See [data/README.md](data/README.md). |
-| **Deploy parity** | `Wbc-G1-NoSE` matches deploy-style observations; play exports policy artifacts for `wbc_g1_deploy`. |
+| **Deploy parity** | `Wbc-G1` / `Wbc-G1-Zest` use deploy-style obs (no SE); play exports policy artifacts for `wbc_g1_deploy`. |
 
 ## Paper ↔ task map (G1)
 
@@ -22,9 +22,9 @@ Tasks are starting points for reproduction—not guaranteed bit-for-bit matches 
 
 | Method / paper | Task id | What differs in this repo |
 |----------------|---------|---------------------------|
-| **WBC** (default stack) | `Wbc-G1` | Deploy-style obs, joint-only RSI, assistive wrench, **actor history = 10** |
-| **Zest** | `Wbc-G1-Zest` | Same RSI/obs as deploy stack, no history |
-| **Deploy / no SE** | `Wbc-G1-NoSE` | Same env as Zest (for export parity) |
+| **WBC** (default stack) | `Wbc-G1` | Zest core + EE z resets, foot slip, anti-shake, deploy obs (history=1) |
+| **Zest** | `Wbc-G1-Zest` | Paper repro: Table S4, reward-aligned RSI, no SE |
+| **Zest + SE** | `Wbc-G1-Zest-SE` | Same rewards/RSI as Zest + `motion_anchor_pos_b`, `base_lin_vel` |
 | **BeyondMimic** | `Wbc-G1-BinaryFailure` | Full obs, whole-body RSI + binary failure resampling |
 | **Sonic** and others | *(add task)* | Shared motion command stack; add a builder + `WbcTaskConfig` entry |
 
@@ -72,9 +72,9 @@ pip install -e .
 
 | Task id | Logs under | Purpose |
 |---------|------------|---------|
-| `Wbc-G1` | `logs/rsl_rl/wbc_g1/` | Joint-only RSI, deploy-style obs, actor history 10 |
-| `Wbc-G1-NoSE` | `logs/rsl_rl/wbc_g1_nose/` | Deploy export (same env as Zest) |
-| `Wbc-G1-Zest` | `logs/rsl_rl/wbc_g1_zest/` | Zest reproduction, no history |
+| `Wbc-G1` | `logs/rsl_rl/wbc_g1/` | Default WBC stack |
+| `Wbc-G1-Zest` | `logs/rsl_rl/wbc_g1_zest/` | Zest paper repro (no SE) |
+| `Wbc-G1-Zest-SE` | `logs/rsl_rl/wbc_g1_zest_se/` | Zest + anchor pos / base lin vel obs |
 | `Wbc-G1-BinaryFailure` | `logs/rsl_rl/wbc_g1_binary/` | BeyondMimic-style binary failure RSI |
 
 ```bash
@@ -88,7 +88,7 @@ Pick a **task** to match the paper you are reproducing, then pass a **dataset**:
 ```bash
 wbc-mjlab-train --task Wbc-G1-Zest --dataset lafan
 wbc-mjlab-train --task Wbc-G1-BinaryFailure --dataset lafan
-wbc-mjlab-play --task Wbc-G1-NoSE --dataset lafan
+wbc-mjlab-play --task Wbc-G1-Zest --dataset lafan
 ```
 
 **Preferred:** `--task` + dataset (robot inferred from task → `data/g1/…`):
@@ -104,7 +104,7 @@ Training loads `npz/*.npz` in memory by default (no temp stack). Pass **`--cache
 
 ```bash
 wbc-mjlab-train --robot g1 --dataset lafan
-wbc-mjlab-train --robot g1 --no-state-estimation --dataset lafan   # → Wbc-G1-NoSE
+wbc-mjlab-train --robot g1 --no-state-estimation --dataset lafan   # → Wbc-G1-Zest
 ```
 
 Motion source (pick one):
@@ -145,7 +145,7 @@ When a dataset has ``npz/*.npz`` clips, the GUI lists them in a **Motion** dropd
 Checkpoint saves write `params/config.yaml` alongside `params/policy.onnx`.
 
 ```bash
-wbc-mjlab-export-tracking-params --task Wbc-G1-NoSE --out /path/to/config.yaml
+wbc-mjlab-export-tracking-params --task Wbc-G1-Zest --out /path/to/config.yaml
 ```
 
 ## Add a robot or paper task

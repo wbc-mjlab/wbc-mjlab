@@ -1,4 +1,4 @@
-"""Shared CLI flags for WBC mjlab tasks (``Wbc-G1``, ``Wbc-G1-NoSE``, …)."""
+"""Shared CLI flags for WBC mjlab tasks (``Wbc-G1``, ``Wbc-G1-Zest``, …)."""
 
 from __future__ import annotations
 

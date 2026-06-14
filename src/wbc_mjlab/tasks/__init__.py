@@ -11,7 +11,8 @@ TASK_ID = DEFAULT_TASK_ID  # back-compat
 LEGACY_TASK_TO_ID: dict[str, str] = {
   "Wbc": DEFAULT_TASK_ID,
   "Wbc-Tracking-G1": "Wbc-G1",
-  "Wbc-Tracking-G1-No-State-Estimation": "Wbc-G1-NoSE",
+  "Wbc-Tracking-G1-No-State-Estimation": "Wbc-G1-Zest",
+  "Wbc-G1-NoSE": "Wbc-G1-Zest",
 }
 
 _ALL_TASKS: tuple[WbcTaskConfig, ...] | None = None
@@ -127,7 +128,7 @@ def resolve_task_id(
     return get_task_config(task).task_id
   rid = resolve_robot_id(robot_id or "g1")
   if no_state_estimation:
-    return f"Wbc-{rid.upper()}-NoSE"
+    return f"Wbc-{rid.upper()}-Zest"
   return f"Wbc-{rid.upper()}"
 
 

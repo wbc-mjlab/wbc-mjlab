@@ -24,7 +24,7 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 - [x] Dwell on last frame at clip end, then timeout reset (not failure)
 - [x] Enable joint position limit reward; add joint torque limit (Table S4)
 - [x] Optional: L_max-normalized similarity EMA (§S5)
-- [x] Clarify `Wbc-G1` actor history=10 vs Zest (no history)
+- [ ] SE task obs: swap actor terms only (full ref xyz+ori command; z-only tracking errors; omit ref_gravity_b / projected_gravity). Non-SE template unchanged.
 
 ### SONIC tracker (§3.1 — not universal token / VLA)
 
