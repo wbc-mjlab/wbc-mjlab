@@ -76,18 +76,9 @@ def make_base_wbc_env_cfg(
   use_reference_residual_action: bool = True,
 ) -> ManagerBasedRlEnvCfg:
   motion = {"command_name": _MOTION_COMMAND}
-  # Actor: WBC reference terms first, then proprio (+ optional SE terms via task configs).
-  # Reference obs noise: SONIC Table 2 target motion perturbations (actor only;
-  # critic has enable_corruption=False and play mode disables actor corruption).
-  #
-  # Default template below is for non-SE / deploy-style tasks (Zest, Wbc-G1, …): keep as-is.
-  #
-  # TODO(SE obs, task configs only): State-estimation tasks should swap actor terms here,
-  # not replace this template. Planned SE layout (see ``robots/.../configs`` + obs helpers):
-  #   - Reference command on actor: full anchor xyz + full orientation; full keybody xyz + ori.
-  #   - SE measurements on actor: z-only tracking errors + base_lin_vel (not full xyz error).
-  #   - Omit from SE actor layouts: ref_gravity_b, projected_gravity, ref_joint_vel, and
-  #     full motion_anchor_pos_b (use z-only tracking-error term instead).
+  # Non-SE actor: reference command + proprio only. SE measurements live in
+  # ``configure_state_estimation_actor_obs`` (``env/se_actor_obs.py``).
+  # Task configs may drop terms (e.g. ``ref_joint_vel``) per policy layout.
   actor_terms = {
     "ref_base_height": ObservationTermCfg(
       func=mdp.ref_base_height,
@@ -136,16 +127,6 @@ def make_base_wbc_env_cfg(
       noise=Unoise(n_min=-1.5, n_max=1.5),
     ),
     "actions": ObservationTermCfg(func=mdp.last_action),
-    "motion_anchor_pos_b": ObservationTermCfg(
-      func=mdp.motion_anchor_pos_b,
-      params={"command_name": _MOTION_COMMAND},
-      noise=Unoise(n_min=-0.25, n_max=0.25),
-    ),
-    "base_lin_vel": ObservationTermCfg(
-      func=mdp.builtin_sensor,
-      params={"sensor_name": ""},
-      noise=Unoise(n_min=-0.5, n_max=0.5),
-    ),
   }
 
   # Critic: actor (no noise) + privileged keybody / contact features.
@@ -180,9 +161,6 @@ def make_base_wbc_env_cfg(
     ),
     "motion_body_ang_vel": ObservationTermCfg(
       func=mdp.motion_body_ang_vel, params={"command_name": "motion"}
-    ),
-    "ref_joint_vel": ObservationTermCfg(
-      func=mdp.ref_joint_vel, params={"command_name": "motion"}
     ),
     "ref_base_lin_acc": ObservationTermCfg(
       func=mdp.ref_base_lin_acc_b, params={"command_name": "motion"}

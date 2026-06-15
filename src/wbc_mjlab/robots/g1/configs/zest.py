@@ -9,10 +9,12 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 
 import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
+from wbc_mjlab.env.se_actor_obs import configure_state_estimation_actor_obs
 from wbc_mjlab.robots.g1.configs.base import (
   G1_ENDEFFECTOR_BODY_NAMES,
   G1_MOTION_BODY_NAMES,
   g1_base_cfg,
+  wire_g1_imu_sensors,
 )
 
 # Catastrophic ground-contact spike only (Zest §Early Terminations); allows multi-contact skills.
@@ -21,38 +23,9 @@ KEYBODY_GROUND_CONTACT_FORCE_THRESHOLD = 2000.0
 # Zest Table S4: exp(-κ‖e‖²/σ²) with κ = 1/4.
 _TRACKING_KAPPA = 0.25
 
-# Seven positive tracking terms (Table S4); no separate keybody vel / joint vel terms.
-_ZEST_TRACKING_REWARDS = (
-  "motion_global_root_pos",
-  "motion_global_root_ori",
-  "motion_root_lin_vel_b",
-  "motion_root_ang_vel_b",
-  "motion_body_pos",
-  "motion_body_ori",
-  "motion_joint_pos",
-)
 
-# SE actor terms today (interim); see env TODO(SE obs) for planned swap in task configs.
-# TODO(SE): replace with z-only tracking-error terms + full xyz/ori reference command obs;
-# drop ref_gravity_b / projected_gravity from SE layouts. Non-SE tasks unchanged.
-_ZEST_SE_OBS = ("motion_anchor_pos_b", "base_lin_vel")
-
-
-def _apply_tracking_kappa(rw, *names: str) -> None:
-  for name in names:
-    rw[name].params["kappa"] = _TRACKING_KAPPA
-
-
-def _configure_zest_actor_obs(cfg: ManagerBasedRlEnvCfg, *, state_estimation: bool) -> None:
-  actor = cfg.observations["actor"]
-  actor.terms.pop("ref_joint_vel", None)
-  if not state_estimation:
-    for key in _ZEST_SE_OBS:
-      actor.terms.pop(key, None)
-
-
-def _g1_zest_env_cfg(*, state_estimation: bool) -> ManagerBasedRlEnvCfg:
-  """Shared Zest rewards, RSI, and terminations; optional actor SE terms."""
+def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
+  """Zest paper repro: no actor SE terms, reward-aligned RSI, assistive wrench."""
   cfg = g1_base_cfg()
   rw = cfg.rewards
 
@@ -79,8 +52,16 @@ def _g1_zest_env_cfg(*, state_estimation: bool) -> ManagerBasedRlEnvCfg:
   rw["motion_joint_pos"].params.pop("std", None)
   rw["motion_joint_pos"].params.pop("per_joint", None)
   rw["motion_joint_pos"].params["sigma_per_joint"] = 0.3
-
-  _apply_tracking_kappa(rw, *_ZEST_TRACKING_REWARDS)
+  for name in (
+    "motion_global_root_pos",
+    "motion_global_root_ori",
+    "motion_root_lin_vel_b",
+    "motion_root_ang_vel_b",
+    "motion_body_pos",
+    "motion_body_ori",
+    "motion_joint_pos",
+  ):
+    rw[name].params["kappa"] = _TRACKING_KAPPA
 
   # Not in Table S4 (disable extras inherited from the WBC template).
   rw["motion_body_lin_vel"].weight = 0.0
@@ -109,12 +90,9 @@ def _g1_zest_env_cfg(*, state_estimation: bool) -> ManagerBasedRlEnvCfg:
     persist_failure_levels=True,
   )
 
-  _configure_zest_actor_obs(cfg, state_estimation=state_estimation)
-
   # Zest paper: anchor early termination + catastrophic contact only (no EE tracking cutoff).
   cfg.terminations.pop("ee_body_pos", None)
   cfg.terminations["anchor_pos"].params["threshold"] = 0.35
-
   cfg.terminations["keybody_ground_contact_force"] = TerminationTermCfg(
     func=mdp.excessive_keybody_ground_contact_force,
     params={
@@ -127,11 +105,9 @@ def _g1_zest_env_cfg(*, state_estimation: bool) -> ManagerBasedRlEnvCfg:
   return cfg
 
 
-def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Zest paper repro: no actor SE terms, reward-aligned RSI, assistive wrench."""
-  return _g1_zest_env_cfg(state_estimation=False)
-
-
 def g1_wbc_zest_se_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Zest rewards/RSI with ``motion_anchor_pos_b`` and ``base_lin_vel`` in the actor."""
-  return _g1_zest_env_cfg(state_estimation=True)
+  """Zest + SE actor obs (full ref pose, anchor pos/ori tracking error, base lin vel)."""
+  cfg = g1_wbc_zest_env_cfg()
+  configure_state_estimation_actor_obs(cfg)
+  wire_g1_imu_sensors(cfg)
+  return cfg

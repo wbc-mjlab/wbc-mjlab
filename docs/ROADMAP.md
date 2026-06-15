@@ -24,7 +24,7 @@ Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
 - [x] Dwell on last frame at clip end, then timeout reset (not failure)
 - [x] Enable joint position limit reward; add joint torque limit (Table S4)
 - [x] Optional: L_max-normalized similarity EMA (§S5)
-- [ ] SE task obs: swap actor terms only (full ref xyz+ori command; z-only tracking errors; omit ref_gravity_b / projected_gravity). Non-SE template unchanged.
+- [x] SE task obs: base template SE-free; SE tasks add ref pose + anchor pos/ori error + base lin vel
 
 ### SONIC tracker (§3.1 — not universal token / VLA)
 

@@ -9,30 +9,16 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 
 import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
+from wbc_mjlab.env.se_actor_obs import configure_state_estimation_actor_obs
 from wbc_mjlab.robots.g1.configs.base import (
   G1_EE_TERMINATION_BODY_NAMES,
   G1_MOTION_BODY_NAMES,
-  G1_WRIST_BODY_NAMES,
   g1_base_cfg,
+  wire_g1_imu_sensors,
 )
 
 # Zest Table S4: exp(-κ‖e‖²/σ²) with κ = 1/4.
 _TRACKING_KAPPA = 0.25
-
-_TRACKING_REWARDS = (
-  "motion_global_root_pos",
-  "motion_global_root_ori",
-  "motion_root_lin_vel_b",
-  "motion_root_ang_vel_b",
-  "motion_body_pos",
-  "motion_body_ori",
-  "motion_joint_pos",
-)
-
-
-def _apply_tracking_kappa(rw, *names: str) -> None:
-  for name in names:
-    rw[name].params["kappa"] = _TRACKING_KAPPA
 
 
 def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
@@ -63,8 +49,16 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   rw["motion_joint_pos"].params.pop("std", None)
   rw["motion_joint_pos"].params.pop("per_joint", None)
   rw["motion_joint_pos"].params["sigma_per_joint"] = 0.3
-
-  _apply_tracking_kappa(rw, *_TRACKING_REWARDS)
+  for name in (
+    "motion_global_root_pos",
+    "motion_global_root_ori",
+    "motion_root_lin_vel_b",
+    "motion_root_ang_vel_b",
+    "motion_body_pos",
+    "motion_body_ori",
+    "motion_joint_pos",
+  ):
+    rw[name].params["kappa"] = _TRACKING_KAPPA
 
   # --- WBC extras (mjlab whole-body vel; not in Zest Table S4) ---
   rw["motion_body_lin_vel"].weight = 0.5
@@ -86,7 +80,7 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
 
   rw["foot_slip"].weight = -0.0
   rw["anti_shake"].weight = 0.0
-  # rw["anti_shake"].params["body_names"] = G1_WRIST_BODY_NAMES
+  # rw["anti_shake"].params["body_names"] = ("left_wrist_yaw_link", "right_wrist_yaw_link")
   # rw["anti_shake"].params["threshold"] = 1.5
 
   cfg.observations["actor"].history_length = 1
@@ -102,10 +96,6 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
     min_bin_span_ratio=0.5,
     persist_failure_levels=True,
   )
-
-  actor = cfg.observations["actor"]
-  for key in ("motion_anchor_pos_b", "base_lin_vel", "ref_joint_vel"):
-    actor.terms.pop(key, None)
 
   cfg.terminations["anchor_pos"].params["threshold"] = 0.35
   cfg.terminations["ee_body_pos"] = TerminationTermCfg(
@@ -126,4 +116,12 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
     },
   )
 
+  return cfg
+
+
+def g1_wbc_se_env_cfg() -> ManagerBasedRlEnvCfg:
+  """Wbc-G1 + SE actor obs (full ref pose, anchor pos/ori tracking error, base lin vel)."""
+  cfg = g1_wbc_env_cfg()
+  configure_state_estimation_actor_obs(cfg)
+  wire_g1_imu_sensors(cfg)
   return cfg
