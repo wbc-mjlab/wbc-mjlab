@@ -23,11 +23,15 @@ MANIFEST_FILENAME = "wbc_tracking_params_manifest.yaml"
 # WBC reference obs terms in ``make_base_wbc_env_cfg`` (subset may be removed per task).
 REFERENCE_OBS_TERM_NAMES = (
   "ref_base_height",
+  "ref_anchor_pos_w",
+  "ref_anchor_ori_6d",
   "ref_base_lin_vel_b",
   "ref_base_ang_vel_b",
   "ref_gravity_b",
   "ref_joint_pos",
   "ref_joint_vel",
+  "ref_body_pos",
+  "ref_body_ori",
 )
 
 _MOTION_OBS_PARAM_TERMS = frozenset(
@@ -35,6 +39,7 @@ _MOTION_OBS_PARAM_TERMS = frozenset(
     *REFERENCE_OBS_TERM_NAMES,
     "command",
     "motion_anchor_pos_b",
+    "motion_anchor_pos_z_b",
     "motion_anchor_ori_b",
     "ref_body_pos",
     "ref_body_ori",
@@ -122,10 +127,24 @@ def _resolve_scales(action, joint_names: tuple[str, ...]) -> list[float]:
   raise TypeError(type(sc))
 
 
-def _observation_dim(name: str, *, joint_count: int) -> int:
+def _observation_dim(
+  name: str,
+  *,
+  joint_count: int,
+  body_count: int,
+) -> int:
   if name == "ref_base_height":
     return 1
+  if name == "motion_anchor_pos_z_b":
+    return 1
+  if name in ("ref_anchor_ori_6d", "motion_anchor_ori_b"):
+    return 6
+  if name in ("ref_body_pos", "body_pos"):
+    return 3 * body_count
+  if name in ("ref_body_ori", "body_ori"):
+    return 6 * body_count
   if name in (
+    "ref_anchor_pos_w",
     "ref_base_lin_vel_b",
     "ref_base_ang_vel_b",
     "ref_gravity_b",
@@ -142,11 +161,16 @@ def _observation_dim(name: str, *, joint_count: int) -> int:
   raise KeyError(f"unexpected actor term {name!r}")
 
 
-def _wbc_command_dim(actor_names: list[str], *, joint_count: int) -> int:
+def _wbc_command_dim(
+  actor_names: list[str],
+  *,
+  joint_count: int,
+  body_count: int,
+) -> int:
   if "command" in actor_names:
     return 10 + joint_count
   return sum(
-    _observation_dim(name, joint_count=joint_count)
+    _observation_dim(name, joint_count=joint_count, body_count=body_count)
     for name in actor_names
     if name in REFERENCE_OBS_TERM_NAMES
   )
@@ -207,19 +231,24 @@ def build_wbc_tracking_params(
   actor_names = _actor_term_names(cfg)
   reference_obs_names = _reference_observation_names(actor_names)
   actor_history_length = _actor_history_length(cfg)
-  wbc_command_dim = _wbc_command_dim(actor_names, joint_count=len(joint_names))
+  motion_cmd = cfg.commands["motion"]
+  body_count = len(motion_cmd.body_names)
+  wbc_command_dim = _wbc_command_dim(
+    actor_names, joint_count=len(joint_names), body_count=body_count
+  )
   command_name = getattr(_joint_position_action(cfg), "command_name", "motion")
 
   actor_observations: dict[str, Any] = {}
   for name in actor_names:
-    dim = _observation_dim(name, joint_count=len(joint_names))
+    dim = _observation_dim(
+      name, joint_count=len(joint_names), body_count=body_count
+    )
     actor_observations[name] = {
       "dim": dim,
       "scale": [1.0] * dim,
       "params": _observation_params(name, command_name=command_name),
     }
 
-  motion_cmd = cfg.commands["motion"]
   stiffness, damping, default_pos = _pd_from_robot(cfg, joint_names)
 
   return {

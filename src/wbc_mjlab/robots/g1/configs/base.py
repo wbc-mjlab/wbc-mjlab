@@ -53,6 +53,16 @@ G1_IMU_ANG_VEL_SENSOR = "robot/imu_ang_vel"
 G1_IMU_LIN_VEL_SENSOR = "robot/imu_lin_vel"
 
 
+def wire_g1_imu_sensors(cfg: ManagerBasedRlEnvCfg) -> None:
+  """Set IMU sensor names on actor/critic terms when present (incl. after SE swap)."""
+  for group in ("actor", "critic"):
+    terms = cfg.observations[group].terms
+    if "base_ang_vel" in terms:
+      terms["base_ang_vel"].params["sensor_name"] = G1_IMU_ANG_VEL_SENSOR
+    if "base_lin_vel" in terms:
+      terms["base_lin_vel"].params["sensor_name"] = G1_IMU_LIN_VEL_SENSOR
+
+
 def g1_base_cfg() -> ManagerBasedRlEnvCfg:
   """Shared WBC template + G1 scene, tracking bodies, and sensors."""
   cfg = make_base_wbc_env_cfg(use_reference_residual_action=True)
@@ -85,12 +95,7 @@ def g1_base_cfg() -> ManagerBasedRlEnvCfg:
 
   cfg.actions["joint_pos"].scale = G1_ACTION_SCALE
 
-  actor_obs = cfg.observations["actor"].terms
-  actor_obs["base_ang_vel"].params["sensor_name"] = G1_IMU_ANG_VEL_SENSOR
-  actor_obs["base_lin_vel"].params["sensor_name"] = G1_IMU_LIN_VEL_SENSOR
-  cfg.observations["critic"].terms["base_ang_vel"].params[
-    "sensor_name"
-  ] = G1_IMU_ANG_VEL_SENSOR
+  wire_g1_imu_sensors(cfg)
 
   motion_cmd = cfg.commands["motion"]
   assert isinstance(motion_cmd, MotionCommandCfg)

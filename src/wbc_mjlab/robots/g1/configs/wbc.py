@@ -103,10 +103,6 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
     persist_failure_levels=True,
   )
 
-  actor = cfg.observations["actor"]
-  for key in ("motion_anchor_pos_b", "base_lin_vel", "ref_joint_vel"):
-    actor.terms.pop(key, None)
-
   cfg.terminations["anchor_pos"].params["threshold"] = 0.35
   cfg.terminations["ee_body_pos"] = TerminationTermCfg(
     func=mdp.bad_motion_body_pos_z_only,

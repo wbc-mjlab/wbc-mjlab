@@ -28,17 +28,18 @@ def _motion_command(env: ManagerBasedRlEnv, command_name: str) -> MotionCommand:
 
 
 # --- Actor reference features (configurable obs terms; were stacked in MotionCommand.command) ---
-#
-# TODO(SE obs): Helpers for state-estimation task configs only (see ``wbc_env_cfg`` actor TODO).
-# Non-SE tasks keep the default term set unchanged. Add when wiring Wbc-*-SE builders:
-#   - ref_anchor_pos_xyz / ref_anchor_ori_6d, ref_body_pos / ref_body_ori on actor.
-#   - motion_anchor_pos_z_b (z-only tracking error) instead of full motion_anchor_pos_b.
-#   - Task configs drop ref_gravity_b, projected_gravity, ref_joint_vel for SE layouts.
+# SE actor layouts: ``configure_state_estimation_actor_obs`` in ``env/se_actor_obs.py``.
 
 
 def ref_base_height(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
   """Reference anchor height relative to env origin (z_I r̂_IB)."""
   return _motion_command(env, command_name).ref_base_height
+
+
+def ref_anchor_pos_w(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+  """Reference anchor xyz position relative to env origin (SE reference command)."""
+  command = _motion_command(env, command_name)
+  return command.anchor_pos_w - env.scene.env_origins
 
 
 def ref_base_lin_vel_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
@@ -103,12 +104,10 @@ def ref_joint_vel(
 
 
 def ref_anchor_ori_6d(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  """Reference anchor orientation error as 6D rotation matrix columns.
-
-  Same geometry as ``motion_anchor_ori_b``; exposed as a ``ref_*`` term for modular
-  actor layouts that mirror OmniXtreme / SONIC command blocks.
-  """
-  return motion_anchor_ori_b(env, command_name)
+  """Reference anchor orientation as 6D rotation matrix columns (world frame)."""
+  command = _motion_command(env, command_name)
+  mat = matrix_from_quat(command.anchor_quat_w)
+  return mat[..., :2].reshape(mat.shape[0], -1)
 
 
 def ref_base_lin_acc_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
@@ -147,10 +146,7 @@ def _body_ang_vel_in_anchor_frame(
 
 
 def motion_anchor_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  """Full xyz anchor tracking error in robot anchor frame (non-SE default).
-
-  TODO(SE): add ``motion_anchor_pos_z_b``; SE task configs swap to z-only error term.
-  """
+  """Full xyz anchor tracking error in robot anchor frame (non-SE layouts)."""
   command = _motion_command(env, command_name)
 
   pos, _ = subtract_frame_transforms(
@@ -161,6 +157,11 @@ def motion_anchor_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tens
   )
 
   return pos.view(env.num_envs, -1)
+
+
+def motion_anchor_pos_z_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+  """Z-only anchor tracking error in robot anchor frame (SE measurement)."""
+  return motion_anchor_pos_b(env, command_name)[:, 2:3]
 
 
 def motion_anchor_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
@@ -205,10 +206,7 @@ def robot_body_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
 
 
 def ref_body_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  """Reference keybody positions in the robot anchor frame (critic default).
-
-  TODO(SE): same geometry on actor for SE reference-command layouts.
-  """
+  """Reference keybody positions in the robot anchor frame."""
   command = _motion_command(env, command_name)
   num_bodies = len(command.cfg.body_names)
   pos_b, _ = subtract_frame_transforms(
@@ -221,10 +219,7 @@ def ref_body_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
 
 
 def ref_body_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  """Reference keybody orientations in the robot anchor frame (critic default).
-
-  TODO(SE): same geometry on actor for SE reference-command layouts.
-  """
+  """Reference keybody orientations in the robot anchor frame (6D rotation columns)."""
   command = _motion_command(env, command_name)
   num_bodies = len(command.cfg.body_names)
   _, ori_b = subtract_frame_transforms(

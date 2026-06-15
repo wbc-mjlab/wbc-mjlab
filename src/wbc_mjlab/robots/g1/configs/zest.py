@@ -9,10 +9,12 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 
 import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
+from wbc_mjlab.env.se_actor_obs import configure_state_estimation_actor_obs
 from wbc_mjlab.robots.g1.configs.base import (
   G1_ENDEFFECTOR_BODY_NAMES,
   G1_MOTION_BODY_NAMES,
   g1_base_cfg,
+  wire_g1_imu_sensors,
 )
 
 # Catastrophic ground-contact spike only (Zest §Early Terminations); allows multi-contact skills.
@@ -32,11 +34,6 @@ _ZEST_TRACKING_REWARDS = (
   "motion_joint_pos",
 )
 
-# SE actor terms today (interim); see env TODO(SE obs) for planned swap in task configs.
-# TODO(SE): replace with z-only tracking-error terms + full xyz/ori reference command obs;
-# drop ref_gravity_b / projected_gravity from SE layouts. Non-SE tasks unchanged.
-_ZEST_SE_OBS = ("motion_anchor_pos_b", "base_lin_vel")
-
 
 def _apply_tracking_kappa(rw, *names: str) -> None:
   for name in names:
@@ -44,11 +41,9 @@ def _apply_tracking_kappa(rw, *names: str) -> None:
 
 
 def _configure_zest_actor_obs(cfg: ManagerBasedRlEnvCfg, *, state_estimation: bool) -> None:
-  actor = cfg.observations["actor"]
-  actor.terms.pop("ref_joint_vel", None)
-  if not state_estimation:
-    for key in _ZEST_SE_OBS:
-      actor.terms.pop(key, None)
+  if state_estimation:
+    configure_state_estimation_actor_obs(cfg)
+    wire_g1_imu_sensors(cfg)
 
 
 def _g1_zest_env_cfg(*, state_estimation: bool) -> ManagerBasedRlEnvCfg:
@@ -133,5 +128,5 @@ def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
 
 
 def g1_wbc_zest_se_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Zest rewards/RSI with ``motion_anchor_pos_b`` and ``base_lin_vel`` in the actor."""
+  """Zest + SE actor obs (full ref pose, anchor pos/ori tracking error, base lin vel)."""
   return _g1_zest_env_cfg(state_estimation=True)
