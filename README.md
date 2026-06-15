@@ -23,6 +23,7 @@ Tasks are starting points for reproduction—not guaranteed bit-for-bit matches 
 | Method / paper | Task id | What differs in this repo |
 |----------------|---------|---------------------------|
 | **WBC** (default stack) | `Wbc-G1` | Zest core + EE z resets, foot slip, anti-shake, deploy obs (history=1) |
+| **WBC + SE** | `Wbc-G1-SE` | Wbc-G1 + full ref pose, anchor pos/ori tracking error, `base_lin_vel` |
 | **Zest** | `Wbc-G1-Zest` | Paper repro: Table S4, reward-aligned RSI, no SE |
 | **Zest + SE** | `Wbc-G1-Zest-SE` | Zest + full ref pose, anchor pos/ori tracking error, `base_lin_vel` |
 | **BeyondMimic** | `Wbc-G1-BinaryFailure` | Full obs, whole-body RSI + binary failure resampling |
@@ -73,6 +74,7 @@ pip install -e .
 | Task id | Logs under | Purpose |
 |---------|------------|---------|
 | `Wbc-G1` | `logs/rsl_rl/wbc_g1/` | Default WBC stack |
+| `Wbc-G1-SE` | `logs/rsl_rl/wbc_g1_se/` | Wbc-G1 + SE actor obs |
 | `Wbc-G1-Zest` | `logs/rsl_rl/wbc_g1_zest/` | Zest paper repro (no SE) |
 | `Wbc-G1-Zest-SE` | `logs/rsl_rl/wbc_g1_zest_se/` | Zest + anchor pos / base lin vel obs |
 | `Wbc-G1-BinaryFailure` | `logs/rsl_rl/wbc_g1_binary/` | BeyondMimic-style binary failure RSI |

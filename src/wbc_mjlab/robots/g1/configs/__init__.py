@@ -6,7 +6,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.robots.g1.configs.binary_failure import g1_wbc_binary_failure_env_cfg
-from wbc_mjlab.robots.g1.configs.wbc import g1_wbc_env_cfg
+from wbc_mjlab.robots.g1.configs.wbc import g1_wbc_env_cfg, g1_wbc_se_env_cfg
 from wbc_mjlab.robots.g1.configs.zest import g1_wbc_zest_env_cfg, g1_wbc_zest_se_env_cfg
 from wbc_mjlab.tasks.config import WbcTaskConfig
 
@@ -19,6 +19,13 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
     ),
     experiment_name="wbc_g1",
     build_env_cfg=g1_wbc_env_cfg,
+  ),
+  WbcTaskConfig(
+    task_id="Wbc-G1-SE",
+    robot_id="g1",
+    description="Wbc-G1 + SE obs (ref anchor/keybody pose, anchor pos/ori error, base lin vel).",
+    experiment_name="wbc_g1_se",
+    build_env_cfg=g1_wbc_se_env_cfg,
   ),
   WbcTaskConfig(
     task_id="Wbc-G1-Zest",
@@ -92,6 +99,7 @@ __all__ = [
   "get_g1_task_config",
   "g1_wbc_binary_failure_env_cfg",
   "g1_wbc_env_cfg",
+  "g1_wbc_se_env_cfg",
   "g1_wbc_zest_env_cfg",
   "g1_wbc_zest_se_env_cfg",
   "make_g1_wbc_env_cfg",

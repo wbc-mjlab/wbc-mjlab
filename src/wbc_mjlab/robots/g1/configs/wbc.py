@@ -9,10 +9,12 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 
 import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
+from wbc_mjlab.env.se_actor_obs import configure_state_estimation_actor_obs
 from wbc_mjlab.robots.g1.configs.base import (
   G1_EE_TERMINATION_BODY_NAMES,
   G1_MOTION_BODY_NAMES,
   g1_base_cfg,
+  wire_g1_imu_sensors,
 )
 
 # Zest Table S4: exp(-κ‖e‖²/σ²) with κ = 1/4.
@@ -114,4 +116,12 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
     },
   )
 
+  return cfg
+
+
+def g1_wbc_se_env_cfg() -> ManagerBasedRlEnvCfg:
+  """Wbc-G1 + SE actor obs (full ref pose, anchor pos/ori tracking error, base lin vel)."""
+  cfg = g1_wbc_env_cfg()
+  configure_state_estimation_actor_obs(cfg)
+  wire_g1_imu_sensors(cfg)
   return cfg
