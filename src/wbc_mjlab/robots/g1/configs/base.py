@@ -54,13 +54,17 @@ G1_IMU_LIN_VEL_SENSOR = "robot/imu_lin_vel"
 
 
 def wire_g1_imu_sensors(cfg: ManagerBasedRlEnvCfg) -> None:
-  """Set IMU sensor names on actor/critic terms when present (incl. after SE swap)."""
+  """Set IMU sensor names on obs terms that read ``builtin_sensor`` (actor SE layout)."""
+  from mjlab.envs.mdp import builtin_sensor
+
   for group in ("actor", "critic"):
     terms = cfg.observations[group].terms
-    if "base_ang_vel" in terms:
-      terms["base_ang_vel"].params["sensor_name"] = G1_IMU_ANG_VEL_SENSOR
-    if "base_lin_vel" in terms:
-      terms["base_lin_vel"].params["sensor_name"] = G1_IMU_LIN_VEL_SENSOR
+    ang_vel = terms.get("base_ang_vel")
+    if ang_vel is not None and ang_vel.func is builtin_sensor:
+      ang_vel.params["sensor_name"] = G1_IMU_ANG_VEL_SENSOR
+    lin_vel = terms.get("base_lin_vel")
+    if lin_vel is not None and lin_vel.func is builtin_sensor:
+      lin_vel.params["sensor_name"] = G1_IMU_LIN_VEL_SENSOR
 
 
 def g1_base_cfg() -> ManagerBasedRlEnvCfg:
