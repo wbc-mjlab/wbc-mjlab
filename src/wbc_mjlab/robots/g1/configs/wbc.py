@@ -121,7 +121,7 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
 
 
 def g1_wbc_se_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Wbc-G1 + SE actor obs (ref anchor xyz/ori, measured root pose, base lin vel)."""
+  """Wbc-G1 + SE actor obs (anchor pose tracking error, base lin vel)."""
   cfg = g1_wbc_env_cfg()
   configure_state_estimation_actor_obs(cfg)
   wire_g1_imu_sensors(cfg)

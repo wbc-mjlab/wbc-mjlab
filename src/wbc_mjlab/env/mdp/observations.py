@@ -10,6 +10,7 @@ from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import (
   matrix_from_quat,
   quat_apply_inverse,
+  quat_error_magnitude,
   subtract_frame_transforms,
 )
 
@@ -110,25 +111,6 @@ def ref_anchor_ori_6d(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor
   return mat[..., :2].reshape(mat.shape[0], -1)
 
 
-def root_pos_w(
-  env: ManagerBasedRlEnv,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Measured root xyz position relative to env origin (mjlab ``root_link_pos_w``)."""
-  asset: Entity = env.scene[asset_cfg.name]
-  return asset.data.root_link_pos_w - env.scene.env_origins
-
-
-def root_ori_6d(
-  env: ManagerBasedRlEnv,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Measured root orientation as 6D rotation matrix columns (world frame)."""
-  asset: Entity = env.scene[asset_cfg.name]
-  mat = matrix_from_quat(asset.data.root_link_quat_w)
-  return mat[..., :2].reshape(mat.shape[0], -1)
-
-
 def ref_base_lin_acc_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
   """Reference anchor linear acceleration in anchor frame (critic privileged)."""
   return _motion_command(env, command_name).ref_base_lin_acc_b
@@ -194,6 +176,24 @@ def motion_anchor_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tens
   )
   mat = matrix_from_quat(ori)
   return mat[..., :2].reshape(mat.shape[0], -1)
+
+
+def motion_anchor_pos_error_w(
+  env: ManagerBasedRlEnv, command_name: str
+) -> torch.Tensor:
+  """World-frame anchor position tracking error (ref − robot)."""
+  command = _motion_command(env, command_name)
+  return command.anchor_pos_w - command.robot_anchor_pos_w
+
+
+def motion_anchor_ori_error(
+  env: ManagerBasedRlEnv, command_name: str
+) -> torch.Tensor:
+  """Anchor orientation tracking error as ``quat_error_magnitude`` (scalar)."""
+  command = _motion_command(env, command_name)
+  return quat_error_magnitude(
+    command.anchor_quat_w, command.robot_anchor_quat_w
+  ).unsqueeze(-1)
 
 
 def robot_body_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:

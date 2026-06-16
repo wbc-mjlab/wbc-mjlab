@@ -52,8 +52,8 @@ def main() -> None:
   cfg = make_wbc_env_cfg(rid, play=args.play, task_id=task.task_id)
 
   has_se = (
-    "root_pos_w" in cfg.observations["actor"].terms
-    and "root_ori_6d" in cfg.observations["actor"].terms
+    "motion_anchor_pos_error_w" in cfg.observations["actor"].terms
+    and "motion_anchor_ori_error" in cfg.observations["actor"].terms
     and "base_lin_vel" in cfg.observations["actor"].terms
   )
   doc = write_wbc_tracking_params_yaml(

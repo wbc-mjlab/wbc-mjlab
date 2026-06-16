@@ -108,7 +108,7 @@ def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
 
 
 def g1_wbc_zest_se_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Zest + SE actor obs (ref anchor xyz/ori, measured root pose, base lin vel)."""
+  """Zest + SE actor obs (anchor pose tracking error, base lin vel)."""
   cfg = g1_wbc_zest_env_cfg()
   configure_state_estimation_actor_obs(cfg)
   wire_g1_imu_sensors(cfg)

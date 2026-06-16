@@ -41,6 +41,8 @@ _MOTION_OBS_PARAM_TERMS = frozenset(
     "motion_anchor_pos_b",
     "motion_anchor_pos_z_b",
     "motion_anchor_ori_b",
+    "motion_anchor_pos_error_w",
+    "motion_anchor_ori_error",
     "ref_body_pos",
     "ref_body_ori",
     "ref_body_lin_vel",
@@ -137,7 +139,9 @@ def _observation_dim(
     return 1
   if name == "motion_anchor_pos_z_b":
     return 1
-  if name in ("ref_anchor_ori_6d", "motion_anchor_ori_b", "root_ori_6d"):
+  if name == "motion_anchor_ori_error":
+    return 1
+  if name in ("ref_anchor_ori_6d", "motion_anchor_ori_b"):
     return 6
   if name in ("ref_body_pos", "body_pos"):
     return 3 * body_count
@@ -145,13 +149,13 @@ def _observation_dim(
     return 6 * body_count
   if name in (
     "ref_anchor_pos_w",
-    "root_pos_w",
     "ref_base_lin_vel_b",
     "ref_base_ang_vel_b",
     "ref_gravity_b",
     "base_ang_vel",
     "projected_gravity",
     "motion_anchor_pos_b",
+    "motion_anchor_pos_error_w",
     "base_lin_vel",
   ):
     return 3

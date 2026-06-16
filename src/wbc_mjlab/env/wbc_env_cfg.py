@@ -79,7 +79,7 @@ def make_base_wbc_env_cfg(
   # Non-SE actor: reference command + proprio only. SE measurements live in
   # ``configure_state_estimation_actor_obs`` (``env/se_actor_obs.py``).
   # Task configs may drop terms per policy layout (e.g. ``ref_joint_vel`` in wbc/zest).
-  # BeyondMimic keeps the base template unchanged. SE swaps height/gravity → anchor xyz/ori.
+  # BeyondMimic keeps the base template unchanged. SE swaps height/gravity → anchor pose error.
   actor_terms = {
     "ref_base_height": ObservationTermCfg(
       func=mdp.ref_base_height,

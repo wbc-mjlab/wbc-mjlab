@@ -23,9 +23,9 @@ Tasks are starting points for reproduction—not guaranteed bit-for-bit matches 
 | Method / paper | Task id | What differs in this repo |
 |----------------|---------|---------------------------|
 | **WBC** (default stack) | `Wbc-G1` | Zest core + EE z resets, foot slip, anti-shake, deploy obs (history=1) |
-| **WBC + SE** | `Wbc-G1-SE` | Wbc-G1 + ref anchor xyz/ori, measured root pose, `base_lin_vel` |
+| **WBC + SE** | `Wbc-G1-SE` | Wbc-G1 + anchor pose tracking error, `base_lin_vel` |
 | **Zest** | `Wbc-G1-Zest` | Paper repro: Table S4, reward-aligned RSI, no SE |
-| **Zest + SE** | `Wbc-G1-Zest-SE` | Zest + ref anchor xyz/ori, measured root pose, `base_lin_vel` |
+| **Zest + SE** | `Wbc-G1-Zest-SE` | Zest + anchor pose tracking error, `base_lin_vel` |
 | **BeyondMimic** | `Wbc-G1-BinaryFailure` | Full obs, whole-body RSI + binary failure resampling |
 | **Sonic** and others | *(add task)* | Shared motion command stack; add a builder + `WbcTaskConfig` entry |
 
