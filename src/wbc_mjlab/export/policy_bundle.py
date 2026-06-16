@@ -19,7 +19,11 @@ from wbc_mjlab.motion.manifest import (
 
 def actor_has_state_estimation(cfg: Any) -> bool:
   terms = cfg.observations["actor"].terms
-  return "motion_anchor_pos_b" in terms and "motion_anchor_ori_b" in terms
+  return (
+    "root_pos_w" in terms
+    and "root_ori_6d" in terms
+    and "base_lin_vel" in terms
+  )
 
 
 def export_tracking_params_yaml(

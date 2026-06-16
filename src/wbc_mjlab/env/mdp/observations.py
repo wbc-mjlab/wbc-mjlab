@@ -110,6 +110,25 @@ def ref_anchor_ori_6d(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor
   return mat[..., :2].reshape(mat.shape[0], -1)
 
 
+def root_pos_w(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Measured root xyz position relative to env origin (mjlab ``root_link_pos_w``)."""
+  asset: Entity = env.scene[asset_cfg.name]
+  return asset.data.root_link_pos_w - env.scene.env_origins
+
+
+def root_ori_6d(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Measured root orientation as 6D rotation matrix columns (world frame)."""
+  asset: Entity = env.scene[asset_cfg.name]
+  mat = matrix_from_quat(asset.data.root_link_quat_w)
+  return mat[..., :2].reshape(mat.shape[0], -1)
+
+
 def ref_base_lin_acc_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
   """Reference anchor linear acceleration in anchor frame (critic privileged)."""
   return _motion_command(env, command_name).ref_base_lin_acc_b

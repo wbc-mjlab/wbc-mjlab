@@ -137,7 +137,7 @@ def _observation_dim(
     return 1
   if name == "motion_anchor_pos_z_b":
     return 1
-  if name in ("ref_anchor_ori_6d", "motion_anchor_ori_b"):
+  if name in ("ref_anchor_ori_6d", "motion_anchor_ori_b", "root_ori_6d"):
     return 6
   if name in ("ref_body_pos", "body_pos"):
     return 3 * body_count
@@ -145,6 +145,7 @@ def _observation_dim(
     return 6 * body_count
   if name in (
     "ref_anchor_pos_w",
+    "root_pos_w",
     "ref_base_lin_vel_b",
     "ref_base_ang_vel_b",
     "ref_gravity_b",
