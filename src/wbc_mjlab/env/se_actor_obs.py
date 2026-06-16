@@ -27,7 +27,7 @@ _SE_ADDED_TERMS: dict[str, ObservationTermCfg] = {
   "motion_anchor_pos_error_w": ObservationTermCfg(
     func=mdp.motion_anchor_pos_error_w,
     params=_MOTION_PARAMS,
-    noise=Unoise(n_min=-0.15, n_max=0.15),
+    noise=Unoise(n_min=-0.1, n_max=0.1),
   ),
   "motion_anchor_ori_error": ObservationTermCfg(
     func=mdp.motion_anchor_ori_error,
@@ -37,7 +37,7 @@ _SE_ADDED_TERMS: dict[str, ObservationTermCfg] = {
   "base_lin_vel": ObservationTermCfg(
     func=mdp.builtin_sensor,
     params={"sensor_name": ""},
-    noise=Unoise(n_min=-0.5, n_max=0.5),
+    noise=Unoise(n_min=-0.25, n_max=0.25),
   ),
 }
 
