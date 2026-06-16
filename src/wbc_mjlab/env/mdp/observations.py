@@ -10,7 +10,7 @@ from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import (
   matrix_from_quat,
   quat_apply_inverse,
-  quat_error_magnitude,
+  quat_box_minus,
   subtract_frame_transforms,
 )
 
@@ -189,11 +189,9 @@ def motion_anchor_pos_error_w(
 def motion_anchor_ori_error(
   env: ManagerBasedRlEnv, command_name: str
 ) -> torch.Tensor:
-  """Anchor orientation tracking error as ``quat_error_magnitude`` (scalar)."""
+  """Anchor orientation tracking error as axis-angle (3); ‖·‖ = quat_error_magnitude."""
   command = _motion_command(env, command_name)
-  return quat_error_magnitude(
-    command.anchor_quat_w, command.robot_anchor_quat_w
-  ).unsqueeze(-1)
+  return quat_box_minus(command.anchor_quat_w, command.robot_anchor_quat_w)
 
 
 def robot_body_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:

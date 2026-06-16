@@ -1,7 +1,7 @@
 """State-estimation actor observation layout (task configs only).
 
 SE tasks drop height/gravity reference proxies and add anchor pose tracking error
-(world position + ``quat_error_magnitude``) plus ``base_lin_vel``.
+(world position + axis-angle orientation error) plus ``base_lin_vel``.
 """
 
 from __future__ import annotations

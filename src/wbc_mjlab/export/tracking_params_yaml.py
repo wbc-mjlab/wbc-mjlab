@@ -140,7 +140,7 @@ def _observation_dim(
   if name == "motion_anchor_pos_z_b":
     return 1
   if name == "motion_anchor_ori_error":
-    return 1
+    return 3
   if name in ("ref_anchor_ori_6d", "motion_anchor_ori_b"):
     return 6
   if name in ("ref_body_pos", "body_pos"):
