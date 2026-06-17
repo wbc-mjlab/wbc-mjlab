@@ -90,6 +90,8 @@ def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
     persist_failure_levels=True,
   )
 
+  cfg.observations["actor"].terms.pop("ref_joint_vel", None)
+
   # Zest paper: anchor early termination + catastrophic contact only (no EE tracking cutoff).
   cfg.terminations.pop("ee_body_pos", None)
   cfg.terminations["anchor_pos"].params["threshold"] = 0.35
@@ -106,7 +108,7 @@ def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
 
 
 def g1_wbc_zest_se_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Zest + SE actor obs (full ref pose, anchor pos/ori tracking error, base lin vel)."""
+  """Zest + SE actor obs (anchor pose tracking error, base lin vel)."""
   cfg = g1_wbc_zest_env_cfg()
   configure_state_estimation_actor_obs(cfg)
   wire_g1_imu_sensors(cfg)

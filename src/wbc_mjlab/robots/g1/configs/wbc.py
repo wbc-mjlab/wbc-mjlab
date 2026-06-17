@@ -84,6 +84,7 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   # rw["anti_shake"].params["threshold"] = 1.5
 
   cfg.observations["actor"].history_length = 1
+  cfg.observations["actor"].terms.pop("ref_joint_vel", None)
 
   motion_cmd = cfg.commands["motion"]
   assert isinstance(motion_cmd, MotionCommandCfg)
@@ -120,7 +121,7 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
 
 
 def g1_wbc_se_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Wbc-G1 + SE actor obs (full ref pose, anchor pos/ori tracking error, base lin vel)."""
+  """Wbc-G1 + SE actor obs (anchor pose tracking error, base lin vel)."""
   cfg = g1_wbc_env_cfg()
   configure_state_estimation_actor_obs(cfg)
   wire_g1_imu_sensors(cfg)

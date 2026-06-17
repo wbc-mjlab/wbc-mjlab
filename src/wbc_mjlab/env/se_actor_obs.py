@@ -1,8 +1,7 @@
 """State-estimation actor observation layout (task configs only).
 
-The base ``make_base_wbc_env_cfg`` template has reference command + proprio only.
-SE tasks call ``configure_state_estimation_actor_obs`` to add measurements and swap
-reference terms to full anchor/keybody pose.
+SE tasks drop height/gravity reference proxies and add anchor pose tracking error
+(world position + axis-angle orientation error) plus ``base_lin_vel``.
 """
 
 from __future__ import annotations
@@ -16,59 +15,36 @@ import wbc_mjlab.env.mdp as mdp
 _MOTION = "motion"
 _MOTION_PARAMS = {"command_name": _MOTION}
 
-# Non-SE reference proxies dropped when SE layout is applied.
 _SE_REMOVED_TERMS = (
   "ref_base_height",
   "ref_gravity_b",
   "projected_gravity",
 )
 
-# Full motion reference command on the actor.
-_SE_REF_TERMS: dict[str, ObservationTermCfg] = {
-  "ref_anchor_pos_w": ObservationTermCfg(
-    func=mdp.ref_anchor_pos_w,
+# Anchor (``MotionCommand.anchor_*`` vs ``robot_anchor_*``), not pelvis root — matches
+# tracking rewards/terminations; ``base_lin_vel`` remains root-frame IMU velocity.
+_SE_ADDED_TERMS: dict[str, ObservationTermCfg] = {
+  "motion_anchor_pos_error_w": ObservationTermCfg(
+    func=mdp.motion_anchor_pos_error_w,
     params=_MOTION_PARAMS,
-    noise=Unoise(n_min=-0.01, n_max=0.01),
+    noise=Unoise(n_min=-0.1, n_max=0.1),
   ),
-  "ref_anchor_ori_6d": ObservationTermCfg(
-    func=mdp.ref_anchor_ori_6d,
-    params=_MOTION_PARAMS,
-    noise=Unoise(n_min=-0.02, n_max=0.02),
-  ),
-  "ref_body_pos": ObservationTermCfg(
-    func=mdp.ref_body_pos_b,
-    params=_MOTION_PARAMS,
-  ),
-  "ref_body_ori": ObservationTermCfg(
-    func=mdp.ref_body_ori_b,
-    params=_MOTION_PARAMS,
-  ),
-}
-
-# Robot-side SE measurements (full anchor pose tracking error + base velocity).
-_SE_MEASUREMENT_TERMS: dict[str, ObservationTermCfg] = {
-  "motion_anchor_pos_b": ObservationTermCfg(
-    func=mdp.motion_anchor_pos_b,
-    params=_MOTION_PARAMS,
-    noise=Unoise(n_min=-0.25, n_max=0.25),
-  ),
-  "motion_anchor_ori_b": ObservationTermCfg(
-    func=mdp.motion_anchor_ori_b,
+  "motion_anchor_ori_error": ObservationTermCfg(
+    func=mdp.motion_anchor_ori_error,
     params=_MOTION_PARAMS,
     noise=Unoise(n_min=-0.02, n_max=0.02),
   ),
   "base_lin_vel": ObservationTermCfg(
     func=mdp.builtin_sensor,
     params={"sensor_name": ""},
-    noise=Unoise(n_min=-0.5, n_max=0.5),
+    noise=Unoise(n_min=-0.25, n_max=0.25),
   ),
 }
 
 
 def configure_state_estimation_actor_obs(cfg: ManagerBasedRlEnvCfg) -> None:
-  """Add SE measurements and full ref command; drop non-SE reference proxies."""
+  """Drop height/gravity proxies; add anchor pose error + base lin vel."""
   actor = cfg.observations["actor"]
   for key in _SE_REMOVED_TERMS:
     actor.terms.pop(key, None)
-  actor.terms.update(_SE_REF_TERMS)
-  actor.terms.update(_SE_MEASUREMENT_TERMS)
+  actor.terms.update(_SE_ADDED_TERMS)

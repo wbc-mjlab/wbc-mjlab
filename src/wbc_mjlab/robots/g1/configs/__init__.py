@@ -23,7 +23,7 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
   WbcTaskConfig(
     task_id="Wbc-G1-SE",
     robot_id="g1",
-    description="Wbc-G1 + SE obs (ref anchor/keybody pose, anchor pos/ori error, base lin vel).",
+    description="Wbc-G1 + SE obs (anchor pose tracking error, base lin vel).",
     experiment_name="wbc_g1_se",
     build_env_cfg=g1_wbc_se_env_cfg,
   ),
@@ -37,7 +37,7 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
   WbcTaskConfig(
     task_id="Wbc-G1-Zest-SE",
     robot_id="g1",
-    description="Zest + SE obs (ref anchor/keybody pose, anchor pos/ori error, base lin vel).",
+    description="Zest + SE obs (anchor pose tracking error, base lin vel).",
     experiment_name="wbc_g1_zest_se",
     build_env_cfg=g1_wbc_zest_se_env_cfg,
   ),
