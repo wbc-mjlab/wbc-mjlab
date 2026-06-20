@@ -32,7 +32,6 @@ from mjlab.utils.lab_api.math import (
   axis_angle_from_quat,
   quat_conjugate,
   quat_mul,
-  quat_slerp,
 )
 
 from wbc_mjlab.motion.robot_assets import normalize_joint_name_list, remap_dof_columns
@@ -42,12 +41,15 @@ __all__ = [
   "MotionClipRaw",
   "MotionFormatSpec",
   "MotionLoader",
+  "MotionPlayback",
   "MOTION_FORMATS",
+  "ResampledClip",
   "get_motion_format",
   "infer_format_name",
   "list_motion_format_names",
   "load_motion_clip",
   "peek_dof_width",
+  "resample_motion_clips_batch",
   "resolve_input_motion_paths",
 ]
 
@@ -435,8 +437,237 @@ def resolve_input_motion_paths(
 
 
 # =============================================================================
-# Resampling — raw clip → output-rate tensors
+# Resampling — raw clip(s) → output-rate tensors (batched on GPU)
 # =============================================================================
+
+
+@dataclass
+class ResampledClip:
+  """Interpolated clip ready for FK playback."""
+
+  base_pos: torch.Tensor
+  base_rot: torch.Tensor
+  dof_pos: torch.Tensor
+  base_lin_vel: torch.Tensor
+  base_ang_vel: torch.Tensor
+  dof_vel: torch.Tensor
+  output_frames: int
+
+
+def _raw_clip_to_input_tensors(
+  raw: MotionClipRaw,
+  *,
+  model_joint_names: list[str] | None,
+  device: torch.device | str,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, float]:
+  dof_pos = raw.dof_pos
+  if raw.source_joint_names is not None and model_joint_names is not None:
+    dof_pos = remap_dof_columns(dof_pos, raw.source_joint_names, model_joint_names)
+
+  motion = np.concatenate(
+    [raw.base_pos, raw.base_rot_xyzw, dof_pos],
+    axis=1,
+    dtype=np.float32,
+  )
+  motion = torch.from_numpy(motion).to(device=device)
+  base_pos = motion[:, :3]
+  base_rot_wxyz = motion[:, 3:7][:, [3, 0, 1, 2]]
+  dof_pos_t = motion[:, 7:]
+  input_frames = int(motion.shape[0])
+  input_fps = float(raw.fps)
+  return base_pos, base_rot_wxyz, dof_pos_t, input_frames, input_fps
+
+
+def _batched_quat_slerp(
+  q0: torch.Tensor,
+  q1: torch.Tensor,
+  tau: torch.Tensor,
+) -> torch.Tensor:
+  """SLERP for ``(..., 4)`` quaternions (wxyz) and broadcastable ``tau``."""
+  eps = torch.finfo(q0.dtype).eps * 4.0
+  d = (q0 * q1).sum(dim=-1, keepdim=True)
+  q1 = torch.where(d < 0.0, -q1, q1)
+  d = d.abs().clamp(-1.0, 1.0)
+  angle = torch.acos(d)
+  near_parallel = angle < eps
+  sin_angle = torch.sin(angle).clamp_min(eps)
+  w0 = torch.sin((1.0 - tau) * angle) / sin_angle
+  w1 = torch.sin(tau * angle) / sin_angle
+  out = w0 * q0 + w1 * q1
+  return torch.where(near_parallel, q0, out)
+
+
+def _batched_lerp_gather(
+  values: torch.Tensor,
+  index_0: torch.Tensor,
+  index_1: torch.Tensor,
+  blend: torch.Tensor,
+) -> torch.Tensor:
+  """Linear interpolation with per-step gather indices.
+
+  ``values``: ``(B, T_in, F)``; ``index_*``: ``(B, T_out)``; ``blend``: ``(B, T_out)``.
+  """
+  feature_dim = values.shape[-1]
+  idx0 = index_0.unsqueeze(-1).expand(-1, -1, feature_dim)
+  idx1 = index_1.unsqueeze(-1).expand(-1, -1, feature_dim)
+  blend_f = blend.unsqueeze(-1)
+  a = torch.gather(values, 1, idx0)
+  b = torch.gather(values, 1, idx1)
+  return a * (1.0 - blend_f) + b * blend_f
+
+
+def _compute_output_frame_count(input_frames: int, input_fps: float, output_fps: int) -> int:
+  if input_frames <= 1:
+    return input_frames
+  duration = (input_frames - 1) / input_fps
+  output_dt = 1.0 / output_fps
+  return int(torch.arange(0, duration, output_dt).numel())
+
+
+def _compute_velocities_for_clip(
+  base_pos: torch.Tensor,
+  base_rot: torch.Tensor,
+  dof_pos: torch.Tensor,
+  output_dt: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+  base_lin_vel = torch.gradient(base_pos, spacing=output_dt, dim=0)[0]
+  dof_vel = torch.gradient(dof_pos, spacing=output_dt, dim=0)[0]
+  q_prev, q_next = base_rot[:-2], base_rot[2:]
+  q_rel = quat_mul(q_next, quat_conjugate(q_prev))
+  omega = axis_angle_from_quat(q_rel) / (2.0 * output_dt)
+  base_ang_vel = torch.cat([omega[:1], omega, omega[-1:]], dim=0)
+  return base_lin_vel, base_ang_vel, dof_vel
+
+
+def resample_motion_clips_batch(
+  raw_clips: list[MotionClipRaw],
+  output_fps: int,
+  device: torch.device | str,
+  *,
+  model_joint_names: list[str] | None = None,
+) -> list[ResampledClip]:
+  """Resample multiple clips on GPU in one batched interpolation pass."""
+  if not raw_clips:
+    return []
+
+  device = torch.device(device)
+  output_dt = 1.0 / float(output_fps)
+
+  parsed = [
+    _raw_clip_to_input_tensors(
+      raw, model_joint_names=model_joint_names, device=device
+    )
+    for raw in raw_clips
+  ]
+  batch_size = len(parsed)
+  input_frames = torch.tensor(
+    [item[3] for item in parsed], device=device, dtype=torch.long
+  )
+  input_fps = torch.tensor(
+    [item[4] for item in parsed], device=device, dtype=torch.float32
+  )
+  t_in_max = int(input_frames.max().item())
+  dof_dim = parsed[0][2].shape[1]
+
+  base_pos_in = torch.zeros(batch_size, t_in_max, 3, device=device)
+  base_rot_in = torch.zeros(batch_size, t_in_max, 4, device=device)
+  dof_pos_in = torch.zeros(batch_size, t_in_max, dof_dim, device=device)
+  for batch_idx, (base_pos, base_rot, dof_pos, n_in, _) in enumerate(parsed):
+    base_pos_in[batch_idx, :n_in] = base_pos
+    base_rot_in[batch_idx, :n_in] = base_rot
+    dof_pos_in[batch_idx, :n_in] = dof_pos
+    if n_in < t_in_max:
+      base_pos_in[batch_idx, n_in:] = base_pos[-1]
+      base_rot_in[batch_idx, n_in:] = base_rot[-1]
+      dof_pos_in[batch_idx, n_in:] = dof_pos[-1]
+
+  output_counts = [
+    _compute_output_frame_count(int(n), float(fps), output_fps)
+    for n, fps in zip(input_frames.tolist(), input_fps.tolist(), strict=True)
+  ]
+  t_out_max = max(output_counts)
+
+  durations = (input_frames.float() - 1.0) / input_fps
+  times = (
+    torch.arange(t_out_max, device=device, dtype=torch.float32).unsqueeze(0)
+    * output_dt
+  )
+  safe_durations = durations.unsqueeze(1).clamp_min(1.0e-8)
+  phase = times / safe_durations
+  index_0 = (phase * (input_frames.unsqueeze(1) - 1).float()).floor().long()
+  index_1 = torch.minimum(
+    index_0 + 1, (input_frames - 1).unsqueeze(1).expand(-1, t_out_max)
+  )
+  blend = phase * (input_frames.unsqueeze(1) - 1).float() - index_0.float()
+
+  base_pos_out = _batched_lerp_gather(base_pos_in, index_0, index_1, blend)
+  dof_pos_out = _batched_lerp_gather(dof_pos_in, index_0, index_1, blend)
+
+  rot0 = torch.gather(base_rot_in, 1, index_0.unsqueeze(-1).expand(-1, -1, 4))
+  rot1 = torch.gather(base_rot_in, 1, index_1.unsqueeze(-1).expand(-1, -1, 4))
+  base_rot_out = _batched_quat_slerp(rot0, rot1, blend.unsqueeze(-1))
+
+  clips: list[ResampledClip] = []
+  for batch_idx, n_out in enumerate(output_counts):
+    if n_out <= 0:
+      raise ValueError(
+        f"Clip {batch_idx} produced no output frames "
+        f"(input_frames={int(input_frames[batch_idx])})."
+      )
+    pos = base_pos_out[batch_idx, :n_out]
+    rot = base_rot_out[batch_idx, :n_out]
+    dof = dof_pos_out[batch_idx, :n_out]
+    lin_vel, ang_vel, dof_vel = _compute_velocities_for_clip(
+      pos, rot, dof, output_dt
+    )
+    clips.append(
+      ResampledClip(
+        base_pos=pos,
+        base_rot=rot,
+        dof_pos=dof,
+        base_lin_vel=lin_vel,
+        base_ang_vel=ang_vel,
+        dof_vel=dof_vel,
+        output_frames=n_out,
+      )
+    )
+  return clips
+
+
+class MotionPlayback:
+  """Step through a pre-resampled clip."""
+
+  def __init__(self, clip: ResampledClip):
+    self._clip = clip
+    self.current_idx = 0
+    self.output_frames = clip.output_frames
+
+  def advance_state(
+    self,
+  ) -> tuple[
+    tuple[
+      torch.Tensor,
+      torch.Tensor,
+      torch.Tensor,
+      torch.Tensor,
+      torch.Tensor,
+      torch.Tensor,
+    ],
+    bool,
+  ]:
+    if self.current_idx >= self.output_frames:
+      raise RuntimeError("Motion clip already finished")
+    idx = self.current_idx
+    state = (
+      self._clip.base_pos[idx : idx + 1],
+      self._clip.base_rot[idx : idx + 1],
+      self._clip.base_lin_vel[idx : idx + 1],
+      self._clip.base_ang_vel[idx : idx + 1],
+      self._clip.dof_pos[idx : idx + 1],
+      self._clip.dof_vel[idx : idx + 1],
+    )
+    self.current_idx += 1
+    return state, self.current_idx >= self.output_frames
 
 
 class MotionLoader:
@@ -452,106 +683,36 @@ class MotionLoader:
   ):
     self.output_fps = output_fps
     self.input_fps = int(raw.fps)
-    self.input_dt = 1.0 / self.input_fps
-    self.output_dt = 1.0 / self.output_fps
     self.current_idx = 0
-    self.device = device
-    self._load_motion(raw, model_joint_names=model_joint_names)
-    self._interpolate_motion()
-    self._compute_velocities()
+    clip = resample_motion_clips_batch(
+      [raw],
+      output_fps,
+      device,
+      model_joint_names=model_joint_names,
+    )[0]
+    self.output_frames = clip.output_frames
+    self.motion_base_poss = clip.base_pos
+    self.motion_base_rots = clip.base_rot
+    self.motion_dof_poss = clip.dof_pos
+    self.motion_base_lin_vels = clip.base_lin_vel
+    self.motion_base_ang_vels = clip.base_ang_vel
+    self.motion_dof_vels = clip.dof_vel
+    self._playback = MotionPlayback(clip)
 
-  def _load_motion(
+  def advance_state(
     self,
-    raw: MotionClipRaw,
-    *,
-    model_joint_names: list[str] | None = None,
-  ) -> None:
-    dof_pos = raw.dof_pos
-    if raw.source_joint_names is not None and model_joint_names is not None:
-      dof_pos = remap_dof_columns(dof_pos, raw.source_joint_names, model_joint_names)
-
-    motion = np.concatenate(
-      [raw.base_pos, raw.base_rot_xyzw, dof_pos],
-      axis=1,
-      dtype=np.float32,
-    )
-    motion = torch.from_numpy(motion).to(device=self.device)
-
-    self.motion_base_poss_input = motion[:, :3]
-    self.motion_base_rots_input = motion[:, 3:7]
-    self.motion_base_rots_input = self.motion_base_rots_input[:, [3, 0, 1, 2]]
-    self.motion_dof_poss_input = motion[:, 7:]
-
-    self.input_frames = motion.shape[0]
-    self.duration = (self.input_frames - 1) * self.input_dt
-
-  def _interpolate_motion(self) -> None:
-    times = torch.arange(
-      0, self.duration, self.output_dt, device=self.device, dtype=torch.float32
-    )
-    self.output_frames = times.shape[0]
-    index_0, index_1, blend = self._compute_frame_blend(times)
-    self.motion_base_poss = self._lerp(
-      self.motion_base_poss_input[index_0],
-      self.motion_base_poss_input[index_1],
-      blend.unsqueeze(1),
-    )
-    self.motion_base_rots = self._slerp(
-      self.motion_base_rots_input[index_0],
-      self.motion_base_rots_input[index_1],
-      blend,
-    )
-    self.motion_dof_poss = self._lerp(
-      self.motion_dof_poss_input[index_0],
-      self.motion_dof_poss_input[index_1],
-      blend.unsqueeze(1),
-    )
-    print(
-      f"Motion interpolated, input frames: {self.input_frames}, "
-      f"input fps: {self.input_fps}, "
-      f"output frames: {self.output_frames}, "
-      f"output fps: {self.output_fps}"
-    )
-
-  def _lerp(
-    self, a: torch.Tensor, b: torch.Tensor, blend: torch.Tensor
-  ) -> torch.Tensor:
-    return a * (1 - blend) + b * blend
-
-  def _slerp(
-    self, a: torch.Tensor, b: torch.Tensor, blend: torch.Tensor
-  ) -> torch.Tensor:
-    slerped_quats = torch.zeros_like(a)
-    for i in range(a.shape[0]):
-      slerped_quats[i] = quat_slerp(a[i], b[i], float(blend[i]))
-    return slerped_quats
-
-  def _compute_frame_blend(
-    self, times: torch.Tensor
-  ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    phase = times / self.duration
-    index_0 = (phase * (self.input_frames - 1)).floor().long()
-    index_1 = torch.minimum(index_0 + 1, torch.tensor(self.input_frames - 1))
-    blend = phase * (self.input_frames - 1) - index_0
-    return index_0, index_1, blend
-
-  def _compute_velocities(self) -> None:
-    self.motion_base_lin_vels = torch.gradient(
-      self.motion_base_poss, spacing=self.output_dt, dim=0
-    )[0]
-    self.motion_dof_vels = torch.gradient(
-      self.motion_dof_poss, spacing=self.output_dt, dim=0
-    )[0]
-    self.motion_base_ang_vels = self._so3_derivative(
-      self.motion_base_rots, self.output_dt
-    )
-
-  def _so3_derivative(self, rotations: torch.Tensor, dt: float) -> torch.Tensor:
-    q_prev, q_next = rotations[:-2], rotations[2:]
-    q_rel = quat_mul(q_next, quat_conjugate(q_prev))
-    omega = axis_angle_from_quat(q_rel) / (2.0 * dt)
-    omega = torch.cat([omega[:1], omega, omega[-1:]], dim=0)
-    return omega
+  ) -> tuple[
+    tuple[
+      torch.Tensor,
+      torch.Tensor,
+      torch.Tensor,
+      torch.Tensor,
+      torch.Tensor,
+      torch.Tensor,
+    ],
+    bool,
+  ]:
+    return self._playback.advance_state()
 
   def get_next_state(
     self,
@@ -566,17 +727,7 @@ class MotionLoader:
     ],
     bool,
   ]:
-    state = (
-      self.motion_base_poss[self.current_idx : self.current_idx + 1],
-      self.motion_base_rots[self.current_idx : self.current_idx + 1],
-      self.motion_base_lin_vels[self.current_idx : self.current_idx + 1],
-      self.motion_base_ang_vels[self.current_idx : self.current_idx + 1],
-      self.motion_dof_poss[self.current_idx : self.current_idx + 1],
-      self.motion_dof_vels[self.current_idx : self.current_idx + 1],
-    )
-    self.current_idx += 1
-    reset_flag = False
-    if self.current_idx >= self.output_frames:
-      self.current_idx = 0
-      reset_flag = True
-    return state, reset_flag
+    state, done = self._playback.advance_state()
+    if done:
+      self._playback.current_idx = 0
+    return state, done
