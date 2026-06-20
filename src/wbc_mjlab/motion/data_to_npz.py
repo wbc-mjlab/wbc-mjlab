@@ -1,26 +1,17 @@
-"""Convert retargeted PKL motions (GMR / bvh_to_robot) to a training motion bundle.
+"""Convert motion source files (CSV, PKL, …) to training NPZ clips.
 
-With ``--dataset my_clips``, reads/writes ``data/g1/my_clips/`` (see ``data/README.md``).
+Source layout is defined in ``motion_formats.py`` (canonical fields:
+``base_pos``, ``base_rot_xyzw``, ``dof_pos``, ``fps``). Format is inferred from
+the file extension unless ``--format`` is set.
 
-PKL layout (from ``retargeting_utils/bvh_to_robot.py``)::
+With ``--dataset lafan``, reads/writes under ``data/g1/lafan/``::
 
-  fps: int
-  root_pos: (T, 3)
-  root_rot: (T, 4)  # xyzw
-  dof_pos: (T, nq - 7)
-  local_body_pos: optional
-  link_body_list: optional
-
-Optional metadata keys (if present) override joint ordering:
-
-  joint_names, dof_joint_names, joint_order
-
-Robot joint order is otherwise taken from the compiled mjlab asset (``qpos[7:]``).
+  data/g1/lafan/raw/*.csv or *.pkl
+  data/g1/lafan/npz/<clip>.npz
 """
 
 from __future__ import annotations
 
-import pickle
 from pathlib import Path
 from typing import Any
 
@@ -28,156 +19,49 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from wbc_mjlab.motion.tyro_cli import cli as tyro_cli
-from wbc_mjlab.motion.csv_to_npz import MotionLoader
-from wbc_mjlab.motion.motion_z_debias import debias_motion_log_vertical
 from wbc_mjlab.motion.motion_export_bundle import (
   MotionClipExport,
   export_motion_clip_npz,
   npz_output_dir,
 )
+from wbc_mjlab.motion.motion_formats import (
+  MotionLoader,
+  load_motion_clip,
+  peek_dof_width,
+  resolve_input_motion_paths,
+)
+from wbc_mjlab.motion.motion_z_debias import debias_motion_log_vertical
 from wbc_mjlab.motion.robot_assets import (
   conversion_scene_cfg,
   get_robot_motion_spec,
-  normalize_joint_name_list,
-  remap_dof_columns,
   resolve_dof_joint_names,
   resolve_robot_id,
 )
+from wbc_mjlab.motion.tyro_cli import cli as tyro_cli
+from mjlab.entity import Entity
 from mjlab.scene import Scene
 from mjlab.sim.sim import Simulation, SimulationCfg
 from mjlab.viewer.offscreen_renderer import OffscreenRenderer
 from mjlab.viewer.viewer_config import ViewerConfig
 
-_GMR_PKL_KEYS = ("fps", "root_pos", "root_rot", "dof_pos")
 
-
-def load_gmr_pkl(path: Path) -> dict[str, Any]:
-  with path.open("rb") as handle:
-    data = pickle.load(handle)
-  if not isinstance(data, dict):
-    raise TypeError(f"Expected dict in {path}, got {type(data)}")
-  missing = [k for k in _GMR_PKL_KEYS if k not in data]
-  if missing:
-    raise KeyError(f"Missing keys {missing} in {path}")
-  return data
-
-
-def _pick_joint_names_from_pkl(data: dict[str, Any]) -> list[str] | None:
-  for key in ("dof_joint_names", "joint_names", "joint_order"):
-    raw = data.get(key)
-    if raw is None:
-      continue
-    names = normalize_joint_name_list(list(raw))
-    if names:
-      return names
-  link_names = data.get("link_body_list")
-  if link_names:
-    # Body list is not joint order; ignore unless explicitly useful later.
-    return None
-  return None
-
-
-def resolve_joint_names_for_motion(
-  *,
-  data: dict[str, Any],
-  model,
-  entity_name: str = "robot",
-) -> tuple[list[str], list[str] | None]:
-  dof_dim = int(np.asarray(data["dof_pos"]).shape[1])
-  return resolve_dof_joint_names(
-    model,
-    dof_dim,
-    source_joint_names=_pick_joint_names_from_pkl(data),
-    entity_name=entity_name,
-  )
-
-
-class PklMotionLoader(MotionLoader):
-  """Resampled motion from a GMR-style pickle."""
-
-  def __init__(
-    self,
-    motion_file: str,
-    input_fps: int,
-    output_fps: int,
-    device: torch.device | str,
-    *,
-    pkl_joint_names: list[str] | None = None,
-    model_joint_names: list[str] | None = None,
-  ):
-    self._pkl_joint_names = pkl_joint_names
-    self._model_joint_names = model_joint_names
-    super().__init__(
-      motion_file=motion_file,
-      input_fps=input_fps,
-      output_fps=output_fps,
-      device=device,
-      line_range=None,
-    )
-
-  def _load_motion(self) -> None:
-    data = load_gmr_pkl(Path(self.motion_file))
-    root_pos = np.asarray(data["root_pos"], dtype=np.float32)
-    root_rot_xyzw = np.asarray(data["root_rot"], dtype=np.float32)
-    dof_pos = np.asarray(data["dof_pos"], dtype=np.float32)
-
-    if self._pkl_joint_names is not None and self._model_joint_names is not None:
-      dof_pos = remap_dof_columns(
-        dof_pos, self._pkl_joint_names, self._model_joint_names
-      )
-
-    motion = np.concatenate(
-      [root_pos, root_rot_xyzw, dof_pos],
-      axis=1,
-      dtype=np.float32,
-    )
-    motion = torch.from_numpy(motion).to(device=self.device)
-
-    self.motion_base_poss_input = motion[:, :3]
-    self.motion_base_rots_input = motion[:, 3:7]
-    self.motion_base_rots_input = self.motion_base_rots_input[:, [3, 0, 1, 2]]
-    self.motion_dof_poss_input = motion[:, 7:]
-
-    self.input_frames = motion.shape[0]
-    self.duration = (self.input_frames - 1) * self.input_dt
-
-
-def _resolve_input_pkl_paths(input_path: str) -> list[Path]:
-  path = Path(input_path).expanduser().resolve()
-  if path.is_file():
-    return [path]
-  if path.is_dir():
-    files = sorted(path.glob("*.pkl"))
-    if not files:
-      raise ValueError(f"No .pkl files found in directory: {path}")
-    return files
-  raise ValueError(f"Input path does not exist: {path}")
-
-
-def run_sim_pkl(
+def run_sim(
   sim: Simulation,
   scene: Scene,
   joint_names: list[str],
-  input_file: str,
-  input_fps: float,
+  raw_clip,
   output_fps: float,
   render: bool,
-  renderer: OffscreenRenderer | None,
-  *,
-  pkl_joint_names: list[str] | None,
-  model_joint_names: list[str] | None,
+  renderer: OffscreenRenderer | None = None,
 ) -> dict[str, Any]:
-  motion = PklMotionLoader(
-    motion_file=input_file,
-    input_fps=int(input_fps),
+  motion = MotionLoader(
+    raw=raw_clip,
     output_fps=int(output_fps),
     device=sim.device,
-    pkl_joint_names=pkl_joint_names,
-    model_joint_names=model_joint_names,
+    model_joint_names=joint_names,
   )
 
-  robot = scene["robot"]
+  robot: Entity = scene["robot"]
   robot_joint_indexes = robot.find_joints(joint_names, preserve_order=True)[0]
 
   log: dict[str, Any] = {
@@ -190,13 +74,19 @@ def run_sim_pkl(
     "body_ang_vel_w": [],
   }
   file_saved = False
+
   scene.reset()
+
+  print(f"\nStarting simulation with {motion.output_frames} frames...")
+  if render:
+    print("Rendering enabled - generating video frames...")
 
   pbar = tqdm(
     total=motion.output_frames,
-    desc=f"Processing {Path(input_file).name}",
+    desc="Processing frames",
     unit="frame",
     ncols=100,
+    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
   )
 
   frame_count = 0
@@ -229,10 +119,9 @@ def run_sim_pkl(
 
     sim.forward()
     scene.update(sim.mj_model.opt.timestep)
-
     if render and renderer is not None:
       renderer.update(sim.data)
-      _ = renderer.render()
+      renderer.render()
 
     if not file_saved:
       log["joint_pos"].append(robot.data.joint_pos[0, :].cpu().numpy().copy())
@@ -246,13 +135,24 @@ def run_sim_pkl(
         robot.data.body_link_ang_vel_w[0, :].cpu().numpy().copy()
       )
 
+      torch.testing.assert_close(
+        robot.data.body_link_lin_vel_w[0, 0], motion_base_lin_vel[0]
+      )
+      torch.testing.assert_close(
+        robot.data.body_link_ang_vel_w[0, 0], motion_base_ang_vel[0]
+      )
+
       frame_count += 1
       pbar.update(1)
+      if frame_count % 100 == 0:
+        elapsed_time = frame_count / output_fps
+        pbar.set_description(f"Processing frames (t={elapsed_time:.1f}s)")
 
       if reset_flag and not file_saved:
         file_saved = True
         pbar.close()
-        for key in (
+        print("\nStacking arrays...")
+        for k in (
           "joint_pos",
           "joint_vel",
           "body_pos_w",
@@ -260,8 +160,7 @@ def run_sim_pkl(
           "body_lin_vel_w",
           "body_ang_vel_w",
         ):
-          log[key] = np.stack(log[key], axis=0)
-
+          log[k] = np.stack(log[k], axis=0)
   return log
 
 
@@ -271,10 +170,12 @@ def main(
   dataset: str | None = None,
   dataset_path: str | None = None,
   robot: str = "g1",
+  format: str | None = None,
   input_fps: float | None = None,
   output_fps: float = 50.0,
   device: str = "cuda:0",
   render: bool = False,
+  line_range: tuple[int, int] | None = None,
   debias_z: bool = False,
   debias_foot_sole_z: float | None = None,
 ):
@@ -300,7 +201,7 @@ def main(
   )
   print(f"[INFO] dataset={dataset or '(custom)'} input={input_path} output={output_dir}")
 
-  input_paths = _resolve_input_pkl_paths(input_path)
+  input_paths = resolve_input_motion_paths(input_path, format_name=format)
   clips: list[MotionClipExport] = []
   npz_output_dir(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -309,8 +210,21 @@ def main(
 
   scene = Scene(conversion_scene_cfg(motion_spec), device=device)
   model = scene.compile()
-  joint_names, _ = resolve_joint_names_for_motion(
-    data=load_gmr_pkl(input_paths[0]), model=model
+  probe = load_motion_clip(
+    input_paths[0],
+    format_name=format,
+    input_fps=input_fps,
+    line_range=line_range,
+  )
+  dof_dim = probe.dof_pos.shape[1]
+  joint_names, _ = resolve_dof_joint_names(
+    model,
+    dof_dim,
+    source_joint_names=probe.source_joint_names,
+  )
+  print(
+    f"[INFO] robot={robot_id}, dof={dof_dim}, "
+    f"joints={len(joint_names)} (model.nq={model.nq})"
   )
 
   sim = Simulation(num_envs=1, cfg=sim_cfg, model=model, device=device)
@@ -331,27 +245,37 @@ def main(
     renderer = OffscreenRenderer(model=sim.mj_model, cfg=viewer_cfg, scene=scene)
     renderer.initialize()
 
-  for pkl_path in input_paths:
-    pkl_data = load_gmr_pkl(pkl_path)
-    model_joint_names, pkl_joint_names = resolve_joint_names_for_motion(
-      data=pkl_data, model=model
+  for source_path in input_paths:
+    path_dof = peek_dof_width(
+      source_path,
+      format_name=format,
+      line_range=line_range,
     )
-    effective_input_fps = float(input_fps if input_fps is not None else pkl_data["fps"])
+    if path_dof != len(joint_names):
+      raise ValueError(
+        f"{source_path}: expected {len(joint_names)} joint DOFs for robot "
+        f"{robot_id!r}, got {path_dof}"
+      )
+
+    raw_clip = load_motion_clip(
+      source_path,
+      format_name=format,
+      input_fps=input_fps,
+      line_range=line_range,
+    )
     print(
-      f"[INFO] Converting {pkl_path} (robot={robot_id}, input_fps={effective_input_fps})"
+      f"[INFO] Converting {source_path} "
+      f"(robot={robot_id}, format={format or 'auto'}, input_fps={raw_clip.fps})"
     )
 
-    log = run_sim_pkl(
+    log = run_sim(
       sim=sim,
       scene=scene,
-      joint_names=model_joint_names,
-      input_file=str(pkl_path),
-      input_fps=effective_input_fps,
+      joint_names=joint_names,
+      raw_clip=raw_clip,
       output_fps=output_fps,
       render=render,
       renderer=renderer,
-      pkl_joint_names=pkl_joint_names,
-      model_joint_names=model_joint_names,
     )
 
     if debias_z:
@@ -369,14 +293,14 @@ def main(
         foot_sole_z=foot_sole_z,
       )
       print(
-        f"[INFO] Vertical debias {pkl_path.name}: shift_z={z_shift:.6f} m, "
+        f"[INFO] Vertical debias {source_path.name}: shift_z={z_shift:.6f} m, "
         f"foot_sole_z={foot_sole_z:.6f} m"
       )
 
     clip = MotionClipExport(
       log=log,
-      source_path=pkl_path,
-      joint_names=model_joint_names,
+      source_path=source_path,
+      joint_names=joint_names,
     )
     export_motion_clip_npz(
       output_dir=output_dir,

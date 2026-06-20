@@ -5,9 +5,9 @@ and the mjviser ``motion_playback`` GUI pattern for timeline controls.
 
 Usage::
 
-  wbc-mjlab-vis-data --robot g1 --dataset lafan
-  wbc-mjlab-vis-data --motion-file data/g1/lafan/npz/walk1_subject1.npz
-  wbc-mjlab-vis-data --dataset-path data/g1/lafan
+  wbc-mjlab-data-vis --robot g1 --dataset lafan
+  wbc-mjlab-data-vis --motion-file data/g1/lafan/npz/walk1_subject1.npz
+  wbc-mjlab-data-vis --dataset-path data/g1/lafan
 """
 
 from __future__ import annotations

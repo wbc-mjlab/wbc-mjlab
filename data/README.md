@@ -28,23 +28,27 @@ data/<robot>/<dataset>/
 
 ## Supported formats
 
-| Format | Tool | Role |
-|--------|------|------|
-| **CSV** | `wbc-mjlab-csv-to-npz` | Retargeted robot motion, one file per clip |
-| **PKL** | `wbc-mjlab-pkl-to-npz` | Pickle dict from retargeting pipelines (e.g. GMR) |
+Source layouts are defined in `wbc_mjlab.motion.motion_formats` (canonical fields:
+`base_pos`, `base_rot_xyzw`, `dof_pos`, `fps`). The converter infers format from
+the file extension; pass `--format` to pick a registered name explicitly.
+
+| Format key | Extension | Role |
+|------------|-----------|------|
+| `default` | `.csv` | LAFAN / retarget CSV (no header, m + quat xyzw + rad) |
+| `gmr_pkl` | `.pkl` | GMR / `bvh_to_robot` pickle dict |
 | **NPZ** | train / play | Per-clip exports or a pre-stacked training bundle |
 
-### CSV
+### CSV `default` (LAFAN / retarget)
 
 Comma-separated rows, no header:
 
 ```
-root_pos(3) + root_rot_xyzw(4) + joint_pos(n_dof)
+root_pos(3) + root_rot_xyzw(4) + joint_pos(n_dof)   # meters, radians
 ```
 
-Joint count and order must match the target robot’s mjlab asset. Default input rate is 30 Hz; conversion resamples to 50 Hz.
+Joint count must match the target robot. Default input rate is 30 Hz unless overridden with `--input-fps`.
 
-### PKL
+### PKL (`gmr_pkl`)
 
 Python dict with at least:
 
@@ -58,9 +62,8 @@ Optional keys: `joint_names`, `dof_joint_names`, or `joint_order` to override DO
 
 ```bash
 # 1. Add clips under data/<robot>/<dataset>/ (see robot README for where to download)
-wbc-mjlab-csv-to-npz --robot <robot> --dataset <dataset>
-# or
-wbc-mjlab-pkl-to-npz --robot <robot> --dataset <dataset>
+wbc-mjlab-data-to-npz --robot <robot> --dataset <dataset>
+# optional: --format default | gmr_pkl
 
 # 2. Train (loads npz/*.npz in memory; no stacked file unless cached)
 wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset>

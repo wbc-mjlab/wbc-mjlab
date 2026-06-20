@@ -30,7 +30,7 @@ mkdir -p data/g1/lafan/raw
 cp /tmp/lafan1_retarget/g1/*.csv data/g1/lafan/raw/
 # HF layout may vary — copy all G1 *.csv
 
-wbc-mjlab-csv-to-npz --robot g1 --dataset lafan
+wbc-mjlab-data-to-npz --robot g1 --dataset lafan
 wbc-mjlab-train --task Wbc-G1 --dataset lafan
 ```
 
@@ -40,7 +40,9 @@ LAFAN1 content: [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/
 
 **[bones-studio/seed](https://huggingface.co/datasets/bones-studio/seed)**
 
-Everyday human motion with **Unitree G1 MuJoCo-compatible CSV** at `g1/csv/{date}/{motion_name}.csv`. Accept the [BONES-SEED license](https://huggingface.co/datasets/bones-studio/seed) on Hugging Face before download.
+Everyday human motion with **Unitree G1 CSV** at `g1/csv/{date}/{motion_name}.csv`. Accept the [BONES-SEED license](https://huggingface.co/datasets/bones-studio/seed) on Hugging Face before download.
+
+The bundled CSV uses a BONE SEED header layout (cm, euler degrees, joint degrees). Convert to LAFAN-style CSV first (no header, meters, quat xyzw, radians), then run `wbc-mjlab-data-to-npz`.
 
 ```bash
 huggingface-cli download bones-studio/seed \
@@ -51,9 +53,14 @@ tar -xzf /tmp/bones-seed/g1.tar.gz -C /tmp/bones-seed
 
 mkdir -p data/g1/seed/raw
 # subset via metadata/seed_metadata_v003.parquet, then copy CSVs
-rsync -a /tmp/bones-seed/g1/csv/ data/g1/seed/raw/
+rsync -a /tmp/bones-seed/g1/csv/ /tmp/bones-seed-raw/
 
-wbc-mjlab-csv-to-npz --robot g1 --dataset seed
+# convert BONE SEED CSV → LAFAN-style CSV (external script, robot-specific)
+python path/to/bone_seed_to_lafan_csv.py \
+  --input_dir /tmp/bones-seed-raw \
+  --output_dir data/g1/seed/raw
+
+wbc-mjlab-data-to-npz --robot g1 --dataset seed
 wbc-mjlab-train --task Wbc-G1 --dataset seed
 ```
 

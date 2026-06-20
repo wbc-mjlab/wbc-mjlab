@@ -64,10 +64,9 @@ pip install -e .
 | `wbc-mjlab-train` | Train (wraps `mjlab.scripts.train`) |
 | `wbc-mjlab-play` | Play / eval |
 | `wbc-mjlab-list-envs` | List registered tasks |
-| `wbc-mjlab-csv-to-npz` | Build motion bundles from CSV |
-| `wbc-mjlab-pkl-to-npz` | Build motion bundles from PKL |
+| `wbc-mjlab-data-to-npz` | Build motion NPZ from CSV / PKL (auto-detect format) |
 | `wbc-mjlab-export-tracking-params` | Write `config.yaml` |
-| `wbc-mjlab-vis-data` | Play motion NPZ clips in Viser (browser) |
+| `wbc-mjlab-data-vis` | Play motion NPZ clips in Viser (browser) |
 
 ## Tasks (G1)
 
@@ -124,7 +123,7 @@ Motion source (pick one):
 Conversion needs **`--robot`** (MuJoCo asset / scene), not a task id:
 
 ```bash
-wbc-mjlab-csv-to-npz --robot g1 --dataset lafan
+wbc-mjlab-data-to-npz --robot g1 --dataset lafan
 ```
 
 ## Visualize motion NPZ
@@ -135,9 +134,9 @@ as train/play. NPZ files with ``qpos`` play directly; WBC training NPZ
 (``joint_pos`` + ``body_*``) is also supported.
 
 ```bash
-wbc-mjlab-vis-data --robot g1 --dataset lafan
-wbc-mjlab-vis-data --motion-file data/g1/lafan/npz/walk1_subject1.npz
-wbc-mjlab-vis-data --dataset-path data/g1/lafan
+wbc-mjlab-data-vis --robot g1 --dataset lafan
+wbc-mjlab-data-vis --motion-file data/g1/lafan/npz/walk1_subject1.npz
+wbc-mjlab-data-vis --dataset-path data/g1/lafan
 ```
 
 When a dataset has ``npz/*.npz`` clips, the GUI lists them in a **Motion** dropdown.
