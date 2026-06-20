@@ -229,7 +229,7 @@ def resolve_training_motion_source(
       return bundle
     raise FileNotFoundError(
       f"No training motion in {root}. Expected npz/*.npz or {bundle.name} "
-      f"(convert clips with wbc-mjlab-csv-to-npz)."
+      f"(convert clips with wbc-mjlab-data-to-npz)."
     )
 
   if clips:
@@ -245,7 +245,7 @@ def resolve_training_motion_source(
 
   raise FileNotFoundError(
     f"No training motion in {root}. Expected npz/*.npz or {bundle.name} "
-    f"(convert clips with wbc-mjlab-csv-to-npz)."
+    f"(convert clips with wbc-mjlab-data-to-npz)."
   )
 
 

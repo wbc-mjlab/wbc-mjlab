@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 import mujoco
@@ -54,9 +53,9 @@ def get_robot_motion_spec(name: str) -> tuple[RobotId, RobotMotionSpec]:
   return robot_id, _ROBOT_SPECS[robot_id]
 
 
-def conversion_scene_cfg(motion_spec: RobotMotionSpec) -> SceneCfg:
+def conversion_scene_cfg(motion_spec: RobotMotionSpec, *, num_envs: int = 1) -> SceneCfg:
   scene_cfg = motion_spec.scene_cfg_fn()
-  scene_cfg.num_envs = 1
+  scene_cfg.num_envs = num_envs
   return scene_cfg
 
 
@@ -152,25 +151,3 @@ def resolve_dof_joint_names(
       f"Source joint name list length {len(names)} != motion DOF width {dof_dim}"
     )
   return model_names, names
-
-
-def peek_csv_dof_width(
-  csv_path: Path,
-  line_range: tuple[int, int] | None = None,
-) -> int:
-  if line_range is None:
-    row = np.loadtxt(csv_path, delimiter=",", max_rows=1)
-  else:
-    row = np.loadtxt(
-      csv_path,
-      delimiter=",",
-      skiprows=line_range[0] - 1,
-      maxrows=1,
-    )
-  row = np.atleast_1d(np.asarray(row, dtype=np.float64))
-  if row.size < 8:
-    raise ValueError(
-      f"CSV {csv_path} must have at least 8 columns (root pos/rot + joints), "
-      f"got {row.size}"
-    )
-  return int(row.size - 7)
