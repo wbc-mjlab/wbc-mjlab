@@ -33,7 +33,7 @@ _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 def tracking_std_from_sigma(sigma: float, *, dim: int = 1) -> float:
   """Map per-DoF σ to aggregate ``std`` with ``std = 2σ√dim`` (Table S4 convention)."""
-  return 2.0 * sigma * math.sqrt(dim)
+  return sigma * math.sqrt(dim)
 
 
 def dim_scaled_std(per_dim: float, *, dim: int) -> float:

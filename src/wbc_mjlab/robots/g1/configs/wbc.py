@@ -74,8 +74,8 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   rw["survival"].weight = 1.0
   rw["action_rate_l1"].weight = -0.1
   rw["joint_acc"].weight = -5.0e-6
-  rw["joint_limit"].weight = -10.0
-  rw["actuator_torque_soft_limit"].weight = -1.0
+  rw["joint_limit"].weight = -1.0
+  rw["actuator_torque_soft_limit"].weight = -0.1
   rw["actuator_torque_soft_limit"].params["soft_ratio"] = 0.9
 
   rw["foot_slip"].weight = -0.0

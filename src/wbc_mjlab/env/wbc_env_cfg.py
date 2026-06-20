@@ -136,8 +136,17 @@ def make_base_wbc_env_cfg(
       k: ObservationTermCfg(func=v.func, params=dict(v.params) if v.params else {})
       for k, v in actor_terms.items()
     },
+    "motion_anchor_pos_b": ObservationTermCfg(
+      func=mdp.motion_anchor_pos_b, params={"command_name": "motion"}
+    ),
     "motion_anchor_ori_b": ObservationTermCfg(
       func=mdp.motion_anchor_ori_b, params={"command_name": "motion"}
+    ),
+    "motion_anchor_pos_error_w": ObservationTermCfg(
+      func=mdp.motion_anchor_pos_error_w, params={"command_name": "motion"}
+    ),
+    "motion_anchor_ori_error": ObservationTermCfg(
+      func=mdp.motion_anchor_ori_error, params={"command_name": "motion"}
     ),
     "ref_body_pos": ObservationTermCfg(
       func=mdp.ref_body_pos_b, params={"command_name": "motion"}
@@ -162,6 +171,9 @@ def make_base_wbc_env_cfg(
     ),
     "motion_body_ang_vel": ObservationTermCfg(
       func=mdp.motion_body_ang_vel, params={"command_name": "motion"}
+    ),
+    "ref_joint_vel": ObservationTermCfg(
+      func=mdp.ref_joint_vel, params={"command_name": "motion"}
     ),
     "ref_base_lin_acc": ObservationTermCfg(
       func=mdp.ref_base_lin_acc_b, params={"command_name": "motion"}
@@ -437,7 +449,7 @@ def make_base_wbc_env_cfg(
   }
 
   return ManagerBasedRlEnvCfg(
-    scene=SceneCfg(terrain=TerrainEntityCfg(terrain_type="plane"), num_envs=4096),
+    scene=SceneCfg(terrain=TerrainEntityCfg(terrain_type="plane"), num_envs=8192),
     observations=observations,
     actions=actions,
     commands=commands,
