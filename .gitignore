@@ -12,6 +12,12 @@ docs/PUBLIC_RELEASE.md
 # Generated motion NPZ (always local — run wbc-mjlab-data-to-npz)
 *.npz
 
+# Demo dir: only the bundled checkpoint is tracked (play writes params/ locally)
+
+!demos/README.md
+demos/wbc_g1/params/*
+!demos/wbc_g1/model.pt
+
 # Motion datasets (local only; bundled source CSV in samples/)
 data/**
 !data/**/
