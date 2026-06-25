@@ -3,7 +3,12 @@
 G1 datasets live in **`data/g1/<dataset_name>/`** (e.g. `lafan`, `seed`).  
 General layout, formats, and CLI flags are in [../README.md](../README.md).
 
-No motion files are shipped in this repo yet — use the Hugging Face links below or your own retargeting pipeline. A future **`data/g1/samples/`** folder will hold a few short clips for quick end-to-end tests.
+**Quick try:** bundled clips live in [`samples/`](samples/) (LAFAN1 + BONES-SEED
+excerpts). Use `--dataset samples` on train/play/vis — see
+[samples/README.md](samples/README.md) for the manifest and credits.
+
+For full training runs, download from the Hugging Face links below or use your
+own retargeting pipeline.
 
 ## G1 CSV / PKL expectations
 
@@ -91,6 +96,17 @@ mjlab demo NPZ: https://storage.googleapis.com/mjlab_beta/lafan_dance1_subject1.
 
 ```bash
 wbc-mjlab-play --task Wbc-G1 --motion-file /path/to/lafan_dance1_subject1.npz
+```
+
+## Example layout (`samples`)
+
+```
+data/g1/samples/
+  README.md
+  walk1_subject1.csv
+  flip_360_009__A416.csv
+  npz/walk1_subject1.npz    # after wbc-mjlab-data-to-npz
+  npz/flip_360_009__A416.npz
 ```
 
 ## Example layout (`lafan`)

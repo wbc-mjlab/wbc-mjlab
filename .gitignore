@@ -6,6 +6,9 @@ dist/
 .ruff_cache/
 logs/
 
+# Personal / pre-public notes (local only — not published)
+docs/PUBLIC_RELEASE.md
+
 # Motion datasets (local only)
 data/**
 !data/**/

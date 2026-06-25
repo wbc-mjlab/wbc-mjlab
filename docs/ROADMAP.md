@@ -1,52 +1,58 @@
 # Roadmap
 
-**Backlog:** [GitHub Issues](https://github.com/simeon-ned/wbc_mjlab/issues) (source of truth). Check off or remove items when filed/merged (`Closes #N`).
+**Backlog:** [GitHub Issues](https://github.com/simeon-ned/wbc_mjlab/issues) (source of truth).
+Check off or remove items when filed/merged (`Closes #N`).
 
 | | |
 |---|---|
 | **Issues** | One issue ≈ one PR |
-| **Labels** | `area:env`, `area:tasks`, `paper:zest`, `paper:sonic`, `type:enhancement`, … |
-| **Milestones** | `foundation`, `zest-parity`, `sonic-tracker`, `v0.2-dx` |
+| **Labels** | `area:env`, `area:tasks`, `area:infra`, `paper:zest`, `paper:sonic`, `type:enhancement`, … |
+| **Milestones** | `foundation`, `v0.1-public`, `sonic-tracker`, `v0.2-dx` |
 
-Paper references: `wbc/references/` (zest, sonic, beyond_mimick PDFs).
-
-## Tasks
-
-### Foundation
+## Foundation
 
 - [x] Move G1-specific params from `env/wbc_env_cfg.py` → `robots/g1/configs/base.py`
 - [x] Export `config.yaml` next to `params/policy.onnx` (train + play)
-- [x] Fix / merge `mjlab_entry` circular import if still open
-- [x] Split command in to configurable terms similar to other observations (like projected gravity, etc)
+- [x] Fix / merge `mjlab_entry` circular import
+- [x] Configurable motion command terms
+- [x] Bundled `data/g1/samples/` (LAFAN1 + BONES-SEED excerpts) + credits
 
-### Zest parity (`Wbc-G1-Zest`)
+## Zest parity (`Wbc-G1-Zest`)
 
 - [x] Dwell on last frame at clip end, then timeout reset (not failure)
-- [x] Enable joint position limit reward; add joint torque limit (Table S4)
-- [x] Optional: L_max-normalized similarity EMA (§S5)
-- [x] SE task obs: drop height/gravity refs; add anchor pose tracking error + base lin vel
+- [x] Joint position limit reward; joint torque limit (Table S4)
+- [x] Optional L_max-normalized similarity EMA (§S5)
+- [x] SE task obs: anchor pose tracking error + base lin vel
+- [x] Per-joint action scales and DR (Table S5)
 
-### SONIC tracker (§3.1 — not universal token / VLA)
+## SONIC tracker (§3.1 — not universal token / VLA)
 
 - [ ] Epic: `Wbc-G1-Sonic` — 1 s bins, failure-rate cap, BeyondMimic-style rewards, DR
-- [ ] Introduce motion command jitter (noise) to commands observation (Table 2)
-- [ ] README bib links
+- [ ] Motion command jitter in commands observation (Table 2)
+- [ ] README / docs bib links for shipped tasks
 
-### Paper repro
+## Paper repro
 
-- [x] Zest per-joint action scales and DR (Table S5)
-- [ ] BeyondMimic gaps beyond `Wbc-G1-BinaryFailure`
+- [x] `Wbc-G1-BinaryFailure` (BeyondMimic-style binary failure RSI)
+- [ ] BeyondMimic gaps beyond BinaryFailure
 - [ ] Additional robots
 
-### Handy Utilities
-- [x] Dataset visualizer (to play npz)
+## Utilities
 
-### Developer experience (`area:infra`)
+- [x] Dataset visualizer (`wbc-mjlab-data-vis`)
+- [x] Motion conversion pipeline (`wbc-mjlab-data-to-npz`, parallel batch)
 
-- [ ] uv + `uv.lock`, `uv_build`, `RELEASING.md`, PyPI
-- [ ] Makefile: `sync`, `format`, `type`, `test`, `build`, `docs`
-- [ ] Dockerfile: CUDA + uv + `MUJOCO_GL=egl`
-- [ ] Sphinx docs + GitHub Pages
+## Developer experience (`area:infra`)
+
+Public launch checklist (CI, `CITATION.cff`, docs site, PyPI, …) is tracked
+locally — not in this file.
+
+- [ ] `.github/workflows/ci.yml` — ruff + `wbc-mjlab-list-envs`
 - [ ] `CITATION.cff` + README citing section
+- [ ] Sphinx docs + GitHub Pages
+- [ ] `uv` + `uv.lock`, `RELEASING.md`, PyPI
+- [ ] Makefile: `sync`, `format`, `test`, `build`, `docs`
+- [ ] Dockerfile: CUDA + uv + `MUJOCO_GL=egl`
+- [ ] Smoke tests in `tests/`
 
 Epics (e.g. full SONIC stack): one issue with a checklist, then sub-issues per PR.

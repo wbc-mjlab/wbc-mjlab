@@ -2,9 +2,13 @@
 
 Motion libraries for WBC tracking live under **`data/<robot>/<dataset_name>/`**.
 
-**Nothing is bundled in the repo yet** — download datasets locally (see robot guides below) or convert your own clips. We plan to add a small **`samples/`** folder later with a few simple motions from one of the public datasets so you can smoke-test convert / train / play without a full download.
+A small **`samples/`** folder is version-controlled under each robot (e.g.
+[`g1/samples/`](g1/samples/)) with a few clips from public datasets for smoke
+tests. All other dataset folders stay local — download full libraries from
+Hugging Face (see robot guides) or convert your own clips.
 
-Until then, only READMEs and `.gitkeep` placeholders are version-controlled; all other clip and bundle files stay gitignored.
+Only READMEs, `samples/`, and `.gitkeep` placeholders are version-controlled;
+other clip and bundle files stay gitignored.
 
 ## Robot guides
 
@@ -94,6 +98,6 @@ Conversion accepts **`--dataset-path <dir>`** as the input/output root (same rol
 Everything under `data/` is gitignored except:
 
 - `README.md` and `.gitkeep` files
-- **`samples/`** — reserved for a future small set of bundled example clips (not populated yet)
+- **`samples/`** — bundled example clips (see `g1/samples/README.md` for manifest and credits)
 
 See repo `.gitignore`.

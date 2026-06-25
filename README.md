@@ -57,6 +57,40 @@ src/wbc_mjlab/
 pip install -e .
 ```
 
+## Quickstart (bundled samples)
+
+**13 clips** ship under [`data/g1/samples/`](data/g1/samples/) (8 LAFAN1 + 5
+BONES-SEED acrobatic flips) so you can try the pipeline without downloading full
+datasets. Convert once, then train or visualize:
+
+```bash
+wbc-mjlab-data-to-npz --robot g1 --dataset samples
+wbc-mjlab-train --task Wbc-G1 --dataset samples
+wbc-mjlab-play --task Wbc-G1 --dataset samples
+wbc-mjlab-data-vis --robot g1 --dataset samples
+```
+
+See [data/g1/samples/README.md](data/g1/samples/README.md) for the full clip list and
+dataset credits.
+
+## Sample data & attribution
+
+Bundled clips are **excerpts** from two public G1 retargeting datasets — not owned
+by this project. Use them for tutorials and smoke tests; download the full libraries
+for serious training.
+
+| Source | In `samples/` | License / access |
+|--------|---------------|------------------|
+| **[LAFAN1 retarget](https://huggingface.co/datasets/lvhaidong/LAFAN1_Retargeting_Dataset)** — mocap from [Ubisoft LAFAN1](https://github.com/ubisoft/ubisoft-laforge-animation-dataset), retargeted to G1 | 8 clips: walk, run, sprint, dance, fall/get-up, fight | [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/) (non-commercial) |
+| **[BONES-SEED](https://huggingface.co/datasets/bones-studio/seed)** — [Bones Studio](https://bones.studio/datasets/seed) | 5 clips: 90° and 360° flips | [BONES-SEED license](https://huggingface.co/datasets/bones-studio/seed) (accept on Hugging Face) |
+
+BONE SEED files in `samples/` are stored in LAFAN-style CSV (meters, quat xyzw,
+radians) after conversion from the native SEED header layout.
+
+**If you use these motions in a paper or release**, please credit the dataset
+authors and point readers to the full downloads above. Clip-level manifest:
+[data/g1/samples/README.md](data/g1/samples/README.md).
+
 ## CLI commands
 
 | Command | Purpose |
