@@ -1,5 +1,8 @@
 # WBC-Mjlab: Whole Body Control in MuJoCo Lab
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
+[![PyPI](https://img.shields.io/pypi/v/wbc-mjlab)](https://pypi.org/project/wbc-mjlab/)
+
 **One shared MDP for whole-body motion tracking — compare and reproduce recent methods on [mjlab](https://github.com/mujocolab/mjlab).**
 
 Recent work has pushed humanoid WBC toward **large-scale motion tracking** ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843), …). Each paper ships its own stack, which makes fair comparison and sim-to-real export painful.
