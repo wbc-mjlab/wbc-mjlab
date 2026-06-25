@@ -36,6 +36,7 @@ classifiers = [
 ]
 dependencies = [
   "mjlab>=1.4.0",
+  "numpy>=2.2,<2.5",  # mediapy (mjlab dep) breaks on numpy 2.5+; drop when upstream fixes
 ]
 
 [project.urls]
