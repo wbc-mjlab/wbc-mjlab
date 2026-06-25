@@ -25,6 +25,15 @@ uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
 uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
 ```
 
+**Demo** (bundled checkpoint + samples clip library — convert samples first):
+
+```bash
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 16
+uv run wbc-mjlab-demo
+```
+
+See [demos/README.md](demos/README.md). **Colab:** [demo](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb) · [custom task train](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/custom_task_train.ipynb)
+
 ## Docs
 
 | Doc | Contents |
