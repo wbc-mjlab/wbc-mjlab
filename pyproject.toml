@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "wbc-mjlab"
-version = "0.1.0"
+version = "0.0.1"
 description = "Unified whole-body motion tracking on mjlab — one MDP, paper methods as tasks"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
