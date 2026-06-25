@@ -7,10 +7,11 @@ convert, train, play, and `wbc-mjlab-data-vis` without downloading full datasets
 BONES-SEED). Run conversion once to populate `npz/`, then train or visualize:
 
 ```bash
-wbc-mjlab-data-to-npz --robot g1 --dataset samples
-wbc-mjlab-train --task Wbc-G1 --dataset samples
-wbc-mjlab-play --task Wbc-G1 --dataset samples
-wbc-mjlab-data-vis --robot g1 --dataset samples
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 4   # parallel FK workers
+uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
+uv run wbc-mjlab-data-vis --robot g1 --dataset samples
 ```
 
 ## Layout
@@ -32,7 +33,6 @@ From [lvhaidong/LAFAN1_Retargeting_Dataset](https://huggingface.co/datasets/lvha
 | File | Motion |
 |------|--------|
 | `walk1_subject1.csv` | Walking |
-| `walk1_subject2.csv` | Walking (alternate performer) |
 | `run1_subject2.csv` | Running |
 | `sprint1_subject2.csv` | Sprinting |
 | `dance1_subject1.csv` | Dance |
@@ -93,5 +93,5 @@ Sample motion **files** remain under their respective dataset licenses above.
 The `wbc_mjlab` **code** is Apache-2.0 (see repo root `LICENSE`).
 
 When you publish results trained on these clips, cite the original datasets (see
-main [README](../../../README.md#sample-data--attribution)) in addition to
+**Attribution** above) in addition to
 `wbc_mjlab` and [mjlab](https://github.com/mujocolab/mjlab).

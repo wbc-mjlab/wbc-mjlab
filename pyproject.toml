@@ -1,28 +1,46 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.8.19,<0.9.0"]
+build-backend = "uv_build"
 
 [project]
 name = "wbc-mjlab"
 version = "0.1.0"
-description = "Whole-body control motion tracking for mjlab (multi-robot)"
+description = "Unified whole-body motion tracking on mjlab — one MDP, paper methods as tasks"
 readme = { file = "README.md", content-type = "text/markdown" }
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "The wbc_mjlab Developers" }]
 requires-python = ">=3.10,<3.14"
+keywords = [
+  "mjlab",
+  "whole-body-control",
+  "motion-tracking",
+  "reinforcement-learning",
+  "robotics",
+  "unitree-g1",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3 :: Only",
+  "Environment :: GPU :: NVIDIA CUDA",
+  "Topic :: Scientific/Engineering",
+  "Natural Language :: English",
+]
 dependencies = [
   "mjlab>=1.4.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["wbc_mjlab*"]
-
-[tool.ruff]
-indent-width = 2
-src = ["src"]
-
-[tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "B"]
+[project.urls]
+"Bug Reports" = "https://github.com/wbc-mjlab/wbc-mjlab/issues"
+Source = "https://github.com/wbc-mjlab/wbc-mjlab"
 
 [project.scripts]
 wbc-mjlab-list-envs = "wbc_mjlab.scripts.list_envs:main"
@@ -35,3 +53,74 @@ wbc-mjlab-plot-rsi-bins = "wbc_mjlab.scripts.plot_rsi_bins:main"
 
 [project.entry-points."mjlab.tasks"]
 wbc_mjlab = "wbc_mjlab.mjlab_entry"
+
+[project.optional-dependencies]
+cu128 = ["torch>=2.7.0"]
+cpu = ["torch>=2.7.0"]
+
+[dependency-groups]
+dev = [
+  "pre-commit>=4.3.0",
+  "pytest>=8.0.0",
+  "ruff>=0.14.14",
+]
+
+[tool.uv]
+conflicts = [
+  [{ extra = "cu128" }, { extra = "cpu" }],
+]
+override-dependencies = ["mujoco>=3.8.0.dev0"]
+constraint-dependencies = [
+  "GitPython>=3.1.49",
+  "lxml>=6.1.0",
+  "numpy>=2.2,<2.5",
+]
+required-environments = [
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com/"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "mujoco"
+url = "https://py.mujoco.org"
+explicit = true
+
+[tool.uv.sources]
+warp-lang = { index = "nvidia", marker = "sys_platform != 'darwin'" }
+torch = [
+  { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform != 'darwin'" },
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+]
+mujoco = { index = "mujoco" }
+mujoco-warp = { git = "https://github.com/google-deepmind/mujoco_warp", rev = "e65a72e49a978a3051e7942bc5591df355ba0b5c" }
+
+[tool.ruff]
+indent-width = 2
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.pytest.ini_options]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+addopts = "--strict-markers"

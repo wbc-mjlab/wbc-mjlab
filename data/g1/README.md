@@ -1,7 +1,7 @@
 # G1 motion data
 
 G1 datasets live in **`data/g1/<dataset_name>/`** (e.g. `lafan`, `seed`).  
-General layout, formats, and CLI flags are in [../README.md](../README.md).
+General layout and formats: [data/README.md](../README.md). CLI flags: [docs/USAGE.md](../../docs/USAGE.md).
 
 **Quick try:** bundled clips live in [`samples/`](samples/) (LAFAN1 + BONES-SEED
 excerpts). Use `--dataset samples` on train/play/vis — see
@@ -35,8 +35,10 @@ mkdir -p data/g1/lafan/raw
 cp /tmp/lafan1_retarget/g1/*.csv data/g1/lafan/raw/
 # HF layout may vary — copy all G1 *.csv
 
-wbc-mjlab-data-to-npz --robot g1 --dataset lafan
-wbc-mjlab-train --task Wbc-G1 --dataset lafan
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset lafan
+# or parallel conversion for the full library:
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset lafan --batch-size 8
+uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan
 ```
 
 LAFAN1 content: [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/) (see dataset card).
@@ -65,8 +67,8 @@ python path/to/bone_seed_to_lafan_csv.py \
   --input_dir /tmp/bones-seed-raw \
   --output_dir data/g1/seed/raw
 
-wbc-mjlab-data-to-npz --robot g1 --dataset seed
-wbc-mjlab-train --task Wbc-G1 --dataset seed
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset seed
+uv run wbc-mjlab-train --task Wbc-G1 --dataset seed
 ```
 
 See the [dataset card](https://huggingface.co/datasets/bones-studio/seed) for packages (Locomotion, Dances, …), metadata schema, and Python download snippets.
@@ -95,7 +97,7 @@ AMASS / OMOMO and similar sources work if the pipeline outputs compatible CSV or
 mjlab demo NPZ: https://storage.googleapis.com/mjlab_beta/lafan_dance1_subject1.npz
 
 ```bash
-wbc-mjlab-play --task Wbc-G1 --motion-file /path/to/lafan_dance1_subject1.npz
+uv run wbc-mjlab-play --task Wbc-G1 --motion-file /path/to/lafan_dance1_subject1.npz
 ```
 
 ## Example layout (`samples`)
@@ -107,13 +109,4 @@ data/g1/samples/
   flip_360_009__A416.csv
   npz/walk1_subject1.npz    # after wbc-mjlab-data-to-npz
   npz/flip_360_009__A416.npz
-```
-
-## Example layout (`lafan`)
-
-```
-data/g1/lafan/
-  raw/dance1_subject1.csv
-  npz/dance1_subject1.npz
-  lafan.npz              # optional (--cache-motion-bundle)
 ```
