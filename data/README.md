@@ -26,7 +26,7 @@ data/<robot>/<dataset>/
 ```
 
 - Put source clips in the dataset folder or in **`raw/`** — converters prefer `raw/` when it contains `.csv` or `.pkl` files.
-- **`npz/`** is written by the conversion tools; train/play load clips from there in memory by default.
+- **`npz/`** and **`*.npz`** are **never committed** — run `wbc-mjlab-data-to-npz` after adding source clips.
 - **`<dataset>.npz`** is optional: written only when you pass **`--cache-motion-bundle`** on train/play.
 - **`params/motion_library.yaml`** is written automatically on **play** from the loaded motion bundle — no sidecar manifest in the dataset folder.
 

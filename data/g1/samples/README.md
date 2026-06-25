@@ -20,7 +20,7 @@ uv run wbc-mjlab-data-vis --robot g1 --dataset samples
 data/g1/samples/
   README.md
   *.csv              # source clips (bundled)
-  npz/<clip>.npz     # written by wbc-mjlab-data-to-npz (not in git until converted)
+  npz/<clip>.npz     # local only — run wbc-mjlab-data-to-npz (never committed)
 ```
 
 ## Bundled clips

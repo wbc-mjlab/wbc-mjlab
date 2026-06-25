@@ -17,7 +17,7 @@ uv run wbc-mjlab-list-envs
 
 `uv run` syncs from `uv.lock` on first use. For CUDA/CPU PyTorch and dev deps: `make sync` / `make sync-cpu`. See [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
-**Try bundled samples** (13 clips — [manifest & credits](data/g1/samples/README.md)):
+**Try bundled samples** (13 source CSVs — convert to NPZ locally, then train; [manifest & credits](data/g1/samples/README.md)):
 
 ```bash
 uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples
