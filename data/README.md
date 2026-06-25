@@ -26,7 +26,7 @@ data/<robot>/<dataset>/
 ```
 
 - Put source clips in the dataset folder or in **`raw/`** — converters prefer `raw/` when it contains `.csv` or `.pkl` files.
-- **`npz/`** is written by the conversion tools; train/play load clips from there in memory by default.
+- **`npz/`** and **`*.npz`** are **never committed** — run `wbc-mjlab-data-to-npz` after adding source clips.
 - **`<dataset>.npz`** is optional: written only when you pass **`--cache-motion-bundle`** on train/play.
 - **`params/motion_library.yaml`** is written automatically on **play** from the loaded motion bundle — no sidecar manifest in the dataset folder.
 
@@ -66,15 +66,21 @@ Optional keys: `joint_names`, `dof_joint_names`, or `joint_order` to override DO
 
 ```bash
 # 1. Add clips under data/<robot>/<dataset>/ (see robot README for where to download)
-wbc-mjlab-data-to-npz --robot <robot> --dataset <dataset>
+uv run wbc-mjlab-data-to-npz --robot <robot> --dataset <dataset>
 # optional: --format default | gmr_pkl
+# large libraries: parallel FK workers on GPU
+uv run wbc-mjlab-data-to-npz --robot <robot> --dataset <dataset> --batch-size 8
 
 # 2. Train (loads npz/*.npz in memory; no stacked file unless cached)
-wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset>
+uv run wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset>
 
 # 3. Optional: write <dataset>/<dataset>.npz for faster startup
-wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset> --cache-motion-bundle
+uv run wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset> --cache-motion-bundle
 ```
+
+`--batch-size N` keeps **N MuJoCo envs** on GPU and converts clips in parallel
+(idle workers take the next file from the queue). Use `--batch-size 1` for
+`--render` preview.
 
 Conversion requires **`--robot`** (MuJoCo asset). Train/play normally use **`--task`** (robot is inferred from the task config).
 

@@ -9,11 +9,15 @@ logs/
 # Personal / pre-public notes (local only — not published)
 docs/PUBLIC_RELEASE.md
 
-# Motion datasets (local only)
+# Generated motion NPZ (always local — run wbc-mjlab-data-to-npz)
+*.npz
+
+# Motion datasets (local only; bundled source CSV in samples/)
 data/**
 !data/**/
 !data/**/.gitkeep
 !data/README.md
 !data/**/README.md
 !data/**/samples/
-!data/**/samples/**
+!data/**/samples/README.md
+!data/**/samples/*.csv

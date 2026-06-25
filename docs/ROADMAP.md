@@ -1,6 +1,6 @@
 # Roadmap
 
-**Backlog:** [GitHub Issues](https://github.com/simeon-ned/wbc_mjlab/issues) (source of truth).
+**Backlog:** [GitHub Issues](https://github.com/wbc-mjlab/wbc-mjlab/issues) (source of truth).
 Check off or remove items when filed/merged (`Closes #N`).
 
 | | |
@@ -44,15 +44,12 @@ Check off or remove items when filed/merged (`Closes #N`).
 
 ## Developer experience (`area:infra`)
 
-Public launch checklist (CI, `CITATION.cff`, docs site, PyPI, …) is tracked
-locally — not in this file.
-
+- [x] `uv` + `uv.lock`, `Makefile`, `RELEASING.md`
 - [ ] `.github/workflows/ci.yml` — ruff + `wbc-mjlab-list-envs`
 - [ ] `CITATION.cff` + README citing section
 - [ ] Sphinx docs + GitHub Pages
-- [ ] `uv` + `uv.lock`, `RELEASING.md`, PyPI
-- [ ] Makefile: `sync`, `format`, `test`, `build`, `docs`
+- [ ] PyPI publish `wbc-mjlab`
 - [ ] Dockerfile: CUDA + uv + `MUJOCO_GL=egl`
-- [ ] Smoke tests in `tests/`
+- [ ] Smoke tests in `tests/` (beyond import smoke)
 
 Epics (e.g. full SONIC stack): one issue with a checklist, then sub-issues per PR.

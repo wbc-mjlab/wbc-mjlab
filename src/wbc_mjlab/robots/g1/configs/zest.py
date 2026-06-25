@@ -1,4 +1,4 @@
-"""Zest env config (arXiv:2511.02367)."""
+"""Zest env config (arXiv:2602.00401)."""
 
 from __future__ import annotations
 
