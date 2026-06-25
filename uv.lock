@@ -3717,6 +3717,8 @@ version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "mjlab" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-9-wbc-mjlab-cpu' and extra == 'extra-9-wbc-mjlab-cu128')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-9-wbc-mjlab-cpu' and extra == 'extra-9-wbc-mjlab-cu128')" },
 ]
 
 [package.optional-dependencies]
@@ -3739,6 +3741,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mjlab", specifier = ">=1.4.0" },
+    { name = "numpy", specifier = ">=2.2,<2.5" },
     { name = "torch", marker = "sys_platform == 'darwin' and extra == 'cpu'", specifier = ">=2.7.0" },
     { name = "torch", marker = "sys_platform == 'darwin' and extra == 'cu128'", specifier = ">=2.7.0" },
     { name = "torch", marker = "sys_platform != 'darwin' and extra == 'cpu'", specifier = ">=2.7.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "wbc-mjlab", extra = "cpu" } },
