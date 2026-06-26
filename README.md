@@ -30,22 +30,27 @@ uv run wbc-mjlab-list-envs
 
 `uv run` syncs from `uv.lock` on first use. For CUDA/CPU PyTorch and dev deps: `make sync` / `make sync-cpu`. See [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
-**Try bundled samples** (13 source CSVs — convert to NPZ locally, then train; [manifest & credits](data/g1/samples/README.md)):
-
-```bash
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples
-uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
-uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
-```
-
-**Demo** (bundled checkpoint + samples clip library — convert samples first):
+**Convert trajectory samples** (13 source CSVs [manifest & credits](data/g1/samples/README.md)) to npz - calculating FK for body targets, velocities etc:
 
 ```bash
 uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 16
+```
+**Demo** play bundled checkpoint + samples clip library:
+
+```bash
 uv run wbc-mjlab-demo
 ```
 
-See [demos/README.md](demos/README.md). **Colab:** [demo](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
+**Train** on converted npz library (check mjlab train args for resuming, number of envs etc):
+
+```bash
+uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+```
+
+**Evaluation** of last exported log on library (check args for viewer, choosing chekpoint, motion etc):
+```bash
+uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
+```
 
 ## Docs
 
