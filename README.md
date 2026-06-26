@@ -3,11 +3,24 @@
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
 [![PyPI](https://img.shields.io/pypi/v/wbc-mjlab)](https://pypi.org/project/wbc-mjlab/)
 
-**One shared MDP for whole-body motion tracking — compare and reproduce recent methods on [mjlab](https://github.com/mujocolab/mjlab).**
+**One shared MDP for whole-body motion tracking on [mjlab](https://github.com/mujocolab/mjlab) — train once on a motion library, deploy one policy for many skills.**
 
-Recent work has pushed humanoid WBC toward **large-scale motion tracking** ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843), …). Each paper ships its own stack, which makes fair comparison and sim-to-real export painful.
+Recent humanoid WBC work ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843), …) often ships as **separate stacks per method or per skill**. **wbc-mjlab** is a single training surface: a shared motion-tracking MDP where paper choices are **`--task` switches**, and on deploy **one ONNX policy + a clip library** — swap trajectories at runtime (walk, jog, run, fight, flips, …) instead of retraining per motion.
+![WBC G1 sim collage](assets/wbc_g1_collage.gif)
 
-**wbc_mjlab** unifies that line of work on **one training surface**: a shared motion-tracking MDP with paper-specific choices as **`--task` switches** (RSI, observations, rewards, DR). Export ONNX + `config.yaml` for optional G1 deploy ([wbc-g1-deploy](https://github.com/wbc-mjlab/wbc-g1-deploy)).
+<!-- **Sim2sim preview** (Unitree MuJoCo) — idle · dance · fight · jog · flip: -->
+
+
+
+- **Multi-motion by design** — train on **multi-clip datasets** (LAFAN, SEED, custom NPZ libraries); one controller generalizes across the library. At runtime, pick a clip from `manifest.yaml` — no checkpoint change.
+- **Shared MDP** — rewards, terminations, motion command, RSI, and playback live in `env/` once; robots and papers plug in via task configs.
+- **Tasks, not forks** — ZEST, BeyondMimic-style RSI, deploy obs, etc. are **`--task` switches** (`Wbc-G1`, `Wbc-G1-Zest`, `Wbc-G1-BinaryFailure`, …) with the same CLI and log layout for fair comparison.
+- **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache ([data/README.md](data/README.md)).
+- **Building blocks** — small env builders per method (`robots/g1/configs/`); add a paper setup or tune your own WBC without forking the core MDP.
+- **One policy, many skills** — one policy for walk, jog, run, crawl, fight, get-up, lie-down, flips, and more.
+- **Sim → real** — train/play export `policy.onnx` + `config.yaml` aligned with the deploy runtime.
+
+Details: [docs/TASKS.md](docs/TASKS.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Quick start
 
