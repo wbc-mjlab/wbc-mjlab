@@ -5,12 +5,9 @@
 
 **One shared MDP for whole-body motion tracking on [mjlab](https://github.com/mujocolab/mjlab) — train once on a motion library, deploy one policy for many skills.**
 
-Recent humanoid WBC work ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843), …) often ships as **separate stacks per method or per skill**. **wbc-mjlab** is a single training surface: a shared motion-tracking MDP where paper choices are **`--task` switches**, and on deploy **one ONNX policy + a clip library** — swap trajectories at runtime (walk, jog, run, fight, flips, …) instead of retraining per motion.
 ![WBC G1 sim collage](assets/wbc_g1_collage.gif)
 
-<!-- **Sim2sim preview** (Unitree MuJoCo) — idle · dance · fight · jog · flip: -->
-
-
+Recent humanoid WBC work ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843), …) often ships as **separate stacks per method or per skill**. **wbc-mjlab** is a single training surface: 
 
 - **Multi-motion by design** — train on **multi-clip datasets** (LAFAN, SEED, custom NPZ libraries); one controller generalizes across the library. At runtime, pick a clip from `manifest.yaml` — no checkpoint change.
 - **Shared MDP** — rewards, terminations, motion command, RSI, and playback live in `env/` once; robots and papers plug in via task configs.
