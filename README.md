@@ -3,11 +3,21 @@
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
 [![PyPI](https://img.shields.io/pypi/v/wbc-mjlab)](https://pypi.org/project/wbc-mjlab/)
 
-**One shared MDP for whole-body motion tracking — compare and reproduce recent methods on [mjlab](https://github.com/mujocolab/mjlab).**
+**One shared MDP for whole-body motion tracking on [mjlab](https://github.com/mujocolab/mjlab) — train once on a motion library, deploy one policy for many skills.**
 
-Recent work has pushed humanoid WBC toward **large-scale motion tracking** ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843), …). Each paper ships its own stack, which makes fair comparison and sim-to-real export painful.
+![WBC G1 sim collage](assets/wbc_g1_collage.gif)
 
-**wbc_mjlab** unifies that line of work on **one training surface**: a shared motion-tracking MDP with paper-specific choices as **`--task` switches** (RSI, observations, rewards, DR). Export ONNX + `config.yaml` for optional G1 deploy ([wbc-g1-deploy](https://github.com/wbc-mjlab/wbc-g1-deploy)).
+Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843)) is all **WBC / large-scale tracking**, with overlapping ideas (keybody rewards, adaptive sampling, multi-clip training) but **different design choices** — each still tends to ship as its own codebase. In wbc-mjlab, paper-specific knobs are **`--task` switches** on a shared stack:
+
+- **Multi-motion by design** — train on **multi-clip datasets** (LAFAN, SEED, custom NPZ libraries); one controller generalizes across the library. At runtime, pick a clip from `manifest.yaml` — no checkpoint change.
+- **Shared MDP** — rewards, terminations, motion command, RSI, and playback live in `env/` once; robots and papers plug in via task configs.
+- **Tasks, not forks** — ZEST, BeyondMimic-style RSI, deploy obs, etc. are **`--task` switches** (`Wbc-G1`, `Wbc-G1-Zest`, `Wbc-G1-BinaryFailure`, …) with the same CLI and log layout for fair comparison.
+- **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache ([data/README.md](data/README.md)).
+- **Building blocks** — small env builders per method (`robots/g1/configs/`); add a paper setup or tune your own WBC without forking the core MDP.
+- **One policy, many skills** — one policy for walk, jog, run, crawl, fight, get-up, lie-down, flips, and more.
+- **Sim → real** — train/play export `policy.onnx` + `config.yaml` aligned with the deploy runtime.
+
+Details: [docs/TASKS.md](docs/TASKS.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Quick start
 
@@ -20,22 +30,27 @@ uv run wbc-mjlab-list-envs
 
 `uv run` syncs from `uv.lock` on first use. For CUDA/CPU PyTorch and dev deps: `make sync` / `make sync-cpu`. See [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
-**Try bundled samples** (13 source CSVs — convert to NPZ locally, then train; [manifest & credits](data/g1/samples/README.md)):
-
-```bash
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples
-uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
-uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
-```
-
-**Demo** (bundled checkpoint + samples clip library — convert samples first):
+**Convert trajectory samples** (13 source CSVs [manifest & credits](data/g1/samples/README.md)) to npz - calculating FK for body targets, velocities etc:
 
 ```bash
 uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 16
+```
+**Demo** play bundled checkpoint + samples clip library:
+
+```bash
 uv run wbc-mjlab-demo
 ```
 
-See [demos/README.md](demos/README.md). **Colab:** [demo](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
+**Train** on converted npz library (check mjlab train args for resuming, number of envs etc):
+
+```bash
+uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+```
+
+**Evaluation** of last exported log on library (check args for viewer, choosing chekpoint, motion etc):
+```bash
+uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
+```
 
 ## Docs
 
