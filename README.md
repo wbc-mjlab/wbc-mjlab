@@ -1,6 +1,7 @@
 # WBC-Mjlab: Whole Body Control in MuJoCo Lab
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
+[![Demo MJ-WASM](https://img.shields.io/badge/Demo-MJ--WASM-007ec6?labelColor=555555)](https://wbc-mjlab.github.io/wbc-demo/)
 [![PyPI](https://img.shields.io/pypi/v/wbc-mjlab)](https://pypi.org/project/wbc-mjlab/)
 
 **One shared MDP for whole-body motion tracking on [mjlab](https://github.com/mujocolab/mjlab) — train once on a motion library, deploy one policy for many skills.**
@@ -35,7 +36,8 @@ uv run wbc-mjlab-list-envs
 ```bash
 uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 16
 ```
-**Demo** play bundled checkpoint + samples clip library:
+
+**Demo** — [live web demo](https://wbc-mjlab.github.io/wbc-demo/) (trained policy in the browser); local play with bundled checkpoint (convert samples first):
 
 ```bash
 uv run wbc-mjlab-demo
