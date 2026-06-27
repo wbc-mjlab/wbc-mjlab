@@ -9,6 +9,7 @@
 | `wbc-mjlab-list-envs` | List registered tasks |
 | `wbc-mjlab-data-to-npz` | Build motion NPZ from CSV / PKL (`--batch-size N` for parallel GPU conversion) |
 | `wbc-mjlab-export-tracking-params` | Write `config.yaml` |
+| `wbc-mjlab-export-web-reference` | Emit a wbc-demo live-policy folder (ONNX + config + per-clip reference-command `.bin`s + manifest) |
 | `wbc-mjlab-data-vis` | Play motion NPZ clips in Viser (browser) |
 
 ## Train / play
@@ -77,6 +78,48 @@ uv run wbc-mjlab-export-tracking-params --task Wbc-G1-Zest --out /path/to/config
 ```
 
 Train → export → run on hardware with [wbc-g1-deploy](https://github.com/wbc-mjlab/wbc-g1-deploy).
+
+## Web demo live-policy folder
+
+`wbc-mjlab-export-web-reference` emits a ready-to-drop
+[wbc-demo](https://github.com/wbc-mjlab/wbc-demo) `policies/<policy-id>/` folder
+for the **in-browser live policy** (issue wbc-mjlab-ow5): `policy.onnx`,
+`config.yaml`, `motion_library.yaml`, `reference/index.json` + per-clip
+`reference/<clipId>.bin`, `thumb.png`, and a `policy.yaml` manifest stub
+(conforms to `policies/policy.schema.json`).
+
+```bash
+uv run wbc-mjlab-export-web-reference --task Wbc-G1 --dataset samples \
+  --run logs/rsl_rl/wbc_g1/<run> --out /path/to/wbc-demo/policies
+```
+
+The browser runs the policy ONNX live and builds the full actor observation by
+concatenating live proprioception (from its own sim) with the **reference
+command** shipped per clip — so this exporter ships only the reference stream,
+**not** full-body render poses (far smaller than the shelved render bundle).
+
+Each `reference/<clipId>.bin` is the `wbc_reference_stream_v1` wire format: raw
+little-endian Float32, frame-major `frames × 39` (no header). The 39 dims follow
+the deploy `config.yaml` `tracking.reference_observation_names` order:
+
+| Term | Dims | Meaning |
+|------|------|---------|
+| `ref_base_height` | 1 | anchor (`torso_link`) world z (env origin z = 0 on export) |
+| `ref_base_lin_vel_b` | 3 | anchor linear velocity, rotated into the anchor frame |
+| `ref_base_ang_vel_b` | 3 | anchor angular velocity, rotated into the anchor frame |
+| `ref_gravity_b` | 3 | gravity unit vector `(0,0,-1)`, rotated into the anchor frame |
+| `ref_joint_pos` | 29 | reference joint positions (config `joint_names` order) |
+
+The anchor world state is read straight from each clip NPZ's `body_*_w` arrays at
+the `torso_link` index — no forward kinematics. The math matches mjlab's
+`MotionCommand` (`env/mdp/commands.py`) and the deploy C++ `WbcMotionLoader`
+(`wbc-g1-deploy/src/WbcMotionLoader.cpp`) term-for-term. `reference/index.json`
+(schema `wbc_reference_stream_v1`) carries `commandDim`, `fps`, the `refTerms`
+layout, and the per-clip listing (`id`, `name`, `file`, `frames`, `durationSec`,
+`tags`). `--run` / `--checkpoint-file` points at a run whose `params/` holds
+`policy.onnx` + `config.yaml`; `config.yaml` is regenerated from the task config
+if missing. Edit the `policy.yaml` metadata before opening the wbc-demo PR. The
+JS consumer contract is documented in `REFERENCE_STREAM.md` in the wbc-demo repo.
 
 ## Repo layout
 
