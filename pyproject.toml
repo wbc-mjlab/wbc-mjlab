@@ -50,6 +50,7 @@ wbc-mjlab-play = "wbc_mjlab.scripts.play:main"
 wbc-mjlab-demo = "wbc_mjlab.scripts.demo:main"
 wbc-mjlab-data-to-npz = "wbc_mjlab.motion.data_to_npz:cli"
 wbc-mjlab-export-tracking-params = "wbc_mjlab.export.export_cli:main"
+wbc-mjlab-export-web-reference = "wbc_mjlab.export.web_reference_bundle:main"
 wbc-mjlab-data-vis = "wbc_mjlab.scripts.vis_data:cli"
 wbc-mjlab-plot-rsi-bins = "wbc_mjlab.scripts.plot_rsi_bins:main"
 
