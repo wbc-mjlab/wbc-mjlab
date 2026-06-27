@@ -6,12 +6,9 @@
 
 **One shared MDP for whole-body motion tracking on [mjlab](https://github.com/mujocolab/mjlab) — train once on a motion library, deploy one policy for many skills.**
 
-Recent humanoid WBC work ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843), …) often ships as **separate stacks per method or per skill**. **wbc-mjlab** is a single training surface: a shared motion-tracking MDP where paper choices are **`--task` switches**, and on deploy **one ONNX policy + a clip library** — swap trajectories at runtime (walk, jog, run, fight, flips, …) instead of retraining per motion.
 ![WBC G1 sim collage](assets/wbc_g1_collage.gif)
 
-<!-- **Sim2sim preview** (Unitree MuJoCo) — idle · dance · fight · jog · flip: -->
-
-
+Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843)) is all **WBC / large-scale tracking**, with overlapping ideas (keybody rewards, adaptive sampling, multi-clip training) but **different design choices** — each still tends to ship as its own codebase. In wbc-mjlab, paper-specific knobs are **`--task` switches** on a shared stack:
 
 - **Multi-motion by design** — train on **multi-clip datasets** (LAFAN, SEED, custom NPZ libraries); one controller generalizes across the library. At runtime, pick a clip from `manifest.yaml` — no checkpoint change.
 - **Shared MDP** — rewards, terminations, motion command, RSI, and playback live in `env/` once; robots and papers plug in via task configs.
@@ -34,22 +31,28 @@ uv run wbc-mjlab-list-envs
 
 `uv run` syncs from `uv.lock` on first use. For CUDA/CPU PyTorch and dev deps: `make sync` / `make sync-cpu`. See [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
-**Try bundled samples** (13 source CSVs — convert to NPZ locally, then train; [manifest & credits](data/g1/samples/README.md)):
+**Convert trajectory samples** (13 source CSVs [manifest & credits](data/g1/samples/README.md)) to npz - calculating FK for body targets, velocities etc:
 
 ```bash
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples
-uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
-uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 16
 ```
 
 **Demo** — [live web demo](https://wbc-mjlab.github.io/wbc-demo/) (trained policy in the browser); local play with bundled checkpoint (convert samples first):
 
 ```bash
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 16
 uv run wbc-mjlab-demo
 ```
 
-See [demos/README.md](demos/README.md). **Colab:** [demo](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
+**Train** on converted npz library (check mjlab train args for resuming, number of envs etc):
+
+```bash
+uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+```
+
+**Evaluation** of last exported log on library (check args for viewer, choosing chekpoint, motion etc):
+```bash
+uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
+```
 
 ## Docs
 
