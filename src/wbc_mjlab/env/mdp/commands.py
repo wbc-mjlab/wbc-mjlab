@@ -1143,7 +1143,7 @@ class MotionCommandCfg(MjlabMotionCommandCfg):
   @dataclass
   class VizCfg:
     mode: Literal["ghost", "frames"] = "ghost"
-    ghost_color: tuple[float, float, float, float] = (0.5, 0.7, 0.5, 0.5)
+    ghost_color: tuple[float, float, float, float] = (0.45, 0.6, 0.9, 0.5)
 
   viz: VizCfg = field(default_factory=VizCfg)
 
