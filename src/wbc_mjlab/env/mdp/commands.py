@@ -30,8 +30,12 @@ from wbc_mjlab.env.mdp.sampling import (
   bin_index_for_frame,
   build_bin_valid_mask,
   compile_similarity_terms,
+  compute_assist_gain_matrix,
+  compute_sampling_prob_matrix,
   resolve_tracking_reward_indices,
+  rsi_failure_signal_label,
   sample_adaptive_bins,
+  trajectory_conditional_prob_row,
   step_tracking_reward_similarity,
   step_tracking_similarity,
   update_failure_ema,
@@ -40,7 +44,7 @@ from wbc_mjlab.viewer.motion_vis import (
   clip_name_for_trajectory,
   error_to_rgba,
   format_motion_context_html,
-  format_rsi_html,
+  format_rsi_panel_html,
 )
 
 if TYPE_CHECKING:
@@ -259,6 +263,12 @@ class MotionCommand(CommandTerm):
       dtype=torch.float,
       device=self.device,
     )
+    self.bin_visit_counts = torch.zeros(
+      self.motion.num_trajectories,
+      self.bins_per_trajectory,
+      dtype=torch.float,
+      device=self.device,
+    )
 
     self._episode_similarity_sum = torch.zeros(self.num_envs, device=self.device)
     self._episode_similarity_denom = torch.ones(self.num_envs, device=self.device)
@@ -313,7 +323,7 @@ class MotionCommand(CommandTerm):
 
     self._viewer_task_id: str | None = None
     self._viewer_align_xy_yaw = False
-    self._viewer_color_bodies = True
+    self._viewer_color_bodies = False
     self._viewer_context_html = None
     self._viewer_rsi_html = None
 
@@ -413,6 +423,7 @@ class MotionCommand(CommandTerm):
     self._episode_start_bin[env_ids] = bins
     self._set_episode_similarity_denom(env_ids, traj_ids, time_steps)
     self._set_episode_assist_gain(env_ids, traj_ids, bins)
+    self._record_bin_visits(traj_ids, bins)
 
     num_valid = max(1, probs_valid.shape[0])
     H = -(probs_valid * (probs_valid + 1e-12).log()).sum()
@@ -438,6 +449,7 @@ class MotionCommand(CommandTerm):
     self._episode_start_bin[env_ids] = start_bins
     self._set_episode_similarity_denom(env_ids, traj_ids, self.time_steps[env_ids])
     self._set_episode_assist_gain(env_ids, traj_ids, start_bins)
+    self._record_bin_visits(traj_ids, start_bins)
 
     num_valid = max(1, int(self.bin_valid_mask.sum().item()))
     self.metrics["sampling_entropy"][:] = 1.0
@@ -745,6 +757,7 @@ class MotionCommand(CommandTerm):
       start_bins = self._episode_start_bin[env_ids]
       self._set_episode_similarity_denom(env_ids, start_traj, self.time_steps[env_ids])
       self._set_episode_assist_gain(env_ids, start_traj, start_bins)
+      self._record_bin_visits(start_traj, start_bins)
     elif rsi.sampling_mode == "uniform":
       self._uniform_sampling(env_ids)
     else:
@@ -855,6 +868,35 @@ class MotionCommand(CommandTerm):
   def set_viewer_task_id(self, task_id: str | None) -> None:
     self._viewer_task_id = task_id
 
+  def _record_bin_visits(self, traj_ids: torch.Tensor, bins: torch.Tensor) -> None:
+    for traj_id, bin_id in zip(traj_ids.tolist(), bins.tolist(), strict=True):
+      self.bin_visit_counts[int(traj_id), int(bin_id)] += 1.0
+
+  def _rsi_view_tensors(
+    self,
+  ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    rsi = self.cfg.rsi
+    failure = self.bin_failure_levels
+    prob = compute_sampling_prob_matrix(
+      failure,
+      self.bin_valid_mask,
+      temperature_base=rsi.temperature_base,
+      uniform_ratio=rsi.uniform_ratio,
+    )
+    assist = compute_assist_gain_matrix(
+      failure,
+      eta=self.cfg.assistive_eta,
+      beta_max=self.cfg.assistive_beta_max,
+      enabled=self.cfg.assistive_wrench_enabled,
+    )
+    return (
+      failure.detach().cpu(),
+      prob.detach().cpu(),
+      self.bin_visit_counts.detach().cpu(),
+      assist.detach().cpu(),
+      self.bin_valid_mask.detach().cpu(),
+    )
+
   def _clip_name(self, traj_id: int) -> str:
     return clip_name_for_trajectory(self.motion.segment_names, traj_id)
 
@@ -899,15 +941,24 @@ class MotionCommand(CommandTerm):
         self.time_steps[env_idx : env_idx + 1],
       ).item()
     )
-    failure = float(self.bin_failure_levels[traj_id, bin_idx].item())
-    levels = self.bin_failure_levels[traj_id].detach().cpu().tolist()
-    valid = self.bin_valid_mask[traj_id].detach().cpu().tolist()
-    self._viewer_rsi_html.content = format_rsi_html(
+    failure, prob, visits, assist, valid = self._rsi_view_tensors()
+    rsi = self.cfg.rsi
+    traj_probs = trajectory_conditional_prob_row(prob, valid, traj_id)
+    self._viewer_rsi_html.content = format_rsi_panel_html(
       bin_idx=bin_idx,
       num_bins=self.bins_per_trajectory,
-      failure=failure,
-      failure_levels=levels,
-      valid_mask=valid,
+      bin_width_s=rsi.bin_width_s,
+      failure_levels=failure[traj_id].tolist(),
+      sampling_probs=traj_probs,
+      visit_counts=visits[traj_id].tolist(),
+      assist_gains=assist[traj_id].tolist(),
+      valid_mask=valid[traj_id].tolist(),
+      failure_signal_label=rsi_failure_signal_label(
+        rsi.strategy,
+        similarity_from_rewards=rsi.similarity_from_rewards,
+      ),
+      show_assist=self.cfg.assistive_wrench_enabled,
+      beta_max=self.cfg.assistive_beta_max,
     )
 
   def _debug_vis_impl(self, visualizer: DebugVisualizer) -> None:
@@ -1034,8 +1085,11 @@ class MotionCommand(CommandTerm):
     max_frame = int(self.motion.time_step_total) - 1
 
     with server.gui.add_folder(name.capitalize()):
-      self._viewer_context_html = server.gui.add_html("")
-      self._viewer_rsi_html = server.gui.add_html("")
+      with server.gui.add_folder("Selected env", expand_by_default=True):
+        self._viewer_context_html = server.gui.add_html("")
+
+      with server.gui.add_folder("Adaptive sampling (RSI)", expand_by_default=False):
+        self._viewer_rsi_html = server.gui.add_html("")
 
       align_cb = server.gui.add_checkbox(
         "Align xy/yaw to reference",
