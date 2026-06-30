@@ -12,7 +12,7 @@ from mjlab.actuator.pd_actuator import IdealPdActuator, IdealPdActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg
 from mjlab.utils.actuator import reflected_inertia_from_two_stage_planetary
 
-from wbc_mjlab.actuation.envelope import (
+from wbc_mjlab.env.mdp.torque_envelope import (
   TorqueSpeedEnvelope,
   TorqueSpeedEnvelopeTensors,
   clip_unitree_effort,

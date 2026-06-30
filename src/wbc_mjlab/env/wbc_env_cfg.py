@@ -77,7 +77,7 @@ def make_base_wbc_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   motion = {"command_name": _MOTION_COMMAND}
   # Non-SE actor: reference command + proprio only. SE measurements live in
-  # ``configure_state_estimation_actor_obs`` (``env/se_actor_obs.py``).
+  # ``apply_se_actor`` (``presets/se_actor.py``).
   # Task configs may drop terms per policy layout (e.g. ``ref_joint_vel`` in wbc/zest).
   # BeyondMimic keeps the base template unchanged. SE swaps height/gravity → anchor pose error.
   actor_terms = {
@@ -374,15 +374,15 @@ def make_base_wbc_env_cfg(
       weight=-2.0e-6,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
-    "neg_regen_power": RewardTermCfg(
-      func=mdp.negative_mechanical_power_l2,
-      weight=0.0,
-      params={
-        "asset_cfg": SceneEntityCfg("robot"),
-        "power_deadband": 0.0,
-        "penalty_scale": 1.0,
-      },
-    ),
+    # "neg_regen_power": RewardTermCfg(
+    #   func=mdp.negative_mechanical_power_l2,
+    #   weight=0.0,
+    #   params={
+    #     "asset_cfg": SceneEntityCfg("robot"),
+    #     "power_deadband": 0.0,
+    #     "penalty_scale": 1.0,
+    #   },
+    # ),
     "joint_limit": RewardTermCfg(
       func=mdp.joint_pos_limits,
       weight=-10.0,

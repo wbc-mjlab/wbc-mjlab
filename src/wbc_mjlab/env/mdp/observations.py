@@ -14,7 +14,7 @@ from mjlab.utils.lab_api.math import (
   subtract_frame_transforms,
 )
 
-from wbc_mjlab.actuation.envelope import torque_speed_limits
+from wbc_mjlab.env.mdp.torque_envelope import torque_speed_limits
 
 from .commands import MotionCommand
 
@@ -29,7 +29,7 @@ def _motion_command(env: ManagerBasedRlEnv, command_name: str) -> MotionCommand:
 
 
 # --- Actor reference features (configurable obs terms; were stacked in MotionCommand.command) ---
-# SE actor layouts: ``configure_state_estimation_actor_obs`` in ``env/se_actor_obs.py``.
+# SE actor layouts: ``apply_se_actor`` in ``presets/se_actor.py``.
 
 
 def ref_base_height(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:

@@ -1,4 +1,4 @@
-"""State-estimation actor observation layout (task configs only).
+"""State-estimation actor observation preset.
 
 SE tasks drop height/gravity reference proxies and add anchor pose tracking error
 (world position + axis-angle orientation error) plus ``base_lin_vel``.
@@ -37,12 +37,12 @@ _SE_ADDED_TERMS: dict[str, ObservationTermCfg] = {
   "base_lin_vel": ObservationTermCfg(
     func=mdp.builtin_sensor,
     params={"sensor_name": ""},
-    noise=Unoise(n_min=-0.25, n_max=0.25),
+    noise=Unoise(n_min=-0.2, n_max=0.2),
   ),
 }
 
 
-def configure_state_estimation_actor_obs(cfg: ManagerBasedRlEnvCfg) -> None:
+def apply_se_actor(cfg: ManagerBasedRlEnvCfg) -> None:
   """Drop height/gravity proxies; add anchor pose error + base lin vel."""
   actor = cfg.observations["actor"]
   for key in _SE_REMOVED_TERMS:

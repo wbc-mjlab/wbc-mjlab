@@ -1,14 +1,64 @@
-"""G1 WBC task configs: one entry per mjlab task (metadata + env builder)."""
+"""G1 WBC task builders and mjlab task registry entries."""
 
 from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
-from wbc_mjlab.robots.g1.configs.binary_failure import g1_wbc_binary_failure_env_cfg
-from wbc_mjlab.robots.g1.configs.wbc import g1_wbc_env_cfg, g1_wbc_se_env_cfg
-from wbc_mjlab.robots.g1.configs.zest import g1_wbc_zest_env_cfg, g1_wbc_zest_se_env_cfg
+from wbc_mjlab.presets.binary_failure import apply_binary_failure
+from wbc_mjlab.presets.se_actor import apply_se_actor
+from wbc_mjlab.presets.wbc import apply_wbc
+from wbc_mjlab.presets.zest import apply_zest
+from wbc_mjlab.robots.g1.base import g1_base_cfg, wire_g1_imu_sensors
+from wbc_mjlab.robots.g1.constants import (
+  G1_EE_TERMINATION_BODY_NAMES,
+  G1_ENDEFFECTOR_BODY_NAMES,
+  G1_MOTION_BODY_NAMES,
+)
 from wbc_mjlab.tasks.config import WbcTaskConfig
+
+DEFAULT_G1_TASK_ID = "Wbc-G1"
+
+
+def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_base_cfg()
+  apply_wbc(
+    cfg,
+    motion_body_names=G1_MOTION_BODY_NAMES,
+    ee_termination_bodies=G1_EE_TERMINATION_BODY_NAMES,
+  )
+  return cfg
+
+
+def g1_wbc_se_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_wbc_env_cfg()
+  apply_se_actor(cfg)
+  wire_g1_imu_sensors(cfg)
+  return cfg
+
+
+def g1_wbc_zest_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_base_cfg()
+  apply_zest(
+    cfg,
+    reward_body_names=G1_ENDEFFECTOR_BODY_NAMES,
+    contact_body_names=G1_MOTION_BODY_NAMES,
+  )
+  return cfg
+
+
+def g1_wbc_zest_se_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_wbc_zest_env_cfg()
+  apply_se_actor(cfg)
+  wire_g1_imu_sensors(cfg)
+  return cfg
+
+
+def g1_wbc_binary_failure_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_base_cfg()
+  apply_binary_failure(cfg)
+  return cfg
+
 
 G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
   WbcTaskConfig(
@@ -51,8 +101,6 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
 )
 
 G1_TASK_BY_ID: dict[str, WbcTaskConfig] = {t.task_id: t for t in G1_WBC_TASKS}
-
-DEFAULT_G1_TASK_ID = "Wbc-G1"
 
 
 def get_g1_task_config(task_id: str = DEFAULT_G1_TASK_ID) -> WbcTaskConfig:

@@ -127,15 +127,16 @@ JS consumer contract is documented in `REFERENCE_STREAM.md` in the wbc-demo repo
 data/g1/<dataset>/      # retargeted clips (see data/g1/README.md)
 src/wbc_mjlab/
   env/                  # Shared WBC MDP (rewards, RSI, motion command, …)
-  robots/<id>/configs/  # G1_WBC_TASKS + per-method env builders
+  presets/              # Paper cfg mutators (zest, wbc, binary_failure, …)
+  robots/<id>/          # assets, base.py, tasks.py, rl_cfg.py
   tasks/                # WbcTaskConfig type + mjlab registration
   export/  rl/  motion/  scripts/
 ```
 
 ## Add a robot or paper task
 
-1. **Robot:** `robots/<id>/configs/`, `rl_cfg.py`, assets; register in `robots/env.py` and `tasks/__init__.py`.
-2. **Paper task:** env builder in `robots/<id>/configs/<method>.py`, `WbcTaskConfig` in `configs/__init__.py`.
+1. **Robot:** `robots/<id>/` (`constants.py`, `base.py`, `tasks.py`, `rl_cfg.py`, assets); register in `robots/env.py` and `tasks/__init__.py`.
+2. **Paper task:** preset in `presets/<method>.py`, builder + `WbcTaskConfig` in `robots/<id>/tasks.py`.
 3. Update [TASKS.md](TASKS.md) and train: `uv run wbc-mjlab-train --task Wbc-<ID> --dataset <name>`
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for PR workflow.

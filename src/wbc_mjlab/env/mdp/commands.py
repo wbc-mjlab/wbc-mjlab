@@ -482,7 +482,7 @@ class MotionCommand(CommandTerm):
     )
 
   # --- WBC reference features (Table S3); stacked in ``command`` for the actor. ---
-  # SE layouts use ``ref_anchor_pos_w`` / ``ref_anchor_ori_6d`` via ``se_actor_obs`` instead.
+  # SE layouts use ``ref_anchor_pos_w`` / ``ref_anchor_ori_6d`` via ``presets/se_actor.py`` instead.
 
   @property
   def ref_base_height(self) -> torch.Tensor:

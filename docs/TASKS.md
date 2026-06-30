@@ -7,7 +7,7 @@ wbc_mjlab exposes paper-specific choices as **registered tasks** (`--task`) on o
 | Principle | What it means here |
 |-----------|-------------------|
 | **Shared MDP** | Rewards, terminations, motion command, assistive wrench, and reference-residual actions live in `env/` once. Robots wire assets and task configs. |
-| **Tasks, not forks** | Each paper’s distinguishing choices become a **task** (`Wbc-G1-Zest`, …) with an env builder in `robots/<id>/configs/`—same CLI, same logs layout, comparable runs. |
+| **Tasks, not forks** | Each paper’s distinguishing choices become a **task** (`Wbc-G1-Zest`, …) with a preset in `presets/` and a builder in `robots/<id>/tasks.py`—same CLI, same logs layout, comparable runs. |
 | **Neutral code, cited methods** | Implementation names stay generic (`similarity_ema`, `binary_failure`). Paper links live in task descriptions and module docstrings. |
 | **Reproducible data path** | Motion libraries under `data/<robot>/<dataset>/`; conversion scripts; optional cached bundles. See [data/README.md](../data/README.md). |
 | **Deploy parity** | `Wbc-G1` / `Wbc-G1-Zest` use deploy-style obs (no SE); play exports policy artifacts for [wbc-g1-deploy](https://github.com/wbc-mjlab/wbc-g1-deploy). |

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from wbc_mjlab.actuation.envelope import (
+from wbc_mjlab.env.mdp.torque_envelope import (
   TorqueSpeedEnvelope,
   TorqueSpeedEnvelopeTensors,
   build_envelope_tensors,
