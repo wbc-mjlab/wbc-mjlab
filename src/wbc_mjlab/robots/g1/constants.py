@@ -109,6 +109,48 @@ MOTION_Z_DEBIAS_FOOT_BODY_NAMES: tuple[str, ...] = (
 )
 MOTION_Z_DEBIAS_FOOT_SOLE_Z: float = 0.035
 
+##
+# WBC tracking wiring.
+##
+
+G1_ANCHOR_BODY_NAME = "torso_link"
+
+G1_MOTION_BODY_NAMES: tuple[str, ...] = (
+  "pelvis",
+  "left_hip_roll_link",
+  "left_knee_link",
+  "left_ankle_roll_link",
+  "right_hip_roll_link",
+  "right_knee_link",
+  "right_ankle_roll_link",
+  "torso_link",
+  "left_shoulder_roll_link",
+  "left_elbow_link",
+  "left_wrist_yaw_link",
+  "right_shoulder_roll_link",
+  "right_elbow_link",
+  "right_wrist_yaw_link",
+)
+
+G1_EE_TERMINATION_BODY_NAMES: tuple[str, ...] = (
+  "left_ankle_roll_link",
+  "right_ankle_roll_link",
+  "left_wrist_yaw_link",
+  "right_wrist_yaw_link",
+)
+
+G1_ENDEFFECTOR_BODY_NAMES: tuple[str, ...] = G1_EE_TERMINATION_BODY_NAMES
+
+G1_WRIST_BODY_NAMES: tuple[str, ...] = (
+  "left_wrist_yaw_link",
+  "right_wrist_yaw_link",
+)
+
+G1_FOOT_SITE_NAMES: tuple[str, ...] = ("left_foot", "right_foot")
+
+G1_IMU_ANG_VEL_SENSOR = "robot/imu_ang_vel"
+G1_IMU_LIN_VEL_SENSOR = "robot/imu_lin_vel"
+
 
 if __name__ == "__main__":
   import mujoco.viewer as viewer

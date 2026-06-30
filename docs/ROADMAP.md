@@ -11,7 +11,7 @@ Check off or remove items when filed/merged (`Closes #N`).
 
 ## Foundation
 
-- [x] Move G1-specific params from `env/wbc_env_cfg.py` → `robots/g1/configs/base.py`
+- [x] Move G1-specific params from `env/wbc_env_cfg.py` → `robots/g1/constants.py` + `base.py`
 - [x] Export `config.yaml` next to `params/policy.onnx` (train + play)
 - [x] Fix / merge `mjlab_entry` circular import
 - [x] Configurable motion command terms

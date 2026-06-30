@@ -2,55 +2,24 @@
 
 from __future__ import annotations
 
-import wbc_mjlab.env.mdp as mdp
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
+
+import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.env.wbc_env_cfg import make_base_wbc_env_cfg
 from wbc_mjlab.robots.g1.actuators import G1_ACTION_SCALE
-from wbc_mjlab.robots.g1.constants import get_g1_robot_cfg
-
-G1_ANCHOR_BODY_NAME = "torso_link"
-
-G1_MOTION_BODY_NAMES: tuple[str, ...] = (
-  "pelvis",
-  "left_hip_roll_link",
-  "left_knee_link",
-  "left_ankle_roll_link",
-  "right_hip_roll_link",
-  "right_knee_link",
-  "right_ankle_roll_link",
-  "torso_link",
-  "left_shoulder_roll_link",
-  "left_elbow_link",
-  "left_wrist_yaw_link",
-  "right_shoulder_roll_link",
-  "right_elbow_link",
-  "right_wrist_yaw_link",
+from wbc_mjlab.robots.g1.constants import (
+  G1_ANCHOR_BODY_NAME,
+  G1_EE_TERMINATION_BODY_NAMES,
+  G1_FOOT_SITE_NAMES,
+  G1_IMU_ANG_VEL_SENSOR,
+  G1_IMU_LIN_VEL_SENSOR,
+  G1_MOTION_BODY_NAMES,
+  get_g1_robot_cfg,
 )
-
-G1_EE_TERMINATION_BODY_NAMES: tuple[str, ...] = (
-  "left_ankle_roll_link",
-  "right_ankle_roll_link",
-  "left_wrist_yaw_link",
-  "right_wrist_yaw_link",
-)
-
-G1_ENDEFFECTOR_BODY_NAMES: tuple[str, ...] = G1_EE_TERMINATION_BODY_NAMES
-
-G1_WRIST_BODY_NAMES: tuple[str, ...] = (
-  "left_wrist_yaw_link",
-  "right_wrist_yaw_link",
-)
-
-G1_KNEE_JOINT_NAMES: tuple[str, ...] = ("left_knee_joint", "right_knee_joint")
-
-G1_FOOT_SITE_NAMES: tuple[str, ...] = ("left_foot", "right_foot")
-
-G1_IMU_ANG_VEL_SENSOR = "robot/imu_ang_vel"
-G1_IMU_LIN_VEL_SENSOR = "robot/imu_lin_vel"
 
 
 def wire_g1_imu_sensors(cfg: ManagerBasedRlEnvCfg) -> None:
@@ -140,7 +109,6 @@ def g1_base_cfg() -> ManagerBasedRlEnvCfg:
   cfg.rewards["foot_slip"].params["asset_cfg"] = SceneEntityCfg(
     "robot", site_names=G1_FOOT_SITE_NAMES
   )
-  cfg.rewards["neg_regen_power"].params["joint_names"] = G1_KNEE_JOINT_NAMES
 
   cfg.sim.nconmax = 35
   cfg.sim.njmax = 250

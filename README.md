@@ -14,7 +14,7 @@ Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://be
 - **Shared MDP** — rewards, terminations, motion command, RSI, and playback live in `env/` once; robots and papers plug in via task configs.
 - **Tasks, not forks** — ZEST, BeyondMimic-style RSI, deploy obs, etc. are **`--task` switches** (`Wbc-G1`, `Wbc-G1-Zest`, `Wbc-G1-BinaryFailure`, …) with the same CLI and log layout for fair comparison.
 - **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache ([data/README.md](data/README.md)).
-- **Building blocks** — small env builders per method (`robots/g1/configs/`); add a paper setup or tune your own WBC without forking the core MDP.
+- **Building blocks** — paper presets in `presets/` and G1 task builders in `robots/g1/tasks.py`; add a paper setup or tune your own WBC without forking the core MDP.
 - **One policy, many skills** — one policy for walk, jog, run, crawl, fight, get-up, lie-down, flips, and more.
 - **Sim → real** — train/play export `policy.onnx` + `config.yaml` aligned with the deploy runtime.
 

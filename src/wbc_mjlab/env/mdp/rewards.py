@@ -21,7 +21,7 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply_inverse, quat_error_magnitude
 
-from wbc_mjlab.actuation.envelope import torque_speed_limits
+from wbc_mjlab.env.mdp.torque_envelope import torque_speed_limits
 
 from .commands import MotionCommand
 

@@ -19,7 +19,7 @@ _RL_BUILDERS: dict[RobotId, RlCfgBuilder] = {}
 
 
 def _register_g1() -> None:
-  from wbc_mjlab.robots.g1.configs import make_g1_wbc_env_cfg
+  from wbc_mjlab.robots.g1.tasks import make_g1_wbc_env_cfg
   from wbc_mjlab.robots.g1.rl_cfg import g1_wbc_rl_cfg
 
   _ENV_BUILDERS["g1"] = make_g1_wbc_env_cfg

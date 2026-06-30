@@ -39,7 +39,7 @@ def _set_active_run(robot_id: str, task_id: str) -> None:
 
 
 def _load_all_tasks() -> tuple[WbcTaskConfig, ...]:
-  from wbc_mjlab.robots.g1.configs import G1_WBC_TASKS
+  from wbc_mjlab.robots.g1.tasks import G1_WBC_TASKS
 
   return G1_WBC_TASKS
 

@@ -32,8 +32,8 @@ Optional: `uvx pre-commit install` after `make sync`.
 
 ## Adding a paper task
 
-1. Env builder: `robots/<id>/configs/<method>.py`
-2. Register: `WbcTaskConfig` in `robots/<id>/configs/__init__.py`
+1. Preset: `presets/<method>.py` with an `apply_*` cfg mutator (or stack existing presets)
+2. G1 task builder in `robots/g1/tasks.py`; register `WbcTaskConfig` in `G1_WBC_TASKS`
 3. Neutral names in code; cite the paper in the task description / docstring
 4. Update [docs/TASKS.md](docs/TASKS.md) paper ↔ task table
 5. Example command: `uv run wbc-mjlab-train --task Wbc-... --dataset ...`

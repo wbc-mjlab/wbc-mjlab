@@ -1,4 +1,4 @@
-"""Default WBC env: Zest Table S4 core + deploy extras (EE z cutoff, foot slip, anti-shake)."""
+"""Zest preset (arXiv:2602.00401)."""
 
 from __future__ import annotations
 
@@ -9,24 +9,24 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 
 import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
-from wbc_mjlab.env.se_actor_obs import configure_state_estimation_actor_obs
-from wbc_mjlab.robots.g1.configs.base import (
-  G1_EE_TERMINATION_BODY_NAMES,
-  G1_MOTION_BODY_NAMES,
-  g1_base_cfg,
-  wire_g1_imu_sensors,
-)
 
 # Zest Table S4: exp(-κ‖e‖²/σ²) with κ = 1/4.
 _TRACKING_KAPPA = 0.25
 
+KEYBODY_GROUND_CONTACT_FORCE_THRESHOLD = 2000.0
 
-def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Zest tracking + RSI on all keybodies, plus EE height resets and light regularizers."""
-  cfg = g1_base_cfg()
+
+def apply_zest(
+  cfg: ManagerBasedRlEnvCfg,
+  *,
+  reward_body_names: tuple[str, ...],
+  contact_body_names: tuple[str, ...],
+  force_threshold: float = KEYBODY_GROUND_CONTACT_FORCE_THRESHOLD,
+) -> None:
+  """Zest paper repro: no actor SE terms, reward-aligned RSI, assistive wrench."""
   rw = cfg.rewards
 
-  # --- Zest Table S4 tracking (all weight 1.0); whole-body keybodies ---
+  # --- Table S4 tracking (all weight 1.0) ---
   rw["motion_global_root_pos"].weight = 1.0
   rw["motion_global_root_pos"].params["std"] = 0.4
   rw["motion_global_root_ori"].weight = 1.0
@@ -39,12 +39,12 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   rw["motion_body_pos"].params.pop("std", None)
   rw["motion_body_pos"].params["sigma_per_keybody"] = 0.2
   rw["motion_body_pos"].params["body_error_aggregate"] = "sum"
-  rw["motion_body_pos"].params["body_names"] = G1_MOTION_BODY_NAMES
+  rw["motion_body_pos"].params["body_names"] = reward_body_names
   rw["motion_body_ori"].weight = 1.0
   rw["motion_body_ori"].params.pop("std", None)
   rw["motion_body_ori"].params["sigma_per_keybody"] = 0.4
   rw["motion_body_ori"].params["body_error_aggregate"] = "sum"
-  rw["motion_body_ori"].params["body_names"] = G1_MOTION_BODY_NAMES
+  rw["motion_body_ori"].params["body_names"] = reward_body_names
   rw["motion_joint_pos"].weight = 1.0
   rw["motion_joint_pos"].params.pop("std", None)
   rw["motion_joint_pos"].params.pop("per_joint", None)
@@ -60,15 +60,11 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   ):
     rw[name].params["kappa"] = _TRACKING_KAPPA
 
-  # --- WBC extras (mjlab whole-body vel; not in Zest Table S4) ---
-  rw["motion_body_lin_vel"].weight = 0.5
-  rw["motion_body_lin_vel"].params["std"] = 1.0
-  rw["motion_body_lin_vel"].params["body_names"] = G1_MOTION_BODY_NAMES
-  rw["motion_body_ang_vel"].weight = 0.5
-  rw["motion_body_ang_vel"].params["std"] = 3.14
-  rw["motion_body_ang_vel"].params["body_names"] = G1_MOTION_BODY_NAMES
+  # Not in Table S4 (disable extras inherited from the WBC template).
+  rw["motion_body_lin_vel"].weight = 0.0
+  rw["motion_body_ang_vel"].weight = 0.0
   rw["motion_joint_vel"].weight = 0.0
-  rw["neg_regen_power"].weight = 0.0
+  rw["foot_slip"].weight = 0.0
   rw["angular_momentum"].weight = 0.0
 
   rw["survival"].weight = 1.0
@@ -77,14 +73,6 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
   rw["joint_limit"].weight = -1.0
   rw["actuator_torque_soft_limit"].weight = -0.1
   rw["actuator_torque_soft_limit"].params["soft_ratio"] = 0.9
-
-  rw["foot_slip"].weight = -0.0
-  rw["anti_shake"].weight = 0.0
-  # rw["anti_shake"].params["body_names"] = ("left_wrist_yaw_link", "right_wrist_yaw_link")
-  # rw["anti_shake"].params["threshold"] = 1.5
-
-  cfg.observations["actor"].history_length = 1
-  cfg.observations["actor"].terms.pop("ref_joint_vel", None)
 
   motion_cmd = cfg.commands["motion"]
   assert isinstance(motion_cmd, MotionCommandCfg)
@@ -98,31 +86,17 @@ def g1_wbc_env_cfg() -> ManagerBasedRlEnvCfg:
     persist_failure_levels=True,
   )
 
+  cfg.observations["actor"].terms.pop("ref_joint_vel", None)
+
+  # Zest paper: anchor early termination + catastrophic contact only (no EE tracking cutoff).
+  cfg.terminations.pop("ee_body_pos", None)
   cfg.terminations["anchor_pos"].params["threshold"] = 0.35
-  cfg.terminations["ee_body_pos"] = TerminationTermCfg(
-    func=mdp.bad_motion_body_pos_z_only,
-    params={
-      "command_name": "motion",
-      "threshold": 0.25,
-      "body_names": G1_EE_TERMINATION_BODY_NAMES,
-    },
-  )
   cfg.terminations["keybody_ground_contact_force"] = TerminationTermCfg(
     func=mdp.excessive_keybody_ground_contact_force,
     params={
       "sensor_name": "keybodies_ground_contact",
-      "body_names": G1_MOTION_BODY_NAMES,
-      "body_slot_order": G1_MOTION_BODY_NAMES,
-      "force_threshold": 2000.0,
+      "body_names": contact_body_names,
+      "body_slot_order": contact_body_names,
+      "force_threshold": force_threshold,
     },
   )
-
-  return cfg
-
-
-def g1_wbc_se_env_cfg() -> ManagerBasedRlEnvCfg:
-  """Wbc-G1 + SE actor obs (anchor pose tracking error, base lin vel)."""
-  cfg = g1_wbc_env_cfg()
-  configure_state_estimation_actor_obs(cfg)
-  wire_g1_imu_sensors(cfg)
-  return cfg
