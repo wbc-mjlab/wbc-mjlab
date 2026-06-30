@@ -5,11 +5,15 @@ build-backend = "uv_build"
 [project]
 name = "wbc-mjlab"
 version = "0.0.2"
-description = "Unified whole-body motion tracking on mjlab — one MDP, paper methods as tasks"
-readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "The wbc_mjlab Developers" }]
+description = "Unified whole-body motion tracking on mjlab — one MDP, paper methods as tasks"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+  { name = "Simeon Nedelchev" },
+  { name = "Lev Kozlov" },
+  { name = "Ivan Domrachev" },
+]
 requires-python = ">=3.10,<3.14"
 keywords = [
   "mjlab",
@@ -35,8 +39,9 @@ classifiers = [
   "Natural Language :: English",
 ]
 dependencies = [
-  "mjlab>=1.4.0",
-  "numpy>=2.2,<2.5",  # mediapy (mjlab dep) breaks on numpy 2.5+; drop when upstream fixes
+  "mjlab>=1.5.0",
+  # mediapy (mjlab dep) breaks on numpy 2.5+; keep in sync with mjlab.
+  "numpy<2.5",
 ]
 
 [project.urls]
@@ -72,11 +77,9 @@ dev = [
 conflicts = [
   [{ extra = "cu128" }, { extra = "cpu" }],
 ]
-override-dependencies = ["mujoco>=3.8.0.dev0"]
 constraint-dependencies = [
   "GitPython>=3.1.49",
   "lxml>=6.1.0",
-  "numpy>=2.2,<2.5",
 ]
 required-environments = [
   "sys_platform == 'darwin' and platform_machine == 'arm64'",
@@ -101,19 +104,12 @@ name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
-[[tool.uv.index]]
-name = "mujoco"
-url = "https://py.mujoco.org"
-explicit = true
-
 [tool.uv.sources]
 warp-lang = { index = "nvidia", marker = "sys_platform != 'darwin'" }
 torch = [
   { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform != 'darwin'" },
   { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
 ]
-mujoco = { index = "mujoco" }
-mujoco-warp = { git = "https://github.com/google-deepmind/mujoco_warp", rev = "e65a72e49a978a3051e7942bc5591df355ba0b5c" }
 
 [tool.ruff]
 indent-width = 2

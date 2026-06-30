@@ -2,7 +2,9 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
 [![Demo MJ-WASM](https://img.shields.io/badge/Demo-MJ--WASM-007ec6?labelColor=555555)](https://wbc-mjlab.github.io/wbc-demo/)
+[![License](https://img.shields.io/github/license/wbc-mjlab/wbc-mjlab)](https://github.com/wbc-mjlab/wbc-mjlab/blob/main/LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/wbc-mjlab)](https://pypi.org/project/wbc-mjlab/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/wbc-mjlab?color=blue)](https://pypistats.org/packages/wbc-mjlab)
 
 **One shared MDP for whole-body motion tracking on [mjlab](https://github.com/mujocolab/mjlab) — train once on a motion library, deploy one policy for many skills.**
 
@@ -22,7 +24,7 @@ Details: [docs/TASKS.md](docs/TASKS.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Quick start
 
-Requires [mjlab](https://github.com/mujocolab/mjlab) (≥ 1.4) and an NVIDIA GPU for training.
+Requires [mjlab](https://github.com/mujocolab/mjlab) (≥ 1.5) and an NVIDIA GPU for training.
 
 ```bash
 git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
