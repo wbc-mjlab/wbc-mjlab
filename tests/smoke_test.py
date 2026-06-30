@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import os
+
+# Must be set before mjlab/mujoco import (mjlab defaults MUJOCO_GL=egl on Linux).
+os.environ.setdefault("MUJOCO_GL", "disable")
+
 import importlib.metadata as md
 import sys
 import traceback

@@ -27,8 +27,8 @@ test-fast:
 
 build:
 	uv build
-	uv run --isolated --no-project --with dist/*.whl tests/smoke_test.py
-	uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
+	MUJOCO_GL=disable uv run --isolated --no-project --with dist/*.whl tests/smoke_test.py
+	MUJOCO_GL=disable uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
 	@echo "Build and import test successful"
 
 publish-test: build
