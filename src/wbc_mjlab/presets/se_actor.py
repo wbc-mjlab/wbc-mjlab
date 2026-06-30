@@ -37,7 +37,7 @@ _SE_ADDED_TERMS: dict[str, ObservationTermCfg] = {
   "base_lin_vel": ObservationTermCfg(
     func=mdp.builtin_sensor,
     params={"sensor_name": ""},
-    noise=Unoise(n_min=-0.25, n_max=0.25),
+    noise=Unoise(n_min=-0.2, n_max=0.2),
   ),
 }
 
