@@ -36,7 +36,6 @@ from mjlab.rl.exporter_utils import attach_metadata_to_onnx, get_base_metadata
 from mjlab.scripts.play import PlayConfig
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 from mjlab.tasks.tracking.rl.runner import MotionTrackingOnPolicyRunner
-from wbc_mjlab.rl.runner import PolicyOnlyMotionTrackingRunner
 from mjlab.utils.os import get_wandb_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
@@ -45,6 +44,8 @@ from mjlab.viewer.viser.viewer import CheckpointManager, format_time_ago
 
 from wbc_mjlab.deploy_paths import PLAY_PARAMS_SUBDIR, PLAY_POLICY_ONNX_NAME
 from wbc_mjlab.env.mdp.commands import MotionCommand, MotionCommandCfg
+from wbc_mjlab.rl.runner import PolicyOnlyMotionTrackingRunner
+from wbc_mjlab.viewer.viser_play import WbcViserPlayViewer
 
 
 def _parse_wandb_dt(value: str | datetime) -> datetime:
@@ -389,7 +390,13 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
   if resolved_viewer == "native":
     NativeMujocoViewer(env, policy).run()
   elif resolved_viewer == "viser":
-    ViserPlayViewer(env, policy, checkpoint_manager=ckpt_manager).run()
+    viewer_cls = WbcViserPlayViewer if is_tracking_task else ViserPlayViewer
+    viewer_cls(
+      env,
+      policy,
+      checkpoint_manager=ckpt_manager,
+      task_id=task_id if is_tracking_task else None,
+    ).run()
   else:
     raise RuntimeError(f"Unsupported viewer backend: {resolved_viewer}")
 
@@ -397,12 +404,12 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
 
 
 def main() -> None:
-  from wbc_mjlab.tasks import prepare_wbc_run
   from wbc_mjlab.scripts.wbc_cli import (
     apply_dataset_motion_file,
     ensure_task_id,
     parse_wbc_argv,
   )
+  from wbc_mjlab.tasks import prepare_wbc_run
 
   prog = sys.argv[0]
   rest, robot, task_id, no_se, legacy, dataset, dataset_path, cache_motion_bundle = (

@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import torch
-
 from mjlab.utils.lab_api.math import sample_uniform
 
 if TYPE_CHECKING:
@@ -321,6 +320,70 @@ def sample_adaptive_bins(
   return traj_ids, bins, time_steps, probs_valid
 
 
+def compute_sampling_prob_matrix(
+  bin_failure_levels: torch.Tensor,
+  bin_valid_mask: torch.Tensor,
+  *,
+  temperature_base: float,
+  uniform_ratio: float,
+) -> torch.Tensor:
+  """Per-(trajectory, bin) sampling probability (same policy as ``sample_adaptive_bins``)."""
+  valid = bin_valid_mask.nonzero(as_tuple=False)
+  probs = torch.zeros_like(bin_failure_levels)
+  if valid.numel() == 0:
+    return probs
+
+  num_valid = max(1, int(valid.shape[0]))
+  temperature = temperature_base / math.log(1.0 + num_valid)
+  logits = bin_failure_levels[valid[:, 0], valid[:, 1]] / temperature
+  probs_valid = torch.softmax(logits, dim=0)
+  probs_valid = (1.0 - uniform_ratio) * probs_valid + uniform_ratio / float(num_valid)
+  probs[valid[:, 0], valid[:, 1]] = probs_valid
+  return probs
+
+
+def trajectory_conditional_prob_row(
+  prob_matrix: torch.Tensor,
+  valid_mask: torch.Tensor,
+  traj_id: int,
+) -> list[float]:
+  """Renormalize global bin probabilities over valid bins on one trajectory."""
+  row = prob_matrix[traj_id]
+  mask = valid_mask[traj_id]
+  total = float(row[mask].sum().item())
+  if total <= 0.0:
+    return row.detach().cpu().tolist()
+  out = row.clone()
+  out[mask] = row[mask] / total
+  return out.detach().cpu().tolist()
+
+
+def compute_assist_gain_matrix(
+  bin_failure_levels: torch.Tensor,
+  *,
+  eta: float,
+  beta_max: float,
+  enabled: bool,
+) -> torch.Tensor:
+  """Per-bin assistive wrench scale β from failure levels (Zest curriculum)."""
+  if not enabled:
+    return torch.zeros_like(bin_failure_levels)
+  similarity = 1.0 - bin_failure_levels
+  return torch.clamp(1.0 - similarity / max(eta, 1.0e-6), 0.0, beta_max)
+
+
+def rsi_failure_signal_label(
+  strategy: AdaptiveSamplingStrategy,
+  *,
+  similarity_from_rewards: bool,
+) -> str:
+  if strategy == "binary_failure":
+    return "EMA(1 if early terminated)"
+  if similarity_from_rewards:
+    return "EMA(1 − mean motion-reward similarity)"
+  return "EMA(1 − mean tracking similarity)"
+
+
 def save_rsi_bin_stats(path: str | Path, command: MotionCommand) -> Path:
   """Write adaptive RSI bin failure levels to *path* (``.npz``)."""
   out = Path(path)
@@ -332,6 +395,7 @@ def save_rsi_bin_stats(path: str | Path, command: MotionCommand) -> Path:
     failure_levels=levels,
     failure=levels,
     valid_mask=command.bin_valid_mask.detach().cpu().numpy(),
+    visit_counts=command.bin_visit_counts.detach().cpu().numpy(),
     bin_width_s=np.array([rsi.bin_width_s], dtype=np.float64),
     alpha=np.array([rsi.alpha], dtype=np.float64),
     uniform_ratio=np.array([rsi.uniform_ratio], dtype=np.float64),
@@ -383,4 +447,8 @@ def load_rsi_bin_stats(
       torch.as_tensor(valid, dtype=torch.bool, device=command.device)
     )
     command._valid_bin_indices = command.bin_valid_mask.nonzero(as_tuple=False)
+  if "visit_counts" in data and data["visit_counts"].shape == command.bin_visit_counts.shape:
+    command.bin_visit_counts.copy_(
+      torch.as_tensor(data["visit_counts"], dtype=torch.float32, device=command.device)
+    )
   return True
