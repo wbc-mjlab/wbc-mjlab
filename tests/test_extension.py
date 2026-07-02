@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from wbc_mjlab.extension import WbcRobotSpec, register_robot, register_wbc_extension
 from wbc_mjlab.motion.robot_assets import RobotMotionSpec, get_robot_motion_spec
 from wbc_mjlab.robots.env import make_wbc_env_cfg, make_wbc_rl_cfg
@@ -64,3 +66,10 @@ def test_register_wbc_extension_helper() -> None:
   )
   assert resolve_robot_id("testbot2") == "testbot2"
   assert get_task_config("Wbc-Testbot2").experiment_name == "wbc_testbot2"
+
+
+def test_register_robot_mjcf_path() -> None:
+  from wbc_mjlab.motion.robot_assets import get_robot_mjcf_path, register_robot_mjcf_path
+
+  register_robot_mjcf_path("visbot", "/tmp/fake.xml")
+  assert get_robot_mjcf_path("visbot") == Path("/tmp/fake.xml").resolve()

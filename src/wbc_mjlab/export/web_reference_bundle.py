@@ -115,11 +115,9 @@ def clip_display_name(clip_id: str) -> str:
 
 
 def _robot_xml_path(robot_id: RobotId) -> Path:
-  if robot_id == "g1":
-    from wbc_mjlab.robots.g1.constants import G1_XML
+  from wbc_mjlab.motion.robot_assets import get_robot_mjcf_path
 
-    return G1_XML
-  raise ValueError(f"No default MuJoCo XML for robot {robot_id!r}")
+  return get_robot_mjcf_path(robot_id)
 
 
 def robot_body_names_from_xml(robot_id: RobotId) -> list[str]:

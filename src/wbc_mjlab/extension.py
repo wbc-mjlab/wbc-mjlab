@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from wbc_mjlab.motion.robot_assets import RobotMotionSpec
@@ -22,6 +23,8 @@ class WbcRobotSpec:
   make_rl_cfg: RlCfgBuilder
   motion_spec: RobotMotionSpec | None = None
   aliases: tuple[str, ...] = ()
+  project_root: Path | str | None = None
+  mjcf_path: Path | str | None = None
 
 
 def register_robot(spec: WbcRobotSpec) -> None:
@@ -34,7 +37,20 @@ def register_robot(spec: WbcRobotSpec) -> None:
   register_robot_id(rid, aliases=spec.aliases)
   register_robot_builders(rid, spec.make_env_cfg, spec.make_rl_cfg)
   if spec.motion_spec is not None:
-    register_robot_motion_spec(rid, spec.motion_spec)
+    motion_spec = spec.motion_spec
+    if spec.mjcf_path is not None and motion_spec.mjcf_path is None:
+      from dataclasses import replace
+
+      motion_spec = replace(motion_spec, mjcf_path=Path(spec.mjcf_path))
+    register_robot_motion_spec(rid, motion_spec)
+  elif spec.mjcf_path is not None:
+    from wbc_mjlab.motion.robot_assets import register_robot_mjcf_path
+
+    register_robot_mjcf_path(rid, spec.mjcf_path)
+  if spec.project_root is not None:
+    from wbc_mjlab.data_paths import register_project_root
+
+    register_project_root(spec.project_root)
 
 
 def register_wbc_extension(

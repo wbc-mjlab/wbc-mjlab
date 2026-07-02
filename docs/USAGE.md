@@ -151,6 +151,7 @@ register_wbc_extension(
   WbcRobotSpec(
     robot_id="mybot",
     aliases=("vendor_mybot",),
+    project_root="/path/to/my-robot-wbc",  # repo root with data/mybot/
     make_env_cfg=make_mybot_wbc_env_cfg,
     make_rl_cfg=mybot_wbc_rl_cfg,
     motion_spec=RobotMotionSpec(scene_cfg_fn=lambda: make_mybot_wbc_env_cfg().scene, ...),
@@ -159,7 +160,7 @@ register_wbc_extension(
 )
 ```
 
-Wire the package via a `mjlab.tasks` entry point in `pyproject.toml`, then use the normal `wbc-mjlab-train` / `wbc-mjlab-play` CLIs.
+Wire the package via a `mjlab.tasks` entry point in `pyproject.toml`, then use the normal `wbc-mjlab-train` / `wbc-mjlab-play` CLIs. Dataset paths resolve from **your repo’s** `data/<robot>/<dataset>/` (cwd or `project_root` on `WbcRobotSpec`), not from the wbc-mjlab install tree.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for PR workflow.
 
