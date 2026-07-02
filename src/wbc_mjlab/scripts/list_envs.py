@@ -10,6 +10,8 @@ from wbc_mjlab.tasks import (
 
 
 def main() -> None:
+  import mjlab  # noqa: F401 — load mjlab.tasks entry points before registration
+
   register_all_wbc_tasks()
   from mjlab.scripts.list_envs import main as _mjlab_list
 

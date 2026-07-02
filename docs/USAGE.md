@@ -135,9 +135,31 @@ src/wbc_mjlab/
 
 ## Add a robot or paper task
 
+**In-tree (G1):**
+
 1. **Robot:** `robots/<id>/` (`constants.py`, `base.py`, `tasks.py`, `rl_cfg.py`, assets); register in `robots/env.py` and `tasks/__init__.py`.
 2. **Paper task:** preset in `presets/<method>.py`, builder + `WbcTaskConfig` in `robots/<id>/tasks.py`.
 3. Update [TASKS.md](TASKS.md) and train: `uv run wbc-mjlab-train --task Wbc-<ID> --dataset <name>`
+
+**External package (separate repo):** use the public extension API — see [wbc-mjlab-h2](https://github.com/wbc-mjlab/wbc-mjlab-h2) for a minimal example.
+
+```python
+from wbc_mjlab.extension import WbcRobotSpec, register_wbc_extension
+from wbc_mjlab.motion.robot_assets import RobotMotionSpec
+
+register_wbc_extension(
+  WbcRobotSpec(
+    robot_id="mybot",
+    aliases=("vendor_mybot",),
+    make_env_cfg=make_mybot_wbc_env_cfg,
+    make_rl_cfg=mybot_wbc_rl_cfg,
+    motion_spec=RobotMotionSpec(scene_cfg_fn=lambda: make_mybot_wbc_env_cfg().scene, ...),
+  ),
+  MYBOT_WBC_TASKS,
+)
+```
+
+Wire the package via a `mjlab.tasks` entry point in `pyproject.toml`, then use the normal `wbc-mjlab-train` / `wbc-mjlab-play` CLIs.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for PR workflow.
 

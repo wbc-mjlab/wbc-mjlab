@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
-
 import mujoco
 import numpy as np
 from mjlab.scene import SceneCfg
@@ -43,12 +41,17 @@ def _g1_motion_spec() -> RobotMotionSpec:
   )
 
 
-_ROBOT_SPECS: dict[RobotId, RobotMotionSpec] = {
+_ROBOT_SPECS: dict[str, RobotMotionSpec] = {
   "g1": _g1_motion_spec(),
 }
 
 
-def get_robot_motion_spec(name: str) -> tuple[RobotId, RobotMotionSpec]:
+def register_robot_motion_spec(robot_id: str, spec: RobotMotionSpec) -> None:
+  rid = robot_id.strip().lower()
+  _ROBOT_SPECS[rid] = spec
+
+
+def get_robot_motion_spec(name: str) -> tuple[str, RobotMotionSpec]:
   robot_id = resolve_robot_id(name)
   return robot_id, _ROBOT_SPECS[robot_id]
 
