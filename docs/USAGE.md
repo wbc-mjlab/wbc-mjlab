@@ -135,13 +135,15 @@ src/wbc_mjlab/
 
 ## Add a robot or paper task
 
+Modularity: **one MDP and presets in wbc-mjlab**; robots and papers attach without duplicating training code.
+
 **In-tree (G1):**
 
 1. **Robot:** `robots/<id>/` (`constants.py`, `base.py`, `tasks.py`, `rl_cfg.py`, assets); register in `robots/env.py` and `tasks/__init__.py`.
 2. **Paper task:** preset in `presets/<method>.py`, builder + `WbcTaskConfig` in `robots/<id>/tasks.py`.
 3. Update [TASKS.md](TASKS.md) and train: `uv run wbc-mjlab-train --task Wbc-<ID> --dataset <name>`
 
-**External package (separate repo):** use the public extension API — see [wbc-mjlab-h2](https://github.com/wbc-mjlab/wbc-mjlab-h2) for a minimal example.
+**External package (separate repo, recommended for new robots):** register with `register_wbc_extension` — reuse stock `apply_wbc` (no new preset, no MDP fork). Reference: [wbc-mjlab-extension-h2](https://github.com/wbc-mjlab/wbc-mjlab-extension-h2) (Unitree H2). You provide MJCF, actuators, body/sensor wiring, and `data/<robot>/`; train with the same `wbc-mjlab-*` CLIs.
 
 ```python
 from wbc_mjlab.extension import WbcRobotSpec, register_wbc_extension
