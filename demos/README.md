@@ -8,7 +8,7 @@ Motions come from the version-controlled **samples** CSVs — convert once to NP
 
 ```bash
 # 1. Convert bundled samples (one time)
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 16
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
 
 # 2. Interactive viewer (8 envs, uniform clip sampling)
 uv run wbc-mjlab-demo

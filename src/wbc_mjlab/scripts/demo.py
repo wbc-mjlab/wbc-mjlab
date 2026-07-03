@@ -2,7 +2,7 @@
 
 Requires a one-time conversion of bundled CSVs to NPZ:
 
-  uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 16
+  uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
 """
 
 from __future__ import annotations

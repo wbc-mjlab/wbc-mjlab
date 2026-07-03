@@ -10,7 +10,7 @@
 
 ![WBC G1 sim collage](assets/wbc_g1_collage.gif)
 
-Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://beyondmimic.github.io/), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843)) is all **WBC / large-scale tracking**, with overlapping ideas (keybody rewards, adaptive sampling, multi-clip training) but **different design choices** — each still tends to ship as its own codebase. In wbc-mjlab, paper-specific knobs are **`--task` switches** on a shared stack:
+Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://arxiv.org/abs/2508.08241), [SONIC](https://arxiv.org/abs/2511.07820), [OmniXtreme](https://arxiv.org/abs/2602.23843)) is all **WBC / large-scale tracking**, with overlapping ideas (keybody rewards, adaptive sampling, multi-clip training) but **different design choices** — each still tends to ship as its own codebase. In wbc-mjlab, paper-specific knobs are **`--task` switches** on a shared stack:
 
 - **Multi-motion by design** — train on **multi-clip datasets** (LAFAN, SEED, custom NPZ libraries); one controller generalizes across the library. At runtime, provide reference - via playing clip, teleop, or higher level policy.
 - **Shared MDP** — rewards, terminations, motion command, RSI, and playback live in `env/` once; robots and papers plug in via task configs.
@@ -21,7 +21,7 @@ Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://be
 - **One policy, many skills** — one policy for walk, jog, run, crawl, fight, get-up, lie-down, flips, and more.
 - **Sim → real** — train/play export `policy.onnx` + `config.yaml` aligned with the deploy runtime.
 
-Details: [docs/TASKS.md](docs/TASKS.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
+Details: [Documentation](https://wbc-mjlab.github.io/wbc-mjlab/) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Quick start
 
@@ -32,12 +32,12 @@ git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
 uv run wbc-mjlab-list-envs
 ```
 
-`uv run` syncs from `uv.lock` on first use. For CUDA/CPU PyTorch and dev deps: `make sync` / `make sync-cpu`. See [docs/INSTALLATION.md](docs/INSTALLATION.md).
+`uv run` syncs from `uv.lock` on first use. For CUDA/CPU PyTorch and dev deps: `make sync` / `make sync-cpu`. See the [installation guide](https://wbc-mjlab.github.io/wbc-mjlab/source/installation.html).
 
 **Convert trajectory samples** (13 source CSVs [manifest & credits](data/g1/samples/README.md)) to npz - calculating FK for body targets, velocities etc:
 
 ```bash
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 16
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
 ```
 
 **Demo** — [live web demo](https://wbc-mjlab.github.io/wbc-demo/) (trained policy in the browser); local play with bundled checkpoint (convert samples first):
@@ -59,16 +59,9 @@ uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
 
 ## Docs
 
-| Doc | Contents |
-|-----|----------|
-| [docs/TASKS.md](docs/TASKS.md) | Paper references, philosophy, G1 task map |
-| [docs/USAGE.md](docs/USAGE.md) | CLI, train/play, motion conversion, layout |
-| [docs/INSTALLATION.md](docs/INSTALLATION.md) | uv, pip, PyPI, local mjlab |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Planned work (SONIC, infra, …) |
-| [data/README.md](data/README.md) | Motion library layout & downloads |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | PRs, adding tasks |
+**[Documentation site](https://wbc-mjlab.github.io/wbc-mjlab/)** — installation, MDP API, tasks, deploy export, citations.
 
-Full Sphinx docs and a project page are planned; the README stays a short landing page until then.
+Build locally: `make sync && uv sync --group docs && make docs` → `docs/_build/index.html`.
 
 ## Related repos
 

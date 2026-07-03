@@ -47,6 +47,6 @@ def ensure_samples_motion() -> Path:
 def _samples_not_converted_error(samples_npz: Path) -> FileNotFoundError:
   return FileNotFoundError(
     "Samples motion NPZ not found. Convert bundled CSVs once, then re-run demo:\n"
-    f"  uv run wbc-mjlab-data-to-npz --robot g1 --dataset {_SAMPLES_DATASET} --batch-size 16\n"
+    f"  uv run wbc-mjlab-data-to-npz --robot g1 --dataset {_SAMPLES_DATASET} --batch-size 8\n"
     f"Expected clips under: {samples_npz}/"
   )

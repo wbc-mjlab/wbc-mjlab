@@ -1,7 +1,7 @@
 # G1 motion data
 
 G1 datasets live in **`data/g1/<dataset_name>/`** (e.g. `lafan`, `seed`).  
-General layout and formats: [data/README.md](../README.md). CLI flags: [docs/USAGE.md](../../docs/USAGE.md).
+General layout and formats: [data/README.md](../README.md). CLI flags: [usage guide](https://wbc-mjlab.github.io/wbc-mjlab/source/usage.html).
 
 **Quick try:** bundled clips live in [`samples/`](samples/) (LAFAN1 + BONES-SEED
 excerpts). Use `--dataset samples` on train/play/vis — see
