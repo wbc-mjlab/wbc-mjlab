@@ -483,6 +483,8 @@ def main(
 
 
 def cli() -> None:
+  import mjlab  # noqa: F401 — load mjlab.tasks entry points (extension data roots)
+
   tyro_cli(main, bool_shorthand=("debias_z",))
 
 

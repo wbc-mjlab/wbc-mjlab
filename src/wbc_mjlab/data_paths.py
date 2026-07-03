@@ -1,7 +1,7 @@
 """Repository ``data/<robot>/<dataset>/`` layout for WBC tracking motions.
 
-Per-robot dataset folders under repo ``data/<robot>/<dataset_name>/``
-(e.g. ``data/g1/<dataset_name>/`` at the project root).
+Per-robot dataset folders live under ``data/<robot>/<dataset_name>/`` at the
+**active project root** (cwd, registered extension package, or wbc-mjlab install).
 
 Typical layout::
 
@@ -17,18 +17,73 @@ from pathlib import Path
 
 from wbc_mjlab.robots.ids import RobotId, resolve_robot_id
 
+_REGISTERED_PROJECT_ROOTS: list[Path] = []
 
-def repo_root() -> Path:
-  """Root of the wbc_mjlab project (directory containing ``pyproject.toml``)."""
+
+def register_project_root(path: Path | str) -> None:
+  """Register a project root for ``data/`` resolution (external extension repos)."""
+  root = Path(path).expanduser().resolve()
+  if root not in _REGISTERED_PROJECT_ROOTS:
+    _REGISTERED_PROJECT_ROOTS.append(root)
+
+
+def _has_pyproject(root: Path) -> bool:
+  return (root / "pyproject.toml").is_file()
+
+
+def iter_project_roots() -> tuple[Path, ...]:
+  """Project roots in search order: cwd tree, registered extensions, wbc-mjlab install."""
+  ordered: list[Path] = []
+  seen: set[Path] = set()
+
+  def add(candidate: Path) -> None:
+    root = candidate.resolve()
+    if root in seen or not _has_pyproject(root):
+      return
+    ordered.append(root)
+    seen.add(root)
+
+  cwd = Path.cwd()
+  for parent in [cwd, *cwd.parents]:
+    add(parent)
+  for root in _REGISTERED_PROJECT_ROOTS:
+    add(root)
   here = Path(__file__).resolve()
   for parent in here.parents:
-    if (parent / "pyproject.toml").is_file():
-      return parent
-  raise RuntimeError("Could not locate wbc_mjlab repo root (pyproject.toml)")
+    add(parent)
+  return tuple(ordered)
+
+
+def project_root() -> Path:
+  """Root of the active project (directory containing ``pyproject.toml``)."""
+  roots = iter_project_roots()
+  if not roots:
+    raise RuntimeError("Could not locate project root (pyproject.toml)")
+  return roots[0]
+
+
+def repo_root() -> Path:
+  """Back-compat alias for :func:`project_root`."""
+  return project_root()
+
+
+def iter_data_roots() -> tuple[Path, ...]:
+  """Existing ``data/`` directories across known project roots."""
+  roots: list[Path] = []
+  seen: set[Path] = set()
+  for project in iter_project_roots():
+    data = project / "data"
+    resolved = data.resolve()
+    if data.is_dir() and resolved not in seen:
+      roots.append(data)
+      seen.add(resolved)
+  if roots:
+    return tuple(roots)
+  return (project_root() / "data",)
 
 
 def data_root() -> Path:
-  return repo_root() / "data"
+  return iter_data_roots()[0]
 
 
 def robot_data_dir(robot_id: str | RobotId) -> Path:
@@ -59,13 +114,19 @@ def dataset_raw_dir(robot_id: str | RobotId, dataset: str) -> Path:
 
 def resolve_dataset_root(robot_id: str | RobotId, dataset: str) -> Path:
   """Dataset directory: ``data/<robot>/<name>``, with fallback to ``data/<name>``."""
-  canonical = dataset_dir(robot_id, dataset)
-  if canonical.is_dir():
-    return canonical
-  flat = data_root() / dataset.strip()
-  if flat.is_dir():
-    return flat
-  return canonical
+  rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
+  name = dataset.strip()
+  canonical: Path | None = None
+  for data in iter_data_roots():
+    candidate = data / rid / name
+    if candidate.is_dir():
+      return candidate
+    if canonical is None:
+      canonical = candidate
+    flat = data / name
+    if flat.is_dir():
+      return flat
+  return canonical if canonical is not None else dataset_dir(robot_id, dataset)
 
 
 def resolve_dataset_input_dir(robot_id: str | RobotId, dataset: str) -> Path:
@@ -78,14 +139,18 @@ def resolve_dataset_input_dir(robot_id: str | RobotId, dataset: str) -> Path:
 
 
 def list_datasets(robot_id: str | RobotId = "g1") -> list[str]:
-  root = robot_data_dir(robot_id)
-  if not root.is_dir():
-    return []
-  return sorted(
-    p.name
-    for p in root.iterdir()
-    if p.is_dir() and not p.name.startswith(".")
-  )
+  rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
+  names: set[str] = set()
+  for data in iter_data_roots():
+    robot_root = data / rid
+    if not robot_root.is_dir():
+      continue
+    names.update(
+      p.name
+      for p in robot_root.iterdir()
+      if p.is_dir() and not p.name.startswith(".")
+    )
+  return sorted(names)
 
 
 def resolve_dataset_motion_file(

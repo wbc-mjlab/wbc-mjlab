@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from wbc_mjlab.robots.ids import resolve_robot_id
 from wbc_mjlab.tasks.config import WbcTaskConfig
 
@@ -15,10 +17,11 @@ LEGACY_TASK_TO_ID: dict[str, str] = {
   "Wbc-G1-NoSE": "Wbc-G1-Zest",
 }
 
-_ALL_TASKS: tuple[WbcTaskConfig, ...] | None = None
 _TASK_BY_ID: dict[str, WbcTaskConfig] = {}
+_BUILTIN_TASKS_LOADED = False
 _TASKS_REGISTERED = False
 _REGISTERING = False
+_MJLAB_REGISTERED: set[str] = set()
 
 _LAST_ROBOT_ID = "g1"
 _LAST_TASK_ID = DEFAULT_TASK_ID
@@ -38,23 +41,24 @@ def _set_active_run(robot_id: str, task_id: str) -> None:
   _LAST_TASK_ID = task_id
 
 
-def _load_all_tasks() -> tuple[WbcTaskConfig, ...]:
+def _load_builtin_tasks() -> None:
+  global _BUILTIN_TASKS_LOADED
+  if _BUILTIN_TASKS_LOADED:
+    return
   from wbc_mjlab.robots.g1.tasks import G1_WBC_TASKS
 
-  return G1_WBC_TASKS
+  for task in G1_WBC_TASKS:
+    _TASK_BY_ID.setdefault(task.task_id, task)
+  _BUILTIN_TASKS_LOADED = True
 
 
 def _ensure_tasks() -> None:
-  global _ALL_TASKS, _TASK_BY_ID
-  if _ALL_TASKS is not None:
-    return
-  _ALL_TASKS = _load_all_tasks()
-  _TASK_BY_ID.update({t.task_id: t for t in _ALL_TASKS})
+  _load_builtin_tasks()
 
 
 def all_wbc_tasks() -> tuple[WbcTaskConfig, ...]:
   _ensure_tasks()
-  return _ALL_TASKS  # type: ignore[return-value]
+  return tuple(_TASK_BY_ID[tid] for tid in sorted(_TASK_BY_ID))
 
 
 def get_task_config(task_id: str) -> WbcTaskConfig:
@@ -74,7 +78,7 @@ def list_wbc_task_ids() -> list[str]:
 
 def list_robot_ids_from_tasks() -> list[str]:
   _ensure_tasks()
-  return sorted({t.robot_id for t in _ALL_TASKS})  # type: ignore[union-attr]
+  return sorted({t.robot_id for t in _TASK_BY_ID.values()})
 
 
 def _rl_cfg_for_task(task: WbcTaskConfig):
@@ -100,18 +104,40 @@ def register_wbc_task(task: WbcTaskConfig) -> None:
     rl_cfg=_rl_cfg_for_task(task),
     runner_cls=PolicyOnlyMotionTrackingRunner,
   )
+  _MJLAB_REGISTERED.add(task.task_id)
+
+
+def register_wbc_tasks(
+  tasks: WbcTaskConfig | Iterable[WbcTaskConfig],
+) -> None:
+  """Add tasks to the WBC task table; register with mjlab when bootstrap is done."""
+  if not _REGISTERING:
+    _load_builtin_tasks()
+
+  batch = (tasks,) if isinstance(tasks, WbcTaskConfig) else tuple(tasks)
+  for task in batch:
+    _TASK_BY_ID[task.task_id] = task
+
+  if _TASKS_REGISTERED and not _REGISTERING:
+    for task in batch:
+      if task.task_id not in _MJLAB_REGISTERED:
+        register_wbc_task(task)
 
 
 def register_all_wbc_tasks() -> None:
-  """Register every WBC task into mjlab (idempotent)."""
+  """Register every known WBC task into mjlab (idempotent)."""
   global _TASKS_REGISTERED, _REGISTERING
   if _TASKS_REGISTERED or _REGISTERING:
     return
   _REGISTERING = True
   try:
-    _ensure_tasks()
-    for task in _ALL_TASKS:  # type: ignore[union-attr]
-      register_wbc_task(task)
+    _load_builtin_tasks()
+    from wbc_mjlab.robots.env import _register_g1
+
+    _register_g1()
+    for task_id in sorted(_TASK_BY_ID):
+      if task_id not in _MJLAB_REGISTERED:
+        register_wbc_task(_TASK_BY_ID[task_id])
     _TASKS_REGISTERED = True
   finally:
     _REGISTERING = False
@@ -153,6 +179,8 @@ def robot_id_for_run(
 
 def prepare_wbc_run(*, task_id: str) -> str:
   """Register tasks and record the active robot/task for this CLI invocation."""
+  import mjlab  # noqa: F401 — load mjlab.tasks entry points (external robots)
+
   register_all_wbc_tasks()
   task = get_task_config(task_id)
   _set_active_run(task.robot_id, task.task_id)

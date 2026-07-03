@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
 
 import mujoco
 import numpy as np
@@ -21,6 +21,7 @@ class RobotMotionSpec:
   actuated_joint_names: tuple[str, ...] | None = None
   foot_body_names: tuple[str, ...] | None = None
   foot_sole_z: float | None = None
+  mjcf_path: Path | None = None
 
 
 def _g1_scene() -> SceneCfg:
@@ -43,12 +44,44 @@ def _g1_motion_spec() -> RobotMotionSpec:
   )
 
 
-_ROBOT_SPECS: dict[RobotId, RobotMotionSpec] = {
+_ROBOT_SPECS: dict[str, RobotMotionSpec] = {
   "g1": _g1_motion_spec(),
 }
 
+_ROBOT_MJCF_PATHS: dict[str, Path] = {}
 
-def get_robot_motion_spec(name: str) -> tuple[RobotId, RobotMotionSpec]:
+
+def register_robot_motion_spec(robot_id: str, spec: RobotMotionSpec) -> None:
+  rid = robot_id.strip().lower()
+  _ROBOT_SPECS[rid] = spec
+  if spec.mjcf_path is not None:
+    _ROBOT_MJCF_PATHS[rid] = spec.mjcf_path.resolve()
+
+
+def register_robot_mjcf_path(robot_id: str, path: Path | str) -> None:
+  rid = robot_id.strip().lower()
+  _ROBOT_MJCF_PATHS[rid] = Path(path).expanduser().resolve()
+
+
+def get_robot_mjcf_path(robot_id: str | RobotId) -> Path:
+  """Path to the robot MJCF used for offline vis / body-name lookup."""
+  key = robot_id.strip().lower() if isinstance(robot_id, str) else robot_id
+  if key in _ROBOT_MJCF_PATHS:
+    return _ROBOT_MJCF_PATHS[key]
+  rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
+  if rid in _ROBOT_MJCF_PATHS:
+    return _ROBOT_MJCF_PATHS[rid]
+  if rid == "g1":
+    from wbc_mjlab.robots.g1.constants import G1_XML
+
+    return G1_XML
+  raise ValueError(
+    f"No MJCF path registered for robot {rid!r}. "
+    f"Set RobotMotionSpec.mjcf_path or WbcRobotSpec.mjcf_path when registering."
+  )
+
+
+def get_robot_motion_spec(name: str) -> tuple[str, RobotMotionSpec]:
   robot_id = resolve_robot_id(name)
   return robot_id, _ROBOT_SPECS[robot_id]
 

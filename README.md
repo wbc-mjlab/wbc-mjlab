@@ -17,6 +17,7 @@ Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://be
 - **Tasks, not forks** — ZEST, BeyondMimic-style RSI, deploy obs, etc. are **`--task` switches** (`Wbc-G1`, `Wbc-G1-Zest`, `Wbc-G1-BinaryFailure`, …) with the same CLI and log layout for fair comparison.
 - **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache ([data/README.md](data/README.md)).
 - **Building blocks** — paper presets in `presets/` and G1 task builders in `robots/g1/tasks.py`; add a paper setup or tune your own WBC without forking the core MDP.
+- **Plug-in robots** — external packages register via `register_wbc_extension` (same MDP, same CLIs); see [wbc-mjlab-extension-h2](https://github.com/wbc-mjlab/wbc-mjlab-extension-h2) for a reference layout.
 - **One policy, many skills** — one policy for walk, jog, run, crawl, fight, get-up, lie-down, flips, and more.
 - **Sim → real** — train/play export `policy.onnx` + `config.yaml` aligned with the deploy runtime.
 
@@ -73,6 +74,7 @@ Full Sphinx docs and a project page are planned; the README stays a short landin
 
 | Repo | Role |
 |------|------|
-| [wbc-mjlab/wbc-mjlab](https://github.com/wbc-mjlab/wbc-mjlab) | Training library (this repo) |
+| [wbc-mjlab/wbc-mjlab](https://github.com/wbc-mjlab/wbc-mjlab) | Training library (this repo) — shared MDP, presets, extension API |
+| [wbc-mjlab/wbc-mjlab-extension-h2](https://github.com/wbc-mjlab/wbc-mjlab-extension-h2) | Reference robot extension (Unitree H2) — plug-in WBC without forking core |
 | [wbc-mjlab/wbc-g1-deploy](https://github.com/wbc-mjlab/wbc-g1-deploy) | Optional G1 runtime (ONNX + motion clips) |
 | [mujocolab/mjlab](https://github.com/mujocolab/mjlab) | Simulation and RL stack |

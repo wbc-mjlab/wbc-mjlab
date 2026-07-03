@@ -14,21 +14,36 @@ if TYPE_CHECKING:
 EnvCfgBuilder = Callable[..., Any]
 RlCfgBuilder = Callable[[], Any]
 
-_ENV_BUILDERS: dict[RobotId, EnvCfgBuilder] = {}
-_RL_BUILDERS: dict[RobotId, RlCfgBuilder] = {}
+_ENV_BUILDERS: dict[str, EnvCfgBuilder] = {}
+_RL_BUILDERS: dict[str, RlCfgBuilder] = {}
+_G1_REGISTERED = False
 
 
 def _register_g1() -> None:
-  from wbc_mjlab.robots.g1.tasks import make_g1_wbc_env_cfg
+  global _G1_REGISTERED
+  if _G1_REGISTERED:
+    return
+
   from wbc_mjlab.robots.g1.rl_cfg import g1_wbc_rl_cfg
+  from wbc_mjlab.robots.g1.tasks import make_g1_wbc_env_cfg
 
   _ENV_BUILDERS["g1"] = make_g1_wbc_env_cfg
   _RL_BUILDERS["g1"] = g1_wbc_rl_cfg
+  _G1_REGISTERED = True
+
+
+def register_robot_builders(
+  robot_id: str,
+  make_env_cfg: EnvCfgBuilder,
+  make_rl_cfg: RlCfgBuilder,
+) -> None:
+  """Register env/RL config builders for an external or in-tree robot."""
+  rid = robot_id.strip().lower()
+  _ENV_BUILDERS[rid] = make_env_cfg
+  _RL_BUILDERS[rid] = make_rl_cfg
 
 
 def _ensure_builders() -> None:
-  if _ENV_BUILDERS:
-    return
   _register_g1()
 
 
