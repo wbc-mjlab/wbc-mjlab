@@ -10,23 +10,23 @@ Layer stack
 .. code-block:: text
 
    ┌─────────────────────────────────────────────────────────┐
-   │  Shared WBC MDP (env/) — robot-agnostic term callables    │
-   │  Actions · Commands · Observations · Rewards · …          │
+   │  Shared WBC MDP (env/) — robot-agnostic term callables  │
+   │  Actions · Commands · Observations · Rewards · …        │
    └───────────────────────────┬─────────────────────────────┘
                                │ make_base_wbc_env_cfg()
    ┌───────────────────────────▼─────────────────────────────┐
-   │  Robot entity (<robot>_base_cfg) — must be registered     │
-   │  MJCF · actuators · sensors · body name tuples            │
+   │  Robot entity (<robot>_base_cfg) — must be registered   │
+   │  MJCF · actuators · sensors · body name tuples          │
    └───────────────────────────┬─────────────────────────────┘
                                │
    ┌───────────────────────────▼─────────────────────────────┐
-   │  Presets (presets/) — cfg mutators only                   │
-   │  apply_wbc · apply_zest · apply_binary_failure · …        │
+   │  Presets (presets/) — cfg mutators only                 │
+   │  apply_wbc · apply_zest · apply_binary_failure · …      │
    └───────────────────────────┬─────────────────────────────┘
                                │
    ┌───────────────────────────▼─────────────────────────────┐
-   │  Tasks (WbcTaskConfig) — CLI ``--task`` ids               │
-   │  preset stack + experiment_name + build_env_cfg           │
+   │  Tasks (WbcTaskConfig) — CLI ``--task`` ids             │
+   │  preset stack + experiment_name + build_env_cfg         │
    └─────────────────────────────────────────────────────────┘
 
 What each layer owns
