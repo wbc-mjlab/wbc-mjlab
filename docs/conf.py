@@ -44,6 +44,9 @@ exclude_patterns = [
 
 language = "en"
 
+# Project site: https://wbc-mjlab.github.io/wbc-mjlab/
+html_baseurl = "https://wbc-mjlab.github.io/wbc-mjlab/"
+
 html_title = "WBC-MJLab Documentation"
 html_theme_path = [sphinx_book_theme.get_html_theme_path()]
 html_theme = "sphinx_book_theme"
