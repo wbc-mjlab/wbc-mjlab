@@ -1,9 +1,11 @@
 # Build Sphinx docs and publish to GitHub Pages.
 #
-# Prerequisite (one-time, repo Settings → Pages):
+# ONE-TIME SETUP (repo Settings → Pages):
 #   Build and deployment → Source = "GitHub Actions"
-# Do NOT use "Deploy from branch" with the /docs folder — that serves
-# docs/README.md via Jekyll instead of the built Sphinx site.
+#   Do NOT pick "GitHub Pages Jekyll" — that enables pages-build-deployment,
+#   which Jekyll-builds the /docs folder and conflicts with this workflow.
+#
+# After setup: Actions → Docs → Run workflow (or push to main).
 name: Docs
 
 on:
@@ -42,13 +44,16 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: docs/_build
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
