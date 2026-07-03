@@ -1,4 +1,4 @@
-# Documentation
+# Building the documentation
 
 Sphinx site for wbc-mjlab (layout follows [mjlab](https://github.com/mujocolab/mjlab)).
 
@@ -47,3 +47,6 @@ Edit `.rst` files directly — there are no markdown include wrappers.
 ## Deploy
 
 Pushing to `main` runs `.github/workflows/docs.yml` → GitHub Pages.
+
+**One-time setup:** repo **Settings → Pages → Build and deployment → Source = GitHub Actions**.
+Do not use “Deploy from branch” with the `/docs` folder — that publishes this file via Jekyll instead of the Sphinx build.
