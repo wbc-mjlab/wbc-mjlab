@@ -2,7 +2,7 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
 [![Demo MJ-WASM](https://img.shields.io/badge/Demo-MJ--WASM-007ec6?labelColor=555555)](https://wbc-mjlab.github.io/wbc-demo/)
-[![Documentation](https://github.com/wbc-mjlab/wbc-mjlab/actions/workflows/docs.yml/badge.svg)](https://wbc-mjlab.github.io/wbc-mjlab/)
+[![Docs](https://github.com/wbc-mjlab/wbc-mjlab/actions/workflows/docs.yml/badge.svg)](https://wbc-mjlab.github.io/wbc-mjlab/)
 [![License](https://img.shields.io/github/license/wbc-mjlab/wbc-mjlab)](https://github.com/wbc-mjlab/wbc-mjlab/blob/main/LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/wbc-mjlab)](https://pypi.org/project/wbc-mjlab/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/wbc-mjlab?color=blue)](https://pypistats.org/packages/wbc-mjlab)
@@ -16,7 +16,7 @@ Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://ar
 - **Multi-motion by design** — train on **multi-clip datasets** (LAFAN, SEED, custom NPZ libraries); one controller generalizes across the library. At runtime, provide reference - via playing clip, teleop, or higher level policy.
 - **Shared MDP** — rewards, terminations, motion command, RSI, and playback live in `env/` once; robots and papers plug in via task configs.
 - **Tasks, not forks** — ZEST, BeyondMimic-style RSI, deploy obs, etc. are **`--task` switches** (`Wbc-G1`, `Wbc-G1-Zest`, `Wbc-G1-BinaryFailure`, …) with the same CLI and log layout for fair comparison.
-- **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache ([data/README.md](data/README.md)).
+- **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache.
 - **Building blocks** — paper presets in `presets/` and G1 task builders in `robots/g1/tasks.py`; add a paper setup or tune your own WBC without forking the core MDP.
 - **Plug-in robots** — external packages register via `register_wbc_extension` (same MDP, same CLIs); see [wbc-mjlab-extension-h2](https://github.com/wbc-mjlab/wbc-mjlab-extension-h2) for a reference layout.
 - **One policy, many skills** — one policy for walk, jog, run, crawl, fight, get-up, lie-down, flips, and more.
@@ -57,12 +57,6 @@ uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
 ```bash
 uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
 ```
-
-## Docs
-
-**[Documentation site](https://wbc-mjlab.github.io/wbc-mjlab/)** — installation, MDP API, tasks, deploy export, citations.
-
-Build locally: `make sync && uv sync --group docs && make docs` → `docs/_build/index.html`.
 
 ## Related repos
 
