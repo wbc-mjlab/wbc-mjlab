@@ -1,0 +1,219 @@
+/* WBC-MJLab docs — palette from wbc-demo (tokens.css) */
+
+:root {
+  --wbc-bg: #0d1620;
+  --wbc-surface: #16232f;
+  --wbc-surface-hover: #1d2e3d;
+  --wbc-border: #233444;
+  --wbc-text: #e3edf6;
+  --wbc-text-muted: #8fa0b3;
+  --wbc-accent: #36cfe0;
+  --wbc-accent-hover: #5fdcea;
+  --wbc-amber: #e6a23c;
+  --wbc-viewport: #16283a;
+
+  /* Light theme counterparts */
+  --wbc-bg-light: #eef4f8;
+  --wbc-surface-light: #ffffff;
+  --wbc-surface-hover-light: #f4f9fc;
+  --wbc-border-light: #c5d4e0;
+  --wbc-text-light: #0d1620;
+  --wbc-text-muted-light: #4a6278;
+  --wbc-accent-light: #0e8fa3;
+  --wbc-accent-hover-light: #0891a8;
+  --wbc-amber-light: #c8842a;
+}
+
+/* ---- Dark (matches wbc-demo) --------------------------------------------- */
+
+html[data-theme="dark"] {
+  --pst-color-background: var(--wbc-bg);
+  /* pydata uses on-background as card/surface fill — not text color */
+  --pst-color-on-background: var(--wbc-surface);
+  --pst-color-surface: var(--wbc-surface);
+  --pst-color-on-surface: var(--wbc-text);
+  --pst-color-primary: var(--wbc-accent);
+  --pst-color-primary-text: var(--wbc-bg);
+  --pst-color-secondary: var(--wbc-amber);
+  --pst-color-secondary-text: var(--wbc-bg);
+  --pst-color-secondary-bg: var(--wbc-surface);
+  --pst-color-accent: var(--wbc-accent);
+  --pst-color-link: var(--wbc-accent);
+  --pst-color-link-hover: var(--wbc-accent-hover);
+  --pst-color-inline-code: var(--wbc-amber);
+  --pst-color-inline-code-links: var(--wbc-accent);
+  --pst-color-border: var(--wbc-border);
+  --pst-color-muted: var(--wbc-text-muted);
+  --pst-color-target: color-mix(in srgb, var(--wbc-accent) 22%, transparent);
+
+  --sd-color-card-background: var(--wbc-surface);
+  --sd-color-card-border: var(--wbc-border);
+  --sd-color-card-text: var(--wbc-text);
+  --sd-color-card-header: var(--wbc-surface-hover);
+  --sd-color-card-footer: var(--wbc-surface-hover);
+  --sd-color-card-border-hover: var(--wbc-accent);
+}
+
+html[data-theme="dark"] .bd-header,
+html[data-theme="dark"] .bd-sidebar-primary {
+  background: var(--wbc-bg) !important;
+  border-color: var(--wbc-border) !important;
+}
+
+html[data-theme="dark"] .bd-header-announcement {
+  background: var(--wbc-surface) !important;
+  border-bottom: 1px solid var(--wbc-border);
+  color: var(--wbc-text) !important;
+}
+
+html[data-theme="dark"] .bd-header-announcement a {
+  color: var(--wbc-accent) !important;
+  font-weight: 600;
+}
+
+html[data-theme="dark"] .bd-header-announcement a:hover {
+  color: var(--wbc-accent-hover) !important;
+}
+
+html[data-theme="dark"] .navbar-brand.logo .logo__title {
+  color: var(--wbc-text);
+}
+
+html[data-theme="dark"] .toctree-l1.current > .reference,
+html[data-theme="dark"] .toctree-l1.current > .reference:hover {
+  color: var(--wbc-accent);
+}
+
+html[data-theme="dark"] pre,
+html[data-theme="dark"] .highlight {
+  background: var(--wbc-viewport) !important;
+  border: 1px solid var(--wbc-border);
+}
+
+/* ---- Light ---------------------------------------------------------------- */
+
+html[data-theme="light"] {
+  --pst-color-background: var(--wbc-bg-light);
+  --pst-color-on-background: var(--wbc-surface-light);
+  --pst-color-surface: var(--wbc-surface-light);
+  --pst-color-on-surface: var(--wbc-text-light);
+  --pst-color-primary: var(--wbc-accent-light);
+  --pst-color-primary-text: #ffffff;
+  --pst-color-secondary: var(--wbc-amber-light);
+  --pst-color-secondary-text: var(--wbc-text-light);
+  --pst-color-secondary-bg: color-mix(in srgb, var(--wbc-accent-light) 8%, var(--wbc-surface-light));
+  --pst-color-accent: var(--wbc-accent-light);
+  --pst-color-link: var(--wbc-accent-light);
+  --pst-color-link-hover: var(--wbc-accent-hover-light);
+  --pst-color-inline-code: var(--wbc-amber-light);
+  --pst-color-inline-code-links: var(--wbc-accent-light);
+  --pst-color-border: var(--wbc-border-light);
+  --pst-color-muted: var(--wbc-text-muted-light);
+  --pst-color-target: color-mix(in srgb, var(--wbc-accent-light) 18%, transparent);
+
+  --sd-color-card-background: var(--wbc-surface-light);
+  --sd-color-card-border: var(--wbc-border-light);
+  --sd-color-card-text: var(--wbc-text-light);
+  --sd-color-card-header: var(--wbc-surface-hover-light);
+  --sd-color-card-footer: var(--wbc-surface-hover-light);
+  --sd-color-card-border-hover: var(--wbc-accent-light);
+}
+
+html[data-theme="light"] .bd-header-announcement {
+  background: color-mix(in srgb, var(--wbc-accent-light) 8%, var(--wbc-surface-light)) !important;
+  border-bottom: 1px solid var(--wbc-border-light);
+  color: var(--wbc-text-light) !important;
+}
+
+html[data-theme="light"] .bd-header-announcement a {
+  color: var(--wbc-accent-light) !important;
+  font-weight: 600;
+}
+
+html[data-theme="light"] .bd-header-announcement a:hover {
+  color: var(--wbc-accent-hover-light) !important;
+}
+
+/* ---- Demo cards (sphinx-design grid) ------------------------------------ */
+
+.bd-content .sd-card {
+  background-color: var(--sd-color-card-background) !important;
+  border: 1px solid var(--sd-color-card-border) !important;
+  border-radius: 10px;
+  color: var(--sd-color-card-text) !important;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.bd-content .sd-card .sd-card-body {
+  background-color: var(--sd-color-card-background) !important;
+  color: var(--sd-color-card-text) !important;
+}
+
+.bd-content .sd-card .sd-card-title {
+  color: var(--pst-color-link) !important;
+}
+
+.bd-content .sd-card .sd-card-text {
+  color: var(--pst-color-muted) !important;
+}
+
+.bd-content .sd-card .sd-card-text code {
+  color: var(--pst-color-inline-code) !important;
+}
+
+.bd-content .sd-card.sd-card-hover:hover {
+  background-color: var(--wbc-surface-hover) !important;
+  border-color: var(--sd-color-card-border-hover) !important;
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--pst-color-link) 12%, transparent);
+  transform: translateY(-2px);
+}
+
+html[data-theme="light"] .bd-content .sd-card.sd-card-hover:hover {
+  background-color: var(--wbc-surface-hover-light) !important;
+}
+
+/* ---- Shared --------------------------------------------------------------- */
+
+a {
+  text-decoration: none !important;
+}
+
+.navbar-brand.logo img {
+  height: 2.25rem;
+  width: auto;
+  border-radius: 6px;
+}
+
+.navbar-brand.logo .logo__title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+html[data-theme="dark"] .btn-primary,
+html[data-theme="dark"] .btn.btn-primary {
+  background: var(--wbc-accent);
+  border-color: var(--wbc-accent);
+  color: var(--wbc-bg);
+}
+
+html[data-theme="dark"] .btn-primary:hover,
+html[data-theme="dark"] .btn.btn-primary:hover {
+  background: var(--wbc-accent-hover);
+  border-color: var(--wbc-accent-hover);
+}
+
+.article-header-buttons .wbc-quick-link {
+  color: var(--pst-color-muted);
+}
+
+.article-header-buttons .wbc-quick-link:hover {
+  color: var(--pst-color-link);
+}
+
+html[data-theme="dark"] .article-header-buttons .wbc-quick-link:hover {
+  color: var(--wbc-accent-hover);
+}

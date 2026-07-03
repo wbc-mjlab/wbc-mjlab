@@ -8,6 +8,7 @@ logs/
 
 # Personal / pre-public notes (local only — not published)
 docs/PUBLIC_RELEASE.md
+docs/_build/
 
 # Generated motion NPZ (always local — run wbc-mjlab-data-to-npz)
 *.npz

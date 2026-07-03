@@ -1,4 +1,4 @@
-.PHONY: sync sync-cpu format lint smoke check test test-fast build publish publish-test
+.PHONY: sync sync-cpu format lint smoke check test test-fast build publish publish-test docs docs-watch docs-clean
 
 sync:
 	uv sync --extra cu128 --group dev
@@ -36,3 +36,12 @@ publish-test: build
 
 publish: build
 	uv publish
+
+docs:
+	uv run --group docs sphinx-build -j auto docs docs/_build
+
+docs-watch:
+	uv run --group docs sphinx-autobuild -j auto docs docs/_build
+
+docs-clean:
+	rm -rf docs/_build
