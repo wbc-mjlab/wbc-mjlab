@@ -130,3 +130,9 @@ RL API + MuJoCo Warp), with design inspiration from open WBC codebases such as
 :doc:`source/research`. Method implementations follow published WBC / motion-tracking
 work cited there; please cite those papers when comparing against or reproducing their
 setups.
+
+Several contributors are affiliated with the `Institute of Artificial Intelligence
+<https://iai.mipt.ru/en/about>`_, the Robotics Center SBER,
+`Innopolis University <https://innopolis.university/en>`_, and
+`KAIST <https://www.kaist.ac.kr/en/>`_. We thank these groups for hosting and hardware
+used in training and deploy experiments.

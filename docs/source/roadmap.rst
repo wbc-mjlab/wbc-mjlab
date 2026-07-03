@@ -3,66 +3,47 @@
 Roadmap
 =======
 
-**Backlog:** `GitHub Issues <https://github.com/wbc-mjlab/wbc-mjlab/issues>`_ (source of truth).
-Check off or remove items when filed/merged (``Closes #N``).
+**Backlog:** `GitHub Issues <https://github.com/wbc-mjlab/wbc-mjlab/issues>`_ — one issue ≈ one PR
+(``Closes #N`` in commit messages).
 
-.. list-table::
-   :widths: 30 70
+WBC-MJLab is an open, modular stack for whole-body motion tracking on mjlab. We welcome
+**contributions, bug reports, and community feedback** — whether that is a new robot
+extension, a paper preset, deploy/runtime work, or documentation fixes. If something is
+missing or unclear, `open an issue <https://github.com/wbc-mjlab/wbc-mjlab/issues/new>`_
+or see :doc:`contributing`.
 
-   * - **Issues**
-     - One issue ≈ one PR
-   * - **Labels**
-     - ``area:env``, ``area:tasks``, ``area:infra``, ``paper:zest``, ``paper:sonic``, …
-   * - **Milestones**
-     - ``foundation``, ``v0.1-public``, ``sonic-tracker``, ``v0.2-dx``
+Open — methods & training
+-------------------------
 
-Foundation
-----------
+- ☐ BeyondMimic as default baseline stack — `#24 <https://github.com/wbc-mjlab/wbc-mjlab/issues/24>`_
+- ☐ Remaining BeyondMimic gaps beyond ``Wbc-G1-BinaryFailure``
 
-- ✅ Move G1-specific params from ``env/wbc_env_cfg.py`` → ``robots/g1/constants.py`` + ``base.py``
-- ✅ Export ``config.yaml`` next to ``params/policy.onnx`` (train + play)
-- ✅ Fix / merge ``mjlab_entry`` circular import
-- ✅ Configurable motion command terms
-- ✅ Bundled ``data/g1/samples/`` (LAFAN1 + BONES-SEED excerpts) + credits
+Open — sim → real & demo
+------------------------
 
-Zest parity (``Wbc-G1-Zest``)
------------------------------
+- ☐ **Modular deploy + web demo runtimes** — robot-agnostic consumers of WBC-MJLab
+  artifacts (``policy.onnx`` + ``config.yaml`` + clips); not G1-only; easy path for
+  another Unitree robot (e.g. H2) — `#38 <https://github.com/wbc-mjlab/wbc-mjlab/issues/38>`_
+- ☐ **Unify reference format** between deploy and browser demo (shared schema, one
+  observation pipeline) — `#29 <https://github.com/wbc-mjlab/wbc-mjlab/issues/29>`_
 
-- ✅ Dwell on last frame at clip end, then timeout reset (not failure)
-- ✅ Joint position limit reward; joint torque limit (Table S4)
-- ✅ Optional L_max-normalized similarity EMA (§S5)
-- ✅ SE task obs: anchor pose tracking error + base lin vel
-- ✅ Per-joint action scales and DR (Table S5)
+Open — data & robots
+--------------------
 
-SONIC tracker (§3.1 — not universal token / VLA)
-------------------------------------------------
+- ☐ **Retargeting quality** — fix floating-above-ground references (H2 first); improves
+  training and deploy reference quality — `#39 <https://github.com/wbc-mjlab/wbc-mjlab/issues/39>`_
+- ☐ More robots via extension packages (beyond in-tree G1 + reference H2)
 
-- ☐ Epic: ``Wbc-G1-Sonic`` — 1 s bins, failure-rate cap, BeyondMimic-style rewards, DR
-- ☐ Motion command jitter in commands observation (Table 2)
-- ☐ README / docs bib links for shipped tasks
+Open — developer experience
+---------------------------
 
-Paper repro
------------
-
-- ✅ ``Wbc-G1-BinaryFailure`` (BeyondMimic-style binary failure RSI)
-- ☐ BeyondMimic gaps beyond BinaryFailure
-- ☐ Additional robots
-
-Utilities
----------
-
-- ✅ Dataset visualizer (``wbc-mjlab-data-vis``)
-- ✅ Motion conversion pipeline (``wbc-mjlab-data-to-npz``, parallel batch)
-
-Developer experience (``area:infra``)
--------------------------------------
-
-- ✅ ``uv`` + ``uv.lock``, ``Makefile``, ``RELEASING.md``
-- ☐ ``.github/workflows/ci.yml`` — ruff + ``wbc-mjlab-list-envs``
-- ☐ ``CITATION.cff`` + README citing section
-- ✅ Sphinx docs + GitHub Pages (`#30 <https://github.com/wbc-mjlab/wbc-mjlab/issues/30>`_)
+- ☐ Technical report + ``CITATION.cff`` — `#31 <https://github.com/wbc-mjlab/wbc-mjlab/issues/31>`_
+- ☐ CI (ruff + ``wbc-mjlab-list-envs`` smoke)
 - ☐ PyPI publish ``wbc-mjlab``
-- ☐ Dockerfile: CUDA + uv + ``MUJOCO_GL=egl``
-- ☐ Smoke tests in ``tests/`` (beyond import smoke)
+- ☐ Dockerfile (CUDA + uv + ``MUJOCO_GL=egl``)
+- ☐ Unit tests beyond import smoke
 
-Epics (e.g. full SONIC stack): one issue with a checklist, then sub-issues per PR.
+Related repos (not tracked in this issue list): `wbc-g1-deploy
+<https://github.com/wbc-mjlab/wbc-g1-deploy>`_, `wbc-demo
+<https://github.com/wbc-mjlab/wbc-demo>`_, `wbc-mjlab-extension-h2
+<https://github.com/wbc-mjlab/wbc-mjlab-extension-h2>`_.
