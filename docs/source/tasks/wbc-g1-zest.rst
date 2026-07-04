@@ -56,6 +56,8 @@ Actor observations
 
 Dim rules: :ref:`reference-obs-dims`.
 
+Dim rules: :ref:`reference-obs-dims`.
+
 Train & play
 ------------
 
