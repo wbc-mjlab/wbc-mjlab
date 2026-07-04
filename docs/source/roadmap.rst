@@ -39,9 +39,15 @@ Open — developer experience
 
 - ☐ Technical report + ``CITATION.cff`` — `#31 <https://github.com/wbc-mjlab/wbc-mjlab/issues/31>`_
 - ☐ CI (ruff + ``wbc-mjlab-list-envs`` smoke)
-- ☐ PyPI publish ``wbc-mjlab``
 - ☐ Dockerfile (CUDA + uv + ``MUJOCO_GL=egl``)
 - ☐ Unit tests beyond import smoke
+
+Shipped
+-------
+
+- ☑ PyPI package `wbc-mjlab <https://pypi.org/project/wbc-mjlab/>`_
+- ☑ Sphinx docs + GitHub Pages (`docs site <https://wbc-mjlab.github.io/wbc-mjlab/>`_)
+- ☑ Extension API (``register_wbc_extension``) + autodoc API reference
 
 Related repos (not tracked in this issue list): `wbc-g1-deploy
 <https://github.com/wbc-mjlab/wbc-g1-deploy>`_, `wbc-demo

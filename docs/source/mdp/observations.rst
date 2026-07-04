@@ -27,4 +27,6 @@ Presets and robot wiring
 Body lists and anchor frame come from the robot's ``<robot>_base_cfg()`` — not from
 observation modules directly.
 
+API: :doc:`../api/mdp` (Observations).
+
 Related: :doc:`motion_command`, :doc:`../tasks/index`, :doc:`../extensions/robot_entity`.

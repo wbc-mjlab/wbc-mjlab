@@ -20,7 +20,13 @@ def apply_wbc(
   motion_body_names: tuple[str, ...],
   ee_termination_bodies: tuple[str, ...],
 ) -> None:
-  """Zest tracking + RSI on all keybodies, plus EE height resets and light regularizers."""
+  """Default WBC stack: Zest tracking + RSI on all keybodies, EE height, light regularizers.
+
+  Args:
+    cfg: Env config to mutate in place.
+    motion_body_names: Keybodies for tracking rewards / RSI.
+    ee_termination_bodies: Bodies for z-only EE height termination.
+  """
   rw = cfg.rewards
 
   # --- Zest Table S4 tracking (all weight 1.0); whole-body keybodies ---

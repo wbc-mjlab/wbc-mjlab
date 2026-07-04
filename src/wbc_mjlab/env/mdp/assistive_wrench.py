@@ -153,15 +153,18 @@ class AssistiveWrenchEvent:
 
 
 def assistive_wrench_force(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+  """Privileged observation: assistive force applied at the anchor (world frame)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   return command.assist_force_w
 
 
 def assistive_wrench_torque(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+  """Privileged observation: assistive torque applied at the anchor (world frame)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   return command.assist_torque_w
 
 
 def assistive_wrench_gain(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+  """Privileged observation: per-episode assistive gain β."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   return command.episode_assist_gain.unsqueeze(-1)

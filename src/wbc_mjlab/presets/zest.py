@@ -23,7 +23,14 @@ def apply_zest(
   contact_body_names: tuple[str, ...],
   force_threshold: float = KEYBODY_GROUND_CONTACT_FORCE_THRESHOLD,
 ) -> None:
-  """Zest paper repro: no actor SE terms, reward-aligned RSI, assistive wrench."""
+  """Zest paper repro: no actor SE terms, reward-aligned RSI, assistive wrench.
+
+  Args:
+    cfg: Env config to mutate in place.
+    reward_body_names: Keybodies for tracking rewards.
+    contact_body_names: Bodies for keybody ground-contact termination.
+    force_threshold: Contact force threshold (N).
+  """
   rw = cfg.rewards
 
   # --- Table S4 tracking (all weight 1.0) ---

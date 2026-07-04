@@ -18,7 +18,12 @@ class WbcTaskConfig:
   """One registered mjlab task: metadata + env builder."""
 
   task_id: str
+  """CLI / registry id (e.g. ``\"Wbc-G1\"``, ``\"Wbc-H2-Zest\"``)."""
   robot_id: RobotId
+  """Robot this task binds to (must be registered)."""
   description: str
+  """Short human-readable summary for listings."""
   experiment_name: str
+  """Log / experiment directory name."""
   build_env_cfg: EnvCfgBuilder
+  """Zero-arg builder returning the env config."""

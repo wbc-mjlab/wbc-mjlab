@@ -57,11 +57,13 @@ def _ensure_tasks() -> None:
 
 
 def all_wbc_tasks() -> tuple[WbcTaskConfig, ...]:
+  """Return all registered WBC tasks (built-in and extension)."""
   _ensure_tasks()
   return tuple(_TASK_BY_ID[tid] for tid in sorted(_TASK_BY_ID))
 
 
 def get_task_config(task_id: str) -> WbcTaskConfig:
+  """Look up a task by id (resolves legacy aliases)."""
   _ensure_tasks()
   key = LEGACY_TASK_TO_ID.get(task_id, task_id)
   try:
@@ -72,6 +74,7 @@ def get_task_config(task_id: str) -> WbcTaskConfig:
 
 
 def list_wbc_task_ids() -> list[str]:
+  """Sorted list of registered task ids (for CLIs and listings)."""
   _ensure_tasks()
   return sorted(_TASK_BY_ID)
 
@@ -92,6 +95,7 @@ def _rl_cfg_for_task(task: WbcTaskConfig):
 
 
 def register_wbc_task(task: WbcTaskConfig) -> None:
+  """Register one task with mjlab (env, play env, RL cfg, runner)."""
   from mjlab.tasks.registry import register_mjlab_task
 
   from wbc_mjlab.robots.env import make_wbc_env_cfg

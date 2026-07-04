@@ -193,6 +193,14 @@ class MotionLoader:
 
 
 class MotionCommand(CommandTerm):
+  """Multi-clip motion playback with RSI resampling and assistive-wrench state.
+
+  Loads an NPZ motion library, streams reference kinematics each step, and
+  resamples start frames at episode boundaries according to :class:`RsiCfg`.
+  Observation and reward terms read reference state from this command via
+  ``command_name="motion"``.
+  """
+
   cfg: MotionCommandCfg
   _env: ManagerBasedRlEnv
 
@@ -1180,19 +1188,32 @@ class MotionCommand(CommandTerm):
 
 @dataclass(kw_only=True)
 class MotionCommandCfg(MjlabMotionCommandCfg):
+  """Config for :class:`MotionCommand` (set per robot in ``<robot>_base_cfg``)."""
+
   motion_file: str
+  """Path to converted NPZ library (from ``wbc-mjlab-data-to-npz``)."""
   anchor_body_name: str
+  """Body used for anchor-frame errors and assistive wrench."""
   body_names: tuple[str, ...]
+  """Keybodies tracked in rewards, RSI, and critic observations."""
   entity_name: str
+  """Scene entity name for the robot (usually ``\"robot\"``)."""
   actuated_joint_names: tuple[str, ...] = ()
   """If set, joint tracking metrics/RSI use only these DoFs (subset of the robot)."""
   pose_range: dict[str, tuple[float, float]] = field(default_factory=dict)
+  """Domain randomization ranges for reference root pose at resample."""
   velocity_range: dict[str, tuple[float, float]] = field(default_factory=dict)
+  """Domain randomization ranges for reference root velocity at resample."""
   joint_position_range: tuple[float, float] = (-0.52, 0.52)
+  """Domain randomization range for joint position offsets at resample."""
   rsi: RsiCfg = field(default_factory=RsiCfg)
+  """Reference-state initialization / adaptive bin sampling."""
   assistive_wrench_enabled: bool = True
+  """Whether assistive wrench curriculum is active."""
   assistive_beta_max: float = 0.6
+  """Max assistive gain β."""
   assistive_eta: float = 0.8
+  """Assistive wrench curriculum exponent."""
 
   @dataclass
   class VizCfg:

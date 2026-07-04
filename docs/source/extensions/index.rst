@@ -62,4 +62,7 @@ Workflow
    extensions
    example_extension
 
+API reference: :doc:`../api/extension` (``WbcRobotSpec``, ``register_wbc_extension``,
+``WbcTaskConfig``, ``RobotMotionSpec``).
+
 Related: :doc:`../concepts/index`, :doc:`../contributing`, :doc:`../usage`.

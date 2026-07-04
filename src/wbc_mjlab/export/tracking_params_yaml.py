@@ -17,6 +17,8 @@ from mjlab.utils.string import resolve_expr
 from wbc_mjlab.deploy_paths import PLAY_CONFIG_NAME
 
 SCHEMA_VERSION = "wbc_tracking_params_v1"
+"""Schema id written into deploy ``config.yaml``."""
+
 PARAMS_FILENAME = PLAY_CONFIG_NAME
 MANIFEST_FILENAME = "wbc_tracking_params_manifest.yaml"
 
@@ -33,6 +35,7 @@ REFERENCE_OBS_TERM_NAMES = (
   "ref_body_pos",
   "ref_body_ori",
 )
+"""Reference-command actor terms recognized when building tracking params."""
 
 _MOTION_OBS_PARAM_TERMS = frozenset(
   {

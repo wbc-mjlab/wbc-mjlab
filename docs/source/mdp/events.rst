@@ -25,4 +25,6 @@ Domain randomization and curriculum events in the base WBC template:
 Play mode (``play=True`` on env builders) typically disables push, motion pose/velocity
 DR, and assistive wrench — same pattern for every registered robot.
 
+API: :doc:`../api/mdp` (Events / assistive wrench).
+
 Related: :doc:`rsi`, :doc:`motion_command`, :doc:`../architecture`.

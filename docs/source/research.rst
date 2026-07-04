@@ -135,8 +135,6 @@ BibTeX entries for method papers
         url = {https://arxiv.org/abs/2602.23843}
     }
 
-Project page: `beyondmimic.github.io <https://beyondmimic.github.io/>`_.
-
 Related projects
 ----------------
 

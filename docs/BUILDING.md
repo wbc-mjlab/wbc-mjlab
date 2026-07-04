@@ -14,11 +14,20 @@ make docs
 
 Output: `docs/_build/index.html`
 
-Live reload: `make docs-watch`
+Live reload (rebuilds on edits under `docs/` **and** `src/`):
+
+```bash
+make docs-watch
+```
+
+Opens a local server (usually http://127.0.0.1:8000) and refreshes the browser when
+you change RST or Python docstrings. Stop with Ctrl+C.
 
 ## Structure
 
-All user-facing pages are **standalone reStructuredText** under `docs/source/`:
+User-facing pages are **standalone reStructuredText** under `docs/source/`.
+Sidebar order prioritizes Getting Started (quickstart, recipes, troubleshooting)
+before Concepts and API Reference.
 
 ```
 docs/
@@ -28,7 +37,8 @@ docs/
     concepts/           # modularity, RSI, presets, robots (conceptual)
     architecture.rst    # config pipeline
     tasks/              # task catalog + guides (User Guide)
-    mdp/                # MDP API reference (User Guide)
+    mdp/                # Shared MDP design (User Guide)
+    api/                # Live autodoc (extension, registry, presets, mdp, export)
     extensions/        # extensions how-to (User Guide)
     installation.rst
     usage.rst
@@ -43,6 +53,18 @@ docs/
 ```
 
 Edit `.rst` files directly — there are no markdown include wrappers.
+
+## API reference (autodoc)
+
+Live signatures come from Google-style docstrings via Sphinx autodoc:
+
+- `docs/source/api/` — curated API index (`extension`, `mdp`)
+- Narrative MDP pages also embed `autofunction` / `autoclass` for key symbols
+- Enable/config: `sphinx.ext.autodoc`, `napoleon`, `viewcode` in `docs/conf.py`
+
+When adding a public symbol, document it in source and list it on the matching
+API page (or narrative page). Prefer explicit `autofunction` / `autoclass` over
+blanket `automodule` so private helpers stay out.
 
 ## Deploy
 
