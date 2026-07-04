@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 _BOOTSTRAPPED = False
 _DEFAULT_TASK_ID = "Wbc-G1"
 
@@ -21,4 +23,5 @@ def register_default() -> None:
   _BOOTSTRAPPED = True
 
 
-register_default()
+if os.environ.get("WBC_MJLAB_SKIP_MJLAB_REGISTER") != "1":
+  register_default()

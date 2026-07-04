@@ -16,6 +16,8 @@ What this task changes
 Mutates **rewards + RSI only**; keeps base terminations and full actor layout from
 ``g1_base_cfg()`` (including ``ee_body_pos`` and ``ref_joint_vel``).
 
+Actor dim rules: :ref:`reference-obs-dims`.
+
 Rewards
 ~~~~~~~
 

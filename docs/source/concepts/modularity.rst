@@ -50,6 +50,11 @@ What each layer owns
 Core principle: **compose cfg, don't fork envs.** Paper differences are preset +
 task builders; new robots are extension packages — not copies of ``env/``.
 
+Reference observations are a concrete example: papers and sensing stacks disagree on
+the actor layout, and per-term noise (as in SONIC-style training) is natural only
+when reference kinematics are split into modular ``ref_*`` slots — not a fixed vector
+inside the command. Details: :doc:`../mdp/observations`.
+
 What not to duplicate
 ---------------------
 

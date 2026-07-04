@@ -55,6 +55,8 @@ Actor observations
 - Removes ``ref_joint_vel`` only
 - Does **not** set ``history_length`` (template default **0**)
 
+Dim rules: :ref:`reference-obs-dims`.
+
 Train & play
 ------------
 

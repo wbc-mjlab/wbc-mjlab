@@ -23,9 +23,11 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
-import wbc_mjlab.env.mdp as mdp
-from wbc_mjlab.env.mdp import AssistiveWrenchEvent, MotionCommandCfg
+from wbc_mjlab.env.mdp.assistive_wrench import AssistiveWrenchEvent
+from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.env.mdp.sampling import AdaptiveSimilarityTermCfg, RsiCfg
+
+import wbc_mjlab.env.mdp as mdp
 
 VELOCITY_RANGE = {
   "x": (-0.5, 0.5),
@@ -120,6 +122,7 @@ def make_base_wbc_env_cfg(
     "ref_joint_vel": ObservationTermCfg(
       func=mdp.ref_joint_vel,
       params=motion,
+      noise=Unoise(n_min=-0.25, n_max=0.25),
     ),
     "base_ang_vel": ObservationTermCfg(
       func=mdp.builtin_sensor,

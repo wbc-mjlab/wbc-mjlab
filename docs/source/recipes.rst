@@ -31,6 +31,8 @@ Short answers to common goals. Each link jumps to the full guide.
      - :doc:`extensions/index` · :doc:`api/extension`
    * - **Add a paper-style task / preset**
      - :doc:`tasks/index` · :doc:`api/presets`
+   * - **Look up observation term sizes**
+     - :ref:`reference-obs-dims` (Shared MDP) · ``config.yaml`` after export
    * - **Look up a reward / RSI / command symbol**
      - :doc:`api/mdp`
    * - **Fix a common error**
