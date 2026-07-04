@@ -37,7 +37,6 @@ Terminations
 Actor observations
 ------------------
 
-- ``history_length = 1``
 - Removes ``ref_joint_vel`` (deploy-style)
 
 Dim rules and preset deltas: :ref:`reference-obs-dims`.

@@ -40,8 +40,9 @@ Call once from your package entry point (``mjlab.tasks``):
      ),
    )
 
-Then ``uv pip install -e .`` and ``uv run wbc-mjlab-list-envs`` should list
-``Wbc-MyRobot``. Full walkthrough: :doc:`../extensions/example_extension`.
+Then install the extension editable alongside wbc-mjlab (see :doc:`../installation`)
+and confirm ``wbc-mjlab-list-envs`` lists ``Wbc-MyRobot``. Full walkthrough:
+:doc:`../extensions/example_extension`.
 
 Registration
 ------------

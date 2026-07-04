@@ -13,21 +13,13 @@ Planned themes: :doc:`roadmap`. Layers: :doc:`architecture`, :doc:`mdp/index`, :
 Setup
 -----
 
+Follow :doc:`installation` (``uv`` or ``pip`` from source), then:
+
 .. code-block:: bash
 
-   git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
-   make sync
    uv run wbc-mjlab-list-envs
 
-Uses `uv <https://docs.astral.sh/uv/>`_ with a locked environment (``uv.lock``),
-matching the mjlab workflow:
-
-- ``make sync`` — ``uv sync --extra cu128 --group dev`` (CUDA PyTorch)
-- ``make sync-cpu`` — CPU-only / macOS evaluation
-
-See :doc:`installation` for pip, PyPI, and local mjlab checkout options.
-
-Optional: ``uvx pre-commit install`` after ``make sync``.
+Optional: ``uvx pre-commit install`` after ``make sync`` (uv workflow).
 
 Build the documentation site: ``make docs`` (requires ``uv sync --group docs``).
 

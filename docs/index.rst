@@ -70,9 +70,9 @@ Table of Contents
    :maxdepth: 1
    :caption: Getting Started
 
+   source/installation
    source/workflows/quickstart
    source/recipes
-   source/installation
    source/workflows/demo
    source/troubleshooting
 

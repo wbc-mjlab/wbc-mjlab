@@ -48,11 +48,28 @@ Workflow
 
    # 1. Scaffold extension (separate repo)
    # 2. Implement <robot>_base_cfg + register_wbc_extension
-   # 3. Install extension editable alongside wbc-mjlab
-   uv pip install -e ../my-robot-wbc
-   uv run wbc-mjlab-list-envs          # should list Wbc-<Robot>
-   uv run wbc-mjlab-data-to-npz --robot <id> --dataset samples --batch-size 8
-   uv run wbc-mjlab-train --task Wbc-<Robot> --dataset samples
+
+Install the extension editable alongside wbc-mjlab:
+
+.. tab-set::
+
+   .. tab-item:: uv
+
+      .. code-block:: bash
+
+         uv pip install -e ../my-robot-wbc
+         uv run wbc-mjlab-list-envs          # should list Wbc-<Robot>
+         uv run wbc-mjlab-data-to-npz --robot <id> --dataset samples --batch-size 8
+         uv run wbc-mjlab-train --task Wbc-<Robot> --dataset samples
+
+   .. tab-item:: pip
+
+      .. code-block:: bash
+
+         pip install -e ../my-robot-wbc
+         wbc-mjlab-list-envs                   # should list Wbc-<Robot>
+         wbc-mjlab-data-to-npz --robot <id> --dataset samples --batch-size 8
+         wbc-mjlab-train --task Wbc-<Robot> --dataset samples
 
 .. toctree::
    :maxdepth: 1
