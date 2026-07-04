@@ -109,6 +109,8 @@ When ``persist_failure_levels=True``, training can write/read
 Inspect bins live in Viser during play or plot offline with ``wbc-mjlab-plot-rsi-bins``
 — see :doc:`../visualization`.
 
+API: :doc:`../api/mdp` (RSI / adaptive sampling).
+
 Related
 -------
 

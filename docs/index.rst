@@ -47,7 +47,7 @@ Try without training
   :doc:`source/extensions/index`)
 - **Sim → real** — train/play export ``policy.onnx`` + ``config.yaml`` for deploy runtimes
 
-**Try it** (bundled samples):
+**Try it** (bundled samples) — full walkthrough: :doc:`source/workflows/quickstart`.
 
 .. code-block:: bash
 
@@ -55,6 +55,13 @@ Try without training
    make sync
    uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
    uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+
+Not sure where to start? :doc:`source/recipes` (How do I…?).
+
+.. note::
+
+   These docs track the ``main`` branch. The PyPI package is
+   `wbc-mjlab <https://pypi.org/project/wbc-mjlab/>`_.
 
 Table of Contents
 -----------------
@@ -64,15 +71,10 @@ Table of Contents
    :caption: Getting Started
 
    source/workflows/quickstart
+   source/recipes
    source/installation
    source/workflows/demo
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Concepts
-
-   source/concepts/index
-   source/architecture
+   source/troubleshooting
 
 .. toctree::
    :maxdepth: 1
@@ -86,6 +88,19 @@ Table of Contents
    source/workflows/deploy
    source/extensions/index
    source/visualization
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Concepts
+
+   source/concepts/index
+   source/architecture
+
+.. toctree::
+   :maxdepth: 1
+   :caption: API Reference
+
+   source/api/index
 
 .. toctree::
    :maxdepth: 1

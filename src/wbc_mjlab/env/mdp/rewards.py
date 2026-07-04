@@ -176,6 +176,7 @@ def anti_shake_ang_vel_l2(
 def motion_global_anchor_position_error_exp(
   env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
+  """Exponential reward for anchor position tracking in world frame."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   error = torch.sum(
     torch.square(command.anchor_pos_w - command.robot_anchor_pos_w), dim=-1
@@ -186,6 +187,7 @@ def motion_global_anchor_position_error_exp(
 def motion_global_anchor_orientation_error_exp(
   env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
+  """Exponential reward for anchor orientation tracking in world frame."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   error = quat_error_magnitude(command.anchor_quat_w, command.robot_anchor_quat_w) ** 2
   return _tracking_exp(error, std=std, kappa=kappa)
@@ -194,6 +196,7 @@ def motion_global_anchor_orientation_error_exp(
 def motion_anchor_linear_velocity_error_exp(
   env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
+  """Exponential reward for anchor linear velocity tracking (world frame)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   error = torch.sum(
     torch.square(command.anchor_lin_vel_w - command.robot_anchor_lin_vel_w),
@@ -205,6 +208,7 @@ def motion_anchor_linear_velocity_error_exp(
 def motion_anchor_angular_velocity_error_exp(
   env: ManagerBasedRlEnv, command_name: str, std: float, *, kappa: float = 1.0
 ) -> torch.Tensor:
+  """Exponential reward for anchor angular velocity tracking (world frame)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   error = torch.sum(
     torch.square(command.anchor_ang_vel_w - command.robot_anchor_ang_vel_w),
@@ -306,6 +310,7 @@ def motion_relative_body_position_error_exp(
   *,
   kappa: float = 1.0,
 ) -> torch.Tensor:
+  """Exponential reward for keybody position tracking (anchor-relative)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   sq_err = _body_sq_error_per_keybody(
@@ -333,6 +338,7 @@ def motion_relative_body_orientation_error_exp(
   *,
   kappa: float = 1.0,
 ) -> torch.Tensor:
+  """Exponential reward for keybody orientation tracking (anchor-relative)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   sq_err = _body_sq_error_per_keybody(
@@ -360,6 +366,7 @@ def motion_global_body_linear_velocity_error_exp(
   *,
   kappa: float = 1.0,
 ) -> torch.Tensor:
+  """Exponential reward for keybody linear velocity tracking (world frame)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   sq_err = _body_sq_error_per_keybody(
@@ -387,6 +394,7 @@ def motion_global_body_angular_velocity_error_exp(
   *,
   kappa: float = 1.0,
 ) -> torch.Tensor:
+  """Exponential reward for keybody angular velocity tracking (world frame)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   sq_err = _body_sq_error_per_keybody(
@@ -506,6 +514,7 @@ def feet_slip(
   sensor_name: str,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
+  """Penalize foot planar velocity while in contact (slip)."""
   asset: Entity = env.scene[asset_cfg.name]
   contact_sensor: ContactSensor = env.scene[sensor_name]
   assert contact_sensor.data.found is not None

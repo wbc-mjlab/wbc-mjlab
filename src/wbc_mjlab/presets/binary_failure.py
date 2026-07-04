@@ -9,7 +9,7 @@ from wbc_mjlab.env.mdp.sampling import keybody_similarity_preset
 
 
 def apply_binary_failure(cfg: ManagerBasedRlEnvCfg) -> None:
-  """Full obs, binary failure RSI, assistive wrench."""
+  """BeyondMimic-style stack: full obs, binary-failure RSI, assistive wrench."""
   rw = cfg.rewards
   rw["motion_global_root_pos"].weight = 0.5
   rw["motion_global_root_ori"].weight = 0.5

@@ -7,6 +7,19 @@ Train and play write **robot-agnostic artifacts** under each run's ``params/`` f
 Any hardware runtime that consumes the same contract can load them — no wbc-mjlab
 install required on the robot computer.
 
+Pipeline
+--------
+
+.. code-block:: text
+
+   motion clips ──► data-to-npz ──► train / play
+                                            │
+                                            ▼
+                              params/policy.onnx + config.yaml
+                                            │
+                                            ▼
+                                   deploy runtime (robot)
+
 Artifacts
 ---------
 
@@ -36,14 +49,30 @@ Example (in-tree reference task):
 
    uv run wbc-mjlab-export-tracking-params --task Wbc-G1 --out /path/to/config.yaml
 
-Deploy pipeline
----------------
+End-to-end checklist
+--------------------
 
-1. **Train** — ``wbc-mjlab-train --task <TaskId> --dataset <name>``
-2. **Copy** ``params/policy.onnx`` and ``params/config.yaml`` into your runtime's
-   policy folder
-3. **Run** on hardware with a runtime that matches the exported observation and
-   reference layout
+.. code-block:: bash
+
+   # 1. Convert motion library (once per dataset)
+   uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
+
+   # 2. Train
+   uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+
+   # 3. Validate in sim (also writes params/policy.onnx + config.yaml before the viewer)
+   uv run wbc-mjlab-play --task Wbc-G1 --dataset samples --viewer viser
+
+   # 4. Optional: regenerate config.yaml only
+   uv run wbc-mjlab-export-tracking-params --task Wbc-G1 \
+     --out logs/rsl_rl/wbc_g1/<run>/params/config.yaml
+
+   # 5. Hand off to a deploy runtime (example: wbc-g1-deploy)
+   cp logs/rsl_rl/wbc_g1/<run>/params/policy.onnx  /path/to/wbc-g1-deploy/config/policy/
+   cp logs/rsl_rl/wbc_g1/<run>/params/config.yaml /path/to/wbc-g1-deploy/config/policy/
+
+Play exports ONNX + ``config.yaml`` into the checkpoint run's ``params/`` **before**
+the viewer opens. Train checkpoints also keep ``params/`` when the runner exports.
 
 Reference runtime
 -----------------
@@ -53,16 +82,8 @@ implementation** for one platform (Unitree G1): ONNX inference, ``config.yaml``
 parsing, and motion clip playback. Use it as a template when building a deploy stack
 for your robot — the export format is not G1-specific.
 
-Example handoff (reference repo):
-
-.. code-block:: bash
-
-   # after training Wbc-G1 on the bundled samples dataset
-   cp logs/rsl_rl/wbc_g1/<run>/params/policy.onnx  /path/to/wbc-g1-deploy/config/policy/
-   cp logs/rsl_rl/wbc_g1/<run>/params/config.yaml /path/to/wbc-g1-deploy/config/policy/
-
 See the `wbc-g1-deploy README <https://github.com/wbc-mjlab/wbc-g1-deploy>`_ for build
-and run instructions.
+and run instructions. Schema details: :doc:`../api/export`.
 
 Tips
 ----

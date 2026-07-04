@@ -14,6 +14,9 @@ copyright = "2026, WBC-MJLab contributors"
 author = "WBC-MJLab contributors"
 
 extensions = [
+  "sphinx.ext.autodoc",
+  "sphinx.ext.napoleon",
+  "sphinx.ext.viewcode",
   "sphinx.ext.githubpages",
   "sphinx.ext.intersphinx",
   "sphinx_copybutton",
@@ -34,12 +37,52 @@ intersphinx_mapping = {
   "mjlab": ("https://mujocolab.github.io/mjlab/main/", None),
 }
 
+# Autodoc: live signatures/docstrings from source (mink/mjlab style).
+autodoc_typehints = "signature"
+autoclass_content = "class"
+autodoc_class_signature = "separated"
+autodoc_member_order = "bysource"
+autodoc_inherit_docstrings = True
+autodoc_default_options = {
+  "members": True,
+  "member-order": "bysource",
+  "undoc-members": False,
+  "show-inheritance": True,
+  "exclude-members": "__init__, __post_init__, __new__",
+}
+# Keep the in-page TOC on section headings, not every method (mink).
+toc_object_entries = False
+
+# Mock the sim stack so autodoc does not need CUDA / full mjlab runtime.
+# Mock mjlab itself (not only mujoco): a real mjlab + mocked mujoco breaks on
+# type unions like ``int | mujoco.mjtJoint``.
+autodoc_mock_imports = [
+  "mjlab",
+  "torch",
+  "mujoco",
+  "mujoco_warp",
+  "viser",
+  "mjviser",
+  "wandb",
+  "rsl_rl",
+  "tensordict",
+  "gymnasium",
+  "warp",
+  "prettytable",
+  "tqdm",
+  "trimesh",
+  "hid",
+  "h5py",
+  "mediapy",
+]
+
 exclude_patterns = [
   "_build",
   "_templates",
   "Thumbs.db",
   ".DS_Store",
   "README.md",
+  "BUILDING.md",
 ]
 
 language = "en"
@@ -111,8 +154,35 @@ def _add_wbc_quick_link_buttons(app, pagename, templatename, context, doctree):
     buttons.insert(insert_at + offset, btn)
 
 
+def _skip_member(app, what, name, obj, skip, options):
+  """Hide dataclass boilerplate (mjlab-style)."""
+  if name in ("from_dict", "to_dict", "replace", "copy", "validate", "__post_init__"):
+    return True
+  return None
+
+
+def _process_signature(app, what, name, obj, options, signature, return_annotation):
+  """Suppress noisy __init__ signatures on config dataclasses."""
+  if what == "class" and "exclude-members" in options:
+    if "__init__" in options["exclude-members"]:
+      return ("", None)
+  return None
+
+
+def _process_docstring(app, what, name, obj, options, lines):
+  """Strip auto-generated dataclass docstrings (e.g. ``ClassName(*, ...)``)."""
+  import dataclasses
+
+  if what == "class" and dataclasses.is_dataclass(obj):
+    if lines and lines[0].startswith(f"{obj.__name__}("):
+      lines.clear()
+
+
 def setup(app):
   app.connect("html-page-context", _add_wbc_quick_link_buttons, priority=502)
+  app.connect("autodoc-skip-member", _skip_member)
+  app.connect("autodoc-process-signature", _process_signature)
+  app.connect("autodoc-process-docstring", _process_docstring)
 
 html_context = {
   "github_user": "wbc-mjlab",

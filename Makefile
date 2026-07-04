@@ -41,7 +41,7 @@ docs:
 	uv run --group docs sphinx-build -j auto docs docs/_build
 
 docs-watch:
-	uv run --group docs sphinx-autobuild -j auto docs docs/_build
+	uv run --group docs sphinx-autobuild -j auto docs docs/_build --watch src
 
 docs-clean:
 	rm -rf docs/_build

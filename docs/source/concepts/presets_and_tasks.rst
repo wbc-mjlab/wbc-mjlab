@@ -54,4 +54,4 @@ Reference
 ---------
 
 Preset list, ``apply_zest`` walkthrough, in-tree task catalog, and comparison tables:
-:doc:`../tasks/index`.
+:doc:`../tasks/index`. Live signatures: :doc:`../api/presets`, :doc:`../api/registry`.

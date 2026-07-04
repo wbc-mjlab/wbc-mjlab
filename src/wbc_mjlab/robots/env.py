@@ -37,7 +37,11 @@ def register_robot_builders(
   make_env_cfg: EnvCfgBuilder,
   make_rl_cfg: RlCfgBuilder,
 ) -> None:
-  """Register env/RL config builders for an external or in-tree robot."""
+  """Register env/RL config builders for an external or in-tree robot.
+
+  Prefer :func:`wbc_mjlab.extension.register_wbc_extension` for the full
+  robot + task registration path.
+  """
   rid = robot_id.strip().lower()
   _ENV_BUILDERS[rid] = make_env_cfg
   _RL_BUILDERS[rid] = make_rl_cfg
@@ -54,6 +58,14 @@ def make_wbc_env_cfg(
   task_id: str = "Wbc-G1",
   **kwargs,
 ) -> ManagerBasedRlEnvCfg:
+  """Build a WBC env config for a registered robot.
+
+  Args:
+    robot_id: Registered robot id (default ``\"g1\"``).
+    play: If True, disable train-only DR / assistive wrench (play mode).
+    task_id: Task id used by the robot builder to select the preset stack.
+    **kwargs: Forwarded to the robot's env builder.
+  """
   _ensure_builders()
   rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
   try:
@@ -63,6 +75,7 @@ def make_wbc_env_cfg(
 
 
 def make_wbc_rl_cfg(robot_id: str | RobotId = "g1") -> RslRlOnPolicyRunnerCfg:
+  """Build the RSL-RL runner config for a registered robot."""
   _ensure_builders()
   rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
   try:

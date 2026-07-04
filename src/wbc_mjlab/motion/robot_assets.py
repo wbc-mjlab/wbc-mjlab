@@ -18,10 +18,15 @@ class RobotMotionSpec:
   """Scene + optional foot metadata for motion NPZ conversion."""
 
   scene_cfg_fn: Callable[[], SceneCfg]
+  """Returns the robot scene used for FK during conversion."""
   actuated_joint_names: tuple[str, ...] | None = None
+  """Optional actuated DoF subset."""
   foot_body_names: tuple[str, ...] | None = None
+  """Feet used for ground-contact z debias."""
   foot_sole_z: float | None = None
+  """Sole offset (m) for z debias."""
   mjcf_path: Path | None = None
+  """Optional path to the robot MJCF."""
 
 
 def _g1_scene() -> SceneCfg:

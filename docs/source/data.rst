@@ -5,6 +5,12 @@ Motion data
 
 Motion libraries for WBC tracking live under **`data/<robot>/<dataset_name>/`**.
 
+.. tip::
+
+   First time? Convert the bundled samples and train with ``Wbc-G1`` — see
+   :doc:`workflows/quickstart`. Errors like empty ``npz/``:
+   :doc:`troubleshooting`.
+
 A small **`samples/`** folder is version-controlled under each robot (e.g.
 ``g1/samples/``) with a few clips from public datasets for smoke tests. All other
 dataset folders stay local — download full libraries from Hugging Face (see robot
@@ -38,6 +44,42 @@ Directory layout
 - **`npz/`** and **`*.npz`** are **never committed** — run ``wbc-mjlab-data-to-npz`` after adding source clips.
 - **`<dataset>.npz`** is optional: written only when you pass **`--cache-motion-bundle`** on train/play.
 - **`params/motion_library.yaml`** is written automatically on **play** from the loaded motion bundle.
+
+Per-clip NPZ schema
+-------------------
+
+``wbc-mjlab-data-to-npz`` writes one ``.npz`` per source clip under ``npz/``.
+``MotionCommand`` / ``MotionLoader`` load either a directory of those clips or a
+pre-stacked bundle.
+
+Required arrays (time axis ``T``, joints ``J``, bodies ``B``):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Key
+     - Shape / meaning
+   * - ``fps``
+     - Scalar or length-1 array — export rate (default **50** Hz)
+   * - ``joint_pos``
+     - ``(T, J)`` — joint positions (rad)
+   * - ``joint_vel``
+     - ``(T, J)`` — joint velocities (rad/s)
+   * - ``body_pos_w``
+     - ``(T, B, 3)`` — body positions in world frame (m)
+   * - ``body_quat_w``
+     - ``(T, B, 4)`` — body orientations, **xyzw**
+   * - ``body_lin_vel_w``
+     - ``(T, B, 3)`` — body linear velocities (m/s)
+   * - ``body_ang_vel_w``
+     - ``(T, B, 3)`` — body angular velocities (rad/s)
+
+Bodies ``B`` follow the robot model body order from FK. Training selects a
+**keybody subset** via ``MotionCommandCfg.body_names`` (robot entity / preset).
+
+Optional stacked bundle (``--cache-motion-bundle``) concatenates clips and stores
+segment start/length metadata so RSI can sample across the library.
 
 Supported formats
 -----------------

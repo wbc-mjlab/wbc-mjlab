@@ -77,6 +77,8 @@ WBC extends mjlab's Viser play viewer with **reference alignment** (anchor-relat
 xy/yaw overlay), **tracking-error coloring**, and **RSI bin panels** during
 ``wbc-mjlab-play --viewer viser``.
 
+API: :doc:`../api/mdp` (Motion command).
+
 Related
 -------
 

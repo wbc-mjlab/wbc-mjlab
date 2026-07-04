@@ -75,6 +75,17 @@ ASSISTIVE_ETA = 0.8
 def make_base_wbc_env_cfg(
   use_reference_residual_action: bool = True,
 ) -> ManagerBasedRlEnvCfg:
+  """Robot-agnostic WBC env template with all manager term slots pre-populated.
+
+  Robot builders attach the entity and motion-command body names; presets
+  (``apply_wbc``, ``apply_zest``, …) finish weights and RSI. Prefer
+  :func:`wbc_mjlab.robots.env.make_wbc_env_cfg` for a registered robot.
+
+  Args:
+    use_reference_residual_action: If True (default), use
+      :class:`~wbc_mjlab.env.mdp.actions.ReferenceJointPositionActionCfg`;
+      otherwise mjlab absolute joint-position actions.
+  """
   motion = {"command_name": _MOTION_COMMAND}
   # Non-SE actor: reference command + proprio only. SE measurements live in
   # ``apply_se_actor`` (``presets/se_actor.py``).

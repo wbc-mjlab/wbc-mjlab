@@ -24,4 +24,6 @@ Terms
 Presets enable thresholds and body sets; the callables are shared. For example,
 ``apply_wbc`` adds EE height termination; ``apply_zest`` removes it.
 
+API: :doc:`../api/mdp` (Terminations).
+
 Related: :doc:`rewards`, :doc:`../extensions/robot_entity`.

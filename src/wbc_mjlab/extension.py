@@ -19,16 +19,26 @@ class WbcRobotSpec:
   """Robot wiring registered into wbc-mjlab from an external package."""
 
   robot_id: str
+  """Canonical robot id (e.g. ``\"h2\"``)."""
   make_env_cfg: EnvCfgBuilder
+  """Builder returning a ``ManagerBasedRlEnvCfg``."""
   make_rl_cfg: RlCfgBuilder
+  """Builder returning the RL runner config."""
   motion_spec: RobotMotionSpec | None = None
+  """Optional FK / debias metadata for ``wbc-mjlab-data-to-npz``."""
   aliases: tuple[str, ...] = ()
+  """Alternate ids accepted by CLIs."""
   project_root: Path | str | None = None
+  """Extension package root (for ``data/<robot_id>/`` resolution)."""
   mjcf_path: Path | str | None = None
+  """Optional MJCF path when not set on ``motion_spec``."""
 
 
 def register_robot(spec: WbcRobotSpec) -> None:
-  """Register robot id, env/RL builders, and optional motion-conversion metadata."""
+  """Register robot id, env/RL builders, and optional motion-conversion metadata.
+
+  Prefer :func:`register_wbc_extension` when also registering tasks.
+  """
   from wbc_mjlab.motion.robot_assets import register_robot_motion_spec
   from wbc_mjlab.robots.env import register_robot_builders
   from wbc_mjlab.robots.ids import register_robot_id
@@ -57,7 +67,12 @@ def register_wbc_extension(
   robot: WbcRobotSpec,
   tasks: WbcTaskConfig | tuple[WbcTaskConfig, ...],
 ) -> None:
-  """One-shot helper: register a robot and its WBC task table."""
+  """Register a robot and its WBC task table in one call.
+
+  Call at extension import time (e.g. from the package ``__init__`` or the
+  ``mjlab.tasks`` entry point) so ``wbc-mjlab-list-envs`` / train / play discover
+  the robot.
+  """
   register_robot(robot)
   from wbc_mjlab.tasks import register_wbc_tasks
 

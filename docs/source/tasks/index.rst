@@ -8,6 +8,8 @@ A **preset** is a pure Python function ``apply_*(cfg) -> None`` that **mutates**
 existing ``ManagerBasedRlEnvCfg`` in place. A **task** is a **registered name** for
 one specific stack: robot entity + preset(s) + optional wiring.
 
+Not sure which task to run first? See :ref:`which-task` on the Quickstart.
+
 Presets never add new MDP term *implementations* — they reweight rewards, swap RSI
 flags, remove observation terms, or adjust termination thresholds on slots already
 defined in ``make_base_wbc_env_cfg()``. Tasks are **not** separate MDP forks.

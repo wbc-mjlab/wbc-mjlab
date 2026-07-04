@@ -1,15 +1,19 @@
 .. _mdp:
 
-MDP API
-=======
+Shared MDP
+==========
+
+Design and term catalogs for the shared manager-based MDP (how terms compose,
+presets, and robot wiring). For live signatures and docstrings, see
+:doc:`../api/mdp`.
 
 wbc-mjlab builds on mjlab's composable RL environment API: each MDP facet (actions,
 observations, rewards, …) is a set of named **terms** wired on ``ManagerBasedRlEnvCfg``.
 Term callables live in ``env/mdp/``; managers invoke them each step and aggregate
 batched tensors.
 
-This section documents wbc-mjlab's shared MDP. For mjlab's upstream environment docs,
-see `mjlab documentation <https://mujocolab.github.io/mjlab/main/>`_.
+For mjlab's upstream environment docs, see
+`mjlab documentation <https://mujocolab.github.io/mjlab/main/>`_.
 
 Design rules
 ------------

@@ -28,6 +28,70 @@ CLI commands
 
 See :doc:`visualization` for reference alignment, RSI panels, and Viser overlays.
 
+Common flags
+------------
+
+WBC flags (stripped before the rest is passed to mjlab):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Flag
+     - Meaning
+   * - ``--task <id>``
+     - Task id (e.g. ``Wbc-G1``, ``Wbc-G1-Zest``). Preferred; robot inferred.
+   * - ``--robot <id>``
+     - Robot id (default ``g1``). Required for ``data-to-npz``; optional for train/play.
+   * - ``--dataset <name>``
+     - Load ``data/<robot>/<name>/npz/*.npz``
+   * - ``--dataset-path <dir|file>``
+     - Explicit dataset folder or ``.npz`` file
+   * - ``--motion-file <path>``
+     - Explicit motion NPZ or dataset directory (alias for env motion path)
+   * - ``--cache-motion-bundle``
+     - Write/read ``<dataset>/<dataset>.npz`` on disk
+   * - ``--no-state-estimation``
+     - Shorthand for Zest-style task when using ``--robot`` (e.g. ``Wbc-G1-Zest``)
+
+Train / play also accept **mjlab** flags (pass-through):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Flag
+     - Meaning
+   * - ``--agent.resume True``
+     - Resume latest (or selected) run — see :doc:`workflows/training`
+   * - ``--agent.load-run <name>``
+     - Run folder under ``logs/rsl_rl/<experiment>/``
+   * - ``--agent.load-checkpoint <pat>``
+     - Checkpoint pattern (default ``model_.*.pt``)
+   * - ``--agent.max-iterations N``
+     - Training horizon
+   * - ``--checkpoint-file <path>``
+     - Play: explicit ``model_*.pt`` (else latest under experiment logs)
+   * - ``--viewer viser`` / ``native``
+     - Play viewer backend
+   * - ``--gpu-ids 0,1``
+     - Multi-GPU train (mjlab)
+
+Conversion-only:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Flag
+     - Meaning
+   * - ``--batch-size N``
+     - Parallel GPU FK workers (``1`` required with ``--render``)
+   * - ``--format <name>``
+     - Source format (``default``, ``gmr_pkl``, …)
+   * - ``--input-fps`` / ``--output-fps``
+     - Source and export rates (default output **50** Hz)
+
 Train / play
 ------------
 

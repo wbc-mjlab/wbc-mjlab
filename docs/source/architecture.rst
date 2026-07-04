@@ -47,6 +47,6 @@ Related
 -------
 
 - :doc:`concepts/index` — modularity, RSI, robots, presets
-- :doc:`mdp/index` — MDP API reference
+- :doc:`mdp/index` — Shared MDP (design and term catalogs)
 - :doc:`extensions/index` — extension how-to
 - :doc:`usage` — CLI

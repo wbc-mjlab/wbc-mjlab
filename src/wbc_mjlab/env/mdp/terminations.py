@@ -1,3 +1,5 @@
+"""Episode termination terms for WBC motion tracking."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
@@ -19,6 +21,7 @@ if TYPE_CHECKING:
 def bad_anchor_pos(
   env: ManagerBasedRlEnv, command_name: str, threshold: float
 ) -> torch.Tensor:
+  """Terminate when anchor body position drifts beyond *threshold* (m)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   return (
     torch.norm(command.anchor_pos_w - command.robot_anchor_pos_w, dim=1) > threshold
@@ -28,6 +31,7 @@ def bad_anchor_pos(
 def bad_anchor_pos_z_only(
   env: ManagerBasedRlEnv, command_name: str, threshold: float
 ) -> torch.Tensor:
+  """Terminate when anchor height (z) drifts beyond *threshold* (m)."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   return (
     torch.abs(command.anchor_pos_w[:, -1] - command.robot_anchor_pos_w[:, -1])
@@ -38,6 +42,7 @@ def bad_anchor_pos_z_only(
 def bad_anchor_ori(
   env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg, command_name: str, threshold: float
 ) -> torch.Tensor:
+  """Terminate when projected-gravity z mismatch exceeds *threshold*."""
   asset: Entity = env.scene[asset_cfg.name]
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   motion_projected_gravity_b = quat_apply_inverse(
@@ -57,6 +62,14 @@ def bad_motion_body_pos(
   threshold: float,
   body_names: tuple[str, ...] | None = None,
 ) -> torch.Tensor:
+  """Terminate when any keybody position error exceeds *threshold* (m).
+
+  Args:
+    env: Manager-based RL env.
+    command_name: Motion command term name.
+    threshold: Max allowed L2 position error per body.
+    body_names: Subset of command bodies (default: all).
+  """
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   error = torch.norm(
@@ -73,6 +86,10 @@ def bad_motion_body_pos_z_only(
   threshold: float,
   body_names: tuple[str, ...] | None = None,
 ) -> torch.Tensor:
+  """Terminate when any keybody height error exceeds *threshold* (m).
+
+  Typically used for end-effector bodies (EE height termination).
+  """
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   error = torch.abs(
