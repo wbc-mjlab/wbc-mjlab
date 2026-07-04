@@ -9,12 +9,12 @@ url: "https://github.com/wbc-mjlab/wbc-mjlab"
 authors:
   - family-names: Nedelchev
     given-names: Simeon
+  - family-names: Chaplygin
+    given-names: Anton
   - family-names: Kozlov
     given-names: Lev
   - family-names: Domrachev
     given-names: Ivan
-  - family-names: Chaplygin
-    given-names: Anton
 keywords:
   - whole-body-control
   - motion-tracking
@@ -27,12 +27,12 @@ preferred-citation:
   authors:
     - family-names: Nedelchev
       given-names: Simeon
+    - family-names: Chaplygin
+      given-names: Anton
     - family-names: Kozlov
       given-names: Lev
     - family-names: Domrachev
       given-names: Ivan
-    - family-names: Chaplygin
-      given-names: Anton
   year: 2026
   url: "https://github.com/wbc-mjlab/wbc-mjlab"
   repository-code: "https://github.com/wbc-mjlab/wbc-mjlab"
