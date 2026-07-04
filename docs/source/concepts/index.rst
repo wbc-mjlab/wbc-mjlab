@@ -23,6 +23,8 @@ Suggested reading order
      - :doc:`presets_and_tasks` — ``apply_*`` vs registered task ids
    * - **Curriculum sampling**
      - :doc:`adaptive_sampling` — RSI bins and failure-driven resets
+   * - **Reference obs layout**
+     - :doc:`../mdp/observations` — modular ``ref_*`` terms, paper layouts, per-term noise
    * - **New hardware**
      - :doc:`robots_and_extensions` — why robots must register
 

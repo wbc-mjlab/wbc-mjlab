@@ -21,8 +21,8 @@ Tracking params YAML
 
 * ``schema_version`` — must be ``wbc_tracking_params_v1``
 * Joint names, action mode (``reference_residual`` vs absolute), action scales
-* Actor observation term order and dims
-* Reference / command layout for clip playback
+* Actor observation term order and per-term ``dim`` (see :ref:`reference-obs-dims`)
+* ``tracking.wbc_command_dim`` and reference observation names for clip playback
 * PD gains and policy step timing
 
 Manual export:

@@ -15,8 +15,10 @@ Two names, two roles:
      - **Registered CLI name** for one robot + preset stack (``--task Wbc-…``)
 
 Presets are **not** separate environments. They reweight ``motion_*`` rewards, swap
-``RsiCfg`` strategy, drop observation terms, or toggle termination thresholds on slots
-already defined in ``make_base_wbc_env_cfg()``.
+``RsiCfg`` strategy, drop or swap modular reference observation terms (``ref_*``),
+or toggle termination thresholds on slots already defined in ``make_base_wbc_env_cfg()``.
+Different papers use different reference/proprio layouts — presets encode those choices
+without forking MDP code; see :doc:`../mdp/observations`.
 
 Tasks add **registration**: ``task_id``, ``robot_id``, ``experiment_name``, and a
 ``build_env_cfg`` callable that wires robot + preset(s).

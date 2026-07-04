@@ -36,6 +36,32 @@ Artifacts
 observation term order, reference command layout, and PD gains — regenerated from the
 task config if missing.
 
+Observation layout
+------------------
+
+Deploy runtimes must match the **exported** actor stack — not a generic G1 layout.
+
+Open ``params/config.yaml`` from your checkpoint run:
+
+- ``actor_observations.<term>.dim`` — per-term size (``J`` and ``B`` already resolved)
+- ``tracking.actor_observation_names`` — concatenation **order** (must match ONNX input)
+- ``tracking.reference_observation_names`` — which terms count as reference command
+- ``tracking.wbc_command_dim`` — reference motion size for clip playback
+
+Example fragment:
+
+.. code-block:: yaml
+
+   actor_observations:
+     ref_base_height: {dim: 1, ...}
+     ref_joint_pos: {dim: 29, ...}
+   tracking:
+     actor_observation_names: [ref_base_height, ref_joint_pos, ...]
+     wbc_command_dim: 39
+
+Dim **rules** (before export): :ref:`reference-obs-dims`. Full schema:
+:doc:`../api/export`.
+
 Manual export
 -------------
 

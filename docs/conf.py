@@ -5,6 +5,10 @@ from __future__ import annotations
 import os
 import sys
 
+# Sphinx viewcode imports mjlab, which loads mjlab.tasks entry points. Skip WBC
+# task registration during docs builds (no sim stack; avoids import cycles).
+os.environ.setdefault("WBC_MJLAB_SKIP_MJLAB_REGISTER", "1")
+
 import sphinx_book_theme
 
 sys.path.insert(0, os.path.abspath("../src"))

@@ -19,6 +19,8 @@ On top of :doc:`wbc-g1`, ``apply_se_actor`` (``presets/se_actor.py``):
 **Adds:** ``motion_anchor_pos_error_w``, ``motion_anchor_ori_error``, ``base_lin_vel``
 (IMU wiring in the robot entity builder)
 
+Dim rules: :ref:`reference-obs-dims`.
+
 Train & play
 ------------
 
