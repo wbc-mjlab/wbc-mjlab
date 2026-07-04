@@ -78,6 +78,13 @@ Table of Contents
 
 .. toctree::
    :maxdepth: 1
+   :caption: Concepts
+
+   source/concepts/index
+   source/architecture
+
+.. toctree::
+   :maxdepth: 1
    :caption: User Guide
 
    source/usage
@@ -88,13 +95,6 @@ Table of Contents
    source/workflows/deploy
    source/extensions/index
    source/visualization
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Concepts
-
-   source/concepts/index
-   source/architecture
 
 .. toctree::
    :maxdepth: 1

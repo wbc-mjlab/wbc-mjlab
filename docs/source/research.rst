@@ -94,7 +94,7 @@ in addition to wbc-mjlab and mjlab. See :doc:`tasks/index`.
      - 2025
    * - **SONIC**
      - `Supersized motion tracking <https://arxiv.org/abs/2511.07820>`_
-     - *(planned ``Wbc-G1-Sonic``)*
+     - partial (body-velocity rewards, obs.\ corruption); full preset planned
      - 2025
    * - **OmniXtreme**
      - `High-dynamic scalable tracking <https://arxiv.org/abs/2602.23843>`_
@@ -158,5 +158,9 @@ Extensions and runtimes in the wbc-mjlab org:
 Technical report
 ----------------
 
-A formal tech report and ``CITATION.cff`` metadata are tracked in
+A formal tech report lives in ``paper/main.tex`` (local draft; see repo
+``.gitignore``). Canonical BibTeX: ``references/references.bib`` in the
+`wbc org workspace <https://github.com/wbc-mjlab/wbc-mjlab>`_ (synced to
+``docs/source/_static/refs.bib``). Citation metadata: ``CITATION.cff`` at the
+repo root. arXiv submission tracked in
 `issue #31 <https://github.com/wbc-mjlab/wbc-mjlab/issues/31>`_.

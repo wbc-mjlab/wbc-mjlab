@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use WBC-MJLab, please cite the software and mjlab."
+title: "WBC-MJLab: Unified Whole-Body Motion Tracking on mjlab"
+version: 0.0.4
+date-released: 2026-07-04
+license: Apache-2.0
+repository-code: "https://github.com/wbc-mjlab/wbc-mjlab"
+url: "https://github.com/wbc-mjlab/wbc-mjlab"
+authors:
+  - family-names: Nedelchev
+    given-names: Simeon
+  - family-names: Kozlov
+    given-names: Lev
+  - family-names: Domrachev
+    given-names: Ivan
+  - family-names: Chaplygin
+    given-names: Anton
+keywords:
+  - whole-body-control
+  - motion-tracking
+  - mjlab
+  - reinforcement-learning
+  - humanoid
+preferred-citation:
+  type: software
+  title: "WBC-MJLab: Unified Whole-Body Motion Tracking on mjlab"
+  authors:
+    - family-names: Nedelchev
+      given-names: Simeon
+    - family-names: Kozlov
+      given-names: Lev
+    - family-names: Domrachev
+      given-names: Ivan
+    - family-names: Chaplygin
+      given-names: Anton
+  year: 2026
+  url: "https://github.com/wbc-mjlab/wbc-mjlab"
+  repository-code: "https://github.com/wbc-mjlab/wbc-mjlab"

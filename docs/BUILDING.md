@@ -26,8 +26,7 @@ you change RST or Python docstrings. Stop with Ctrl+C.
 ## Structure
 
 User-facing pages are **standalone reStructuredText** under `docs/source/`.
-Sidebar order prioritizes Getting Started (quickstart, recipes, troubleshooting)
-before Concepts and API Reference.
+Sidebar order: Getting Started → **Concepts** → User Guide → API Reference → Development.
 
 ```
 docs/
