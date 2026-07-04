@@ -8,25 +8,17 @@ Citing WBC-MJLab
 
 If you use WBC-MJLab in your research, please cite the software:
 
-.. code-block:: bibtex
-
-    @software{wbc_mjlab2026,
-        author = {Nedelchev, Simeon and Chaplygin, Anton and Kozlov, Lev and Domrachev, Ivan},
-        title = {{WBC-MJLab: Unified Whole-Body Motion Tracking on mjlab}},
-        url = {https://github.com/wbc-mjlab/wbc-mjlab},
-        year = {2026}
-    }
+.. literalinclude:: _static/refs.bib
+   :language: bibtex
+   :start-at: @software{wbc_mjlab2026,
+   :end-before: @article{zakka2026mjlab,
 
 Also cite **mjlab** — WBC-MJLab is an extension of the simulation and RL stack:
 
-.. code-block:: bibtex
-
-    @article{Zakka_mjlab_A_Lightweight_2026,
-        author = {Zakka, Kevin and Liao, Qiayuan and Yi, Brent and Le Lay, Louis and Sreenath, Koushil and Abbeel, Pieter},
-        title = {{mjlab: A Lightweight Framework for GPU-Accelerated Robot Learning}},
-        url = {https://arxiv.org/abs/2601.22074},
-        year = {2026}
-    }
+.. literalinclude:: _static/refs.bib
+   :language: bibtex
+   :start-at: @article{zakka2026mjlab,
+   :end-before: @article{zest2026,
 
 Lineage & inspiration
 ---------------------
@@ -54,21 +46,10 @@ running on **mjlab** + MuJoCo Warp instead of Isaac Sim.
 
 When you build on ideas from these codebases, cite them alongside WBC-MJLab and mjlab:
 
-.. code-block:: bibtex
-
-    @software{hybridrobotics_whole_body_tracking2025,
-        author = {{Hybrid Robotics}},
-        title = {{whole\_body\_tracking: BeyondMimic Motion Tracking (Isaac Lab)}},
-        url = {https://github.com/HybridRobotics/whole_body_tracking},
-        year = {2025}
-    }
-
-    @software{nvlabs_groot_wbc2026,
-        author = {{NVIDIA}},
-        title = {{GR00T Whole-Body Control}},
-        url = {https://github.com/NVlabs/GR00T-WholeBodyControl},
-        year = {2026}
-    }
+.. literalinclude:: _static/refs.bib
+   :language: bibtex
+   :start-at: @software{hybridrobotics_wbt,
+   :end-before: @software{wbc_h2_ext,
 
 Method papers (cite when using a task)
 --------------------------------------
@@ -104,36 +85,10 @@ in addition to wbc-mjlab and mjlab. See :doc:`tasks/index`.
 BibTeX entries for method papers
 --------------------------------
 
-.. code-block:: bibtex
-
-    @article{zest2026,
-        title = {Zero-shot Embodied Skill Transfer},
-        journal = {arXiv preprint arXiv:2602.00401},
-        year = {2026},
-        url = {https://arxiv.org/abs/2602.00401}
-    }
-
-    @article{beyondmimic2025,
-        author = {Liao, Qiayuan and Truong, Takara E. and Huang, Xiaoyu and Gao, Yuman and Tevet, Guy and Sreenath, Koushil and Liu, C. Karen},
-        title = {{BeyondMimic: From Motion Tracking to Versatile Humanoid Control via Guided Diffusion}},
-        journal = {arXiv preprint arXiv:2508.08241},
-        year = {2025},
-        url = {https://arxiv.org/abs/2508.08241}
-    }
-
-    @article{sonic2025,
-        title = {SONIC: Supersized Motion Tracking},
-        journal = {arXiv preprint arXiv:2511.07820},
-        year = {2025},
-        url = {https://arxiv.org/abs/2511.07820}
-    }
-
-    @article{omnixtreme2026,
-        title = {OmniXtreme: High-Dynamic Scalable Humanoid Motion Tracking},
-        journal = {arXiv preprint arXiv:2602.23843},
-        year = {2026},
-        url = {https://arxiv.org/abs/2602.23843}
-    }
+.. literalinclude:: _static/refs.bib
+   :language: bibtex
+   :start-at: @article{zest2026,
+   :end-before: @article{clot2026,
 
 Related projects
 ----------------
@@ -159,8 +114,6 @@ Technical report
 ----------------
 
 A formal tech report lives in ``paper/main.tex`` (local draft; see repo
-``.gitignore``). Canonical BibTeX: ``references/references.bib`` in the
-`wbc org workspace <https://github.com/wbc-mjlab/wbc-mjlab>`_ (synced to
-``docs/source/_static/refs.bib``). Citation metadata: ``CITATION.cff`` at the
-repo root. arXiv submission tracked in
+``.gitignore``). BibTeX for copy-paste citations: ``docs/source/_static/refs.bib``.
+Citation metadata: ``CITATION.cff`` at the repo root. arXiv submission tracked in
 `issue #31 <https://github.com/wbc-mjlab/wbc-mjlab/issues/31>`_.
