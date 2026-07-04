@@ -273,7 +273,7 @@ Do not hard-code G1 numbers in your runtime — read them from the checkpoint's
 Presets and robot wiring
 ------------------------
 
-- ``apply_wbc`` / ``apply_zest`` may drop ``ref_joint_vel`` or set ``history_length``
+- ``apply_wbc`` / ``apply_zest`` drop ``ref_joint_vel`` from the actor
 - ``apply_se_actor`` swaps height/gravity proxies for anchor pose error + ``base_lin_vel``
 - Robot entities call ``wire_<robot>_imu_sensors`` when SE layouts need named IMU sensors
 

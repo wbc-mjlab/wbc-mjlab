@@ -7,87 +7,140 @@ System requirements
 -------------------
 
 - **Training:** Linux + NVIDIA GPU (CUDA 12.8+ recommended, same as `mjlab <https://github.com/mujocolab/mjlab>`_)
-- **Evaluation:** Linux, macOS, or Windows (WSL) with ``make sync-cpu``
-- **Python:** 3.10+
+- **Evaluation:** Linux, macOS, or Windows (WSL) with CPU PyTorch
+- **Python:** 3.10–3.13
 
-`wbc-mjlab <https://github.com/wbc-mjlab/wbc-mjlab>`_ is an extension of
+`wbc-mjlab <https://github.com/wbc-mjlab/wbc-mjlab>`_ extends
 `mjlab <https://github.com/mujocolab/mjlab>`_. Install mjlab's stack via one of
 the paths below.
 
-Method 1 — Develop from source (uv, recommended)
-------------------------------------------------
+From source (development)
+---------------------------
 
 For hacking on ``wbc_mjlab`` or running the bundled samples.
 
-Install uv
-^^^^^^^^^^
+.. tab-set::
 
-.. code-block:: bash
+   .. tab-item:: uv
 
-   curl -LsSf https://astral.sh/uv/install.sh | sh
+      Install `uv <https://docs.astral.sh/uv/getting-started/installation/>`_ if needed, then:
 
-Clone and sync
-^^^^^^^^^^^^^^
+      .. code-block:: bash
 
-.. code-block:: bash
+         git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
+         make sync
 
-   git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
-   make sync          # uv sync --extra cu128 --group dev
+      ``make sync`` runs ``uv sync --extra cu128 --group dev`` (CUDA PyTorch + dev
+      tools). CPU-only / macOS evaluation:
 
-CPU-only / macOS evaluation:
+      .. code-block:: bash
 
-.. code-block:: bash
+         make sync-cpu
 
-   make sync-cpu      # uv sync --extra cpu --group dev
+      ``uv run`` uses the locked environment in ``uv.lock`` (same workflow as mjlab).
 
-Verify
-^^^^^^
+   .. tab-item:: pip
 
-.. code-block:: bash
+      .. code-block:: bash
 
-   uv run wbc-mjlab-list-envs
+         git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
+         pip install -e ".[cu128]"
 
-``uv run`` uses the locked environment in ``uv.lock`` (same workflow as mjlab).
+      CPU-only / macOS:
 
-Method 2 — Use as a dependency in your own uv project
------------------------------------------------------
+      .. code-block:: bash
 
-Add ``wbc-mjlab`` to an existing `uv <https://docs.astral.sh/uv/>`_ project:
+         pip install -e ".[cpu]"
 
-.. code-block:: bash
+      You are responsible for a CUDA-capable PyTorch build when training on GPU.
 
-   uv add wbc-mjlab mjlab
+Verification
+------------
 
-From GitHub:
+.. tab-set::
 
-.. code-block:: bash
+   .. tab-item:: uv
 
-   uv add "wbc-mjlab @ git+https://github.com/wbc-mjlab/wbc-mjlab"
+      .. code-block:: bash
 
-Editable local checkout:
+         uv run wbc-mjlab-list-envs
 
-.. code-block:: bash
+   .. tab-item:: pip
 
-   uv add --editable /path/to/wbc_mjlab
+      Activate your virtualenv, then:
 
-Ensure your project selects a CUDA or CPU extra for PyTorch (see mjlab
+      .. code-block:: bash
+
+         wbc-mjlab-list-envs
+
+Optional extras
+---------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Extra / group
+     - Purpose
+   * - ``cu128``
+     - CUDA 12.8 PyTorch (Linux training; default for ``make sync``)
+   * - ``cpu``
+     - CPU PyTorch (evaluation, macOS, WSL smoke tests; ``make sync-cpu``)
+   * - ``dev`` (uv group)
+     - pytest, ruff, pre-commit
+   * - ``docs`` (uv group)
+     - Sphinx site (``make docs``)
+
+Build the documentation locally: ``docs/BUILDING.md``.
+
+Use as a dependency
+-------------------
+
+Add ``wbc-mjlab`` to an existing project (PyPI or local checkout). Ensure your
+environment has a CUDA or CPU PyTorch build when training on GPU (see mjlab
 `installation guide <https://mujocolab.github.io/mjlab/main/source/installation.html>`_).
 
-Method 3 — Classic pip
-----------------------
+.. tab-set::
 
-.. code-block:: bash
+   .. tab-item:: uv
 
-   pip install mjlab wbc-mjlab
+      PyPI:
 
-Editable from a clone:
+      .. code-block:: bash
 
-.. code-block:: bash
+         uv add wbc-mjlab mjlab
 
-   git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
-   pip install -e .
+      From GitHub:
 
-You are responsible for a CUDA-capable PyTorch build when training on GPU.
+      .. code-block:: bash
+
+         uv add "wbc-mjlab @ git+https://github.com/wbc-mjlab/wbc-mjlab"
+
+      Editable local checkout:
+
+      .. code-block:: bash
+
+         uv add --editable /path/to/wbc-mjlab
+
+   .. tab-item:: pip
+
+      PyPI:
+
+      .. code-block:: bash
+
+         pip install mjlab wbc-mjlab
+
+      From GitHub:
+
+      .. code-block:: bash
+
+         pip install "wbc-mjlab @ git+https://github.com/wbc-mjlab/wbc-mjlab"
+
+      Editable local checkout:
+
+      .. code-block:: bash
+
+         pip install -e /path/to/wbc-mjlab
 
 Local mjlab checkout (optional)
 -------------------------------
@@ -105,15 +158,37 @@ When developing alongside a sibling ``mjlab`` repo, pin mjlab in ``pyproject.tom
 
 Remove the override before publishing the lockfile for PyPI-only users.
 
-After install — quickstart
---------------------------
+After install
+-------------
 
-.. code-block:: bash
+.. tab-set::
 
-   uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples
-   uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
-   uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
+   .. tab-item:: uv
+
+      .. code-block:: bash
+
+         uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples
+         uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+         uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
+
+   .. tab-item:: pip
+
+      With your virtualenv active:
+
+      .. code-block:: bash
+
+         wbc-mjlab-data-to-npz --robot g1 --dataset samples
+         wbc-mjlab-train --task Wbc-G1 --dataset samples
+         wbc-mjlab-play --task Wbc-G1 --dataset samples
 
 Bundled motion credits: ``data/g1/samples/README.md`` in the repository.
 
-See also :doc:`workflows/quickstart` for the full end-to-end workflow.
+See :doc:`workflows/quickstart` for the full end-to-end workflow.
+
+Related projects
+----------------
+
+- `mjlab <https://github.com/mujocolab/mjlab>`_ — manager-based RL on MuJoCo Warp
+- `wbc-mjlab-extension-h2 <https://github.com/wbc-mjlab/wbc-mjlab-extension-h2>`_ —
+  reference robot extension (Unitree H2)
+- `wbc-g1-deploy <https://github.com/wbc-mjlab/wbc-g1-deploy>`_ — optional G1 deploy runtime

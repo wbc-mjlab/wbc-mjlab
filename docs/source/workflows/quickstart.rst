@@ -38,10 +38,10 @@ Full catalog: :doc:`../tasks/index`. Stuck? :doc:`../troubleshooting`.
 1. Install
 ----------
 
+Follow :doc:`../installation` (``uv`` or ``pip`` from source), then verify:
+
 .. code-block:: bash
 
-   git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
-   make sync
    uv run wbc-mjlab-list-envs
 
 You should see registered tasks (e.g. ``Wbc-G1``, ``Wbc-G1-Zest``, ``Wbc-G1-BinaryFailure``

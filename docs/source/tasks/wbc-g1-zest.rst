@@ -52,8 +52,9 @@ Terminations
 Actor observations
 ------------------
 
-- Removes ``ref_joint_vel`` only
-- Does **not** set ``history_length`` (template default **0**)
+- Removes ``ref_joint_vel`` (same as :doc:`wbc-g1`)
+
+Dim rules: :ref:`reference-obs-dims`.
 
 Dim rules: :ref:`reference-obs-dims`.
 

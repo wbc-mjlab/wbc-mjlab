@@ -19,11 +19,23 @@ H2 is **not** built into wbc-mjlab core. It demonstrates:
 
 Install alongside core:
 
-.. code-block:: bash
+.. tab-set::
 
-   git clone https://github.com/wbc-mjlab/wbc-mjlab-extension-h2.git
-   cd wbc-mjlab-extension-h2 && uv sync
-   uv run wbc-mjlab-list-envs    # includes Wbc-H2
+   .. tab-item:: uv
+
+      .. code-block:: bash
+
+         git clone https://github.com/wbc-mjlab/wbc-mjlab-extension-h2.git
+         cd wbc-mjlab-extension-h2 && uv sync
+         uv run wbc-mjlab-list-envs    # includes Wbc-H2
+
+   .. tab-item:: pip
+
+      .. code-block:: bash
+
+         git clone https://github.com/wbc-mjlab/wbc-mjlab-extension-h2.git
+         cd wbc-mjlab-extension-h2 && pip install -e .
+         wbc-mjlab-list-envs           # includes Wbc-H2
 
 Registration entry point
 ------------------------
@@ -79,11 +91,23 @@ One registered task:
 End-to-end commands
 -------------------
 
-.. code-block:: bash
+.. tab-set::
 
-   uv run wbc-mjlab-data-to-npz --robot h2 --dataset samples --batch-size 6
-   uv run wbc-mjlab-train --task Wbc-H2 --dataset samples
-   uv run wbc-mjlab-play --task Wbc-H2 --dataset samples --viewer viser
+   .. tab-item:: uv
+
+      .. code-block:: bash
+
+         uv run wbc-mjlab-data-to-npz --robot h2 --dataset samples --batch-size 6
+         uv run wbc-mjlab-train --task Wbc-H2 --dataset samples
+         uv run wbc-mjlab-play --task Wbc-H2 --dataset samples --viewer viser
+
+   .. tab-item:: pip
+
+      .. code-block:: bash
+
+         wbc-mjlab-data-to-npz --robot h2 --dataset samples --batch-size 6
+         wbc-mjlab-train --task Wbc-H2 --dataset samples
+         wbc-mjlab-play --task Wbc-H2 --dataset samples --viewer viser
 
 Logs: ``logs/rsl_rl/wbc_h2/<run>/``
 

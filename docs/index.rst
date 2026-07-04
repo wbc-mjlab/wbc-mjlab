@@ -70,9 +70,9 @@ Table of Contents
    :maxdepth: 1
    :caption: Getting Started
 
+   source/installation
    source/workflows/quickstart
    source/recipes
-   source/installation
    source/workflows/demo
    source/troubleshooting
 
@@ -124,14 +124,10 @@ WBC-MJLab is licensed under the Apache License, Version 2.0. See the
 If you use WBC-MJLab in your research, please cite the software and the
 **method papers** for the tasks you reproduce (see :doc:`source/research`):
 
-.. code-block:: bibtex
-
-    @software{wbc_mjlab2026,
-        author = {Nedelchev, Simeon and Chaplygin, Anton and Kozlov, Lev and Domrachev, Ivan},
-        title = {{WBC-MJLab: Unified Whole-Body Motion Tracking on mjlab}},
-        url = {https://github.com/wbc-mjlab/wbc-mjlab},
-        year = {2026}
-    }
+.. literalinclude:: source/_static/refs.bib
+   :language: bibtex
+   :start-at: @software{wbc_mjlab2026,
+   :end-before: @article{zakka2026mjlab,
 
 Also cite **mjlab** when using the simulation stack (see :doc:`source/research`).
 
