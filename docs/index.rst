@@ -78,6 +78,13 @@ Table of Contents
 
 .. toctree::
    :maxdepth: 1
+   :caption: Concepts
+
+   source/concepts/index
+   source/architecture
+
+.. toctree::
+   :maxdepth: 1
    :caption: User Guide
 
    source/usage
@@ -88,13 +95,6 @@ Table of Contents
    source/workflows/deploy
    source/extensions/index
    source/visualization
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Concepts
-
-   source/concepts/index
-   source/architecture
 
 .. toctree::
    :maxdepth: 1
@@ -127,7 +127,7 @@ If you use WBC-MJLab in your research, please cite the software and the
 .. code-block:: bibtex
 
     @software{wbc_mjlab2026,
-        author = {Nedelchev, Simeon and Kozlov, Lev and Domrachev, Ivan and Chaplygin, Anton},
+        author = {Nedelchev, Simeon and Chaplygin, Anton and Kozlov, Lev and Domrachev, Ivan},
         title = {{WBC-MJLab: Unified Whole-Body Motion Tracking on mjlab}},
         url = {https://github.com/wbc-mjlab/wbc-mjlab},
         year = {2026}

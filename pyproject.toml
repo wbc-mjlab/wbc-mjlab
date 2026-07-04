@@ -11,9 +11,9 @@ description = "Unified whole-body motion tracking on mjlab — one MDP, paper me
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
   { name = "Simeon Nedelchev" },
+  { name = "Anton Chaplygin" },
   { name = "Lev Kozlov" },
   { name = "Ivan Domrachev" },
-  { name = "Anton Chaplygin" },
 ]
 requires-python = ">=3.10,<3.14"
 keywords = [
