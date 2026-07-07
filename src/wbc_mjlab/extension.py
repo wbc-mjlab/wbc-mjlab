@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from wbc_mjlab.motion.robot_assets import RobotMotionSpec
+from wbc_mjlab.robots.symmetry import RobotSymmetryConfig
 from wbc_mjlab.tasks.config import WbcTaskConfig
 
 EnvCfgBuilder = Callable[..., Any]
@@ -26,6 +27,8 @@ class WbcRobotSpec:
   """Builder returning the RL runner config."""
   motion_spec: RobotMotionSpec | None = None
   """Optional FK / debias metadata for ``wbc-mjlab-data-to-npz``."""
+  symmetry_config: RobotSymmetryConfig | None = None
+  """Optional :class:`~wbc_mjlab.robots.symmetry.RobotSymmetryConfig` for ``--mirror``."""
   aliases: tuple[str, ...] = ()
   """Alternate ids accepted by CLIs."""
   project_root: Path | str | None = None
@@ -57,6 +60,10 @@ def register_robot(spec: WbcRobotSpec) -> None:
     from wbc_mjlab.motion.robot_assets import register_robot_mjcf_path
 
     register_robot_mjcf_path(rid, spec.mjcf_path)
+  if spec.symmetry_config is not None:
+    from wbc_mjlab.robots.symmetry import register_robot_symmetry_config
+
+    register_robot_symmetry_config(rid, spec.symmetry_config)
   if spec.project_root is not None:
     from wbc_mjlab.data_paths import register_project_root
 

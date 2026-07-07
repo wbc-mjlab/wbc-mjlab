@@ -59,6 +59,49 @@ Keep body name tuples in ``constants.py`` — presets receive them as arguments:
 
 This keeps ``env/mdp/`` free of robot-specific strings.
 
+Symmetry config (optional, for ``--mirror``)
+--------------------------------------------
+
+If you want ``wbc-mjlab-data-to-npz --mirror`` for your robot, add
+``robots/<id>/symmetry.py`` with a :class:`~wbc_mjlab.robots.symmetry.RobotSymmetryConfig`.
+The config lists **joint pairs** (left name, right name, sign) used to mirror
+``joint_pos`` and ``joint_vel`` in exported NPZs.
+
+**Sign convention:** ``+1`` for pitch-like joints, ``-1`` for roll/yaw-like joints.
+Central joints (waist) use the same name for both sides and typically ``-1`` on
+yaw/roll, ``+1`` on pitch.
+
+In-tree G1 example (``robots/g1/symmetry.py``):
+
+.. code-block:: python
+
+   from wbc_mjlab.robots.symmetry import (
+     JointSymmetryEntry,
+     RobotSymmetryConfig,
+     register_robot_symmetry_config,
+   )
+
+   MYBOT_SYMMETRY_CONFIG = RobotSymmetryConfig(
+     joints=(
+       JointSymmetryEntry("left_hip_roll_joint", "right_hip_roll_joint", -1.0),
+       JointSymmetryEntry("left_hip_pitch_joint", "right_hip_pitch_joint", 1.0),
+       # ... all actuated pairs ...
+       JointSymmetryEntry("waist_yaw_joint", "waist_yaw_joint", -1.0),
+     ),
+     mirror_suffix="_mirror",
+   )
+
+   register_robot_symmetry_config("mybot", MYBOT_SYMMETRY_CONFIG)
+
+For core robots, call ``register_robot_symmetry_config`` at import time (G1 does
+this in ``robots/g1/__init__.py`` via ``robots/g1/symmetry.py``). For extensions,
+pass ``symmetry_config=...`` on :class:`~wbc_mjlab.extension.WbcRobotSpec` or call
+``register_robot_symmetry_config`` from ``mjlab_entry.py``.
+
+Body kinematics (``body_pos_w``, ``body_quat_w``, velocities) use a shared
+left/right **name swap** plus world-frame reflection; only the joint table is
+robot-specific.
+
 What the robot entity does *not* do
 -----------------------------------
 

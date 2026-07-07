@@ -23,6 +23,11 @@ from typing import Any
 
 import numpy as np
 import torch
+from mjlab.entity import Entity
+from mjlab.scene import Scene
+from mjlab.sim.sim import Simulation, SimulationCfg
+from mjlab.viewer.offscreen_renderer import OffscreenRenderer
+from mjlab.viewer.viewer_config import ViewerConfig
 from tqdm import tqdm
 
 from wbc_mjlab.motion.motion_export_bundle import (
@@ -37,6 +42,7 @@ from wbc_mjlab.motion.motion_formats import (
   resample_motion_clips_batch,
   resolve_input_motion_paths,
 )
+from wbc_mjlab.motion.motion_mirror import mirror_motion_log
 from wbc_mjlab.motion.motion_z_debias import debias_motion_log_vertical
 from wbc_mjlab.motion.robot_assets import (
   conversion_scene_cfg,
@@ -45,11 +51,7 @@ from wbc_mjlab.motion.robot_assets import (
   resolve_robot_id,
 )
 from wbc_mjlab.motion.tyro_cli import cli as tyro_cli
-from mjlab.entity import Entity
-from mjlab.scene import Scene
-from mjlab.sim.sim import Simulation, SimulationCfg
-from mjlab.viewer.offscreen_renderer import OffscreenRenderer
-from mjlab.viewer.viewer_config import ViewerConfig
+from wbc_mjlab.robots.symmetry import get_robot_symmetry_config
 
 _MotionState = tuple[
   torch.Tensor,
@@ -348,6 +350,7 @@ def main(
   line_range: tuple[int, int] | None = None,
   debias_z: bool = False,
   debias_foot_sole_z: float | None = None,
+  mirror: bool = False,
 ):
   if batch_size < 1:
     raise ValueError(f"batch_size must be >= 1, got {batch_size}")
@@ -360,6 +363,13 @@ def main(
 
   robot_id = resolve_robot_id(robot)
   _, motion_spec = get_robot_motion_spec(robot)
+  symmetry_config = get_robot_symmetry_config(robot_id) if mirror else None
+  if mirror and symmetry_config is None:
+    raise ValueError(
+      f"--mirror requires a symmetry config for robot {robot_id!r}. "
+      "Add robots/<id>/symmetry.py and register it, or pass symmetry_config "
+      "on WbcRobotSpec for extensions."
+    )
   if debias_z and (
     motion_spec.foot_body_names is None or motion_spec.foot_sole_z is None
   ):
@@ -479,13 +489,42 @@ def main(
     )
     clips.append(clip)
 
+    if mirror and symmetry_config is not None:
+      if source_path.stem.endswith(symmetry_config.mirror_suffix):
+        print(
+          f"[INFO] Skipping mirror for {source_path.name} "
+          f"(stem already ends with {symmetry_config.mirror_suffix!r})"
+        )
+      else:
+        mirrored_log = mirror_motion_log(
+          log,
+          joint_names=joint_names,
+          body_names=robot_body_names,
+          config=symmetry_config,
+        )
+        mirrored_path = source_path.with_stem(
+          f"{source_path.stem}{symmetry_config.mirror_suffix}"
+        )
+        mirrored_clip = MotionClipExport(
+          log=mirrored_log,
+          source_path=mirrored_path,
+          joint_names=joint_names,
+        )
+        export_motion_clip_npz(
+          output_dir=output_dir,
+          clip=mirrored_clip,
+          robot_id=robot_id,
+          robot_body_names=robot_body_names,
+        )
+        clips.append(mirrored_clip)
+
   print(f"[INFO] Finished {len(clips)} clip(s) in {npz_output_dir(output_dir)}")
 
 
 def cli() -> None:
   import mjlab  # noqa: F401 — load mjlab.tasks entry points (extension data roots)
 
-  tyro_cli(main, bool_shorthand=("debias_z",))
+  tyro_cli(main, bool_shorthand=("debias_z", "mirror"))
 
 
 if __name__ == "__main__":
