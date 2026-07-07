@@ -81,6 +81,66 @@ Bodies ``B`` follow the robot model body order from FK. Training selects a
 Optional stacked bundle (``--cache-motion-bundle``) concatenates clips and stores
 segment start/length metadata so RSI can sample across the library.
 
+Sagittal mirroring (``--mirror``)
+---------------------------------
+
+Bilateral humanoids often benefit from **left-right mirrored reference motion**:
+it doubles the motion library without new mocap and improves left/right
+generalization during RSI sampling.
+
+Pass ``--mirror`` to ``wbc-mjlab-data-to-npz`` to export an extra NPZ per source
+clip:
+
+.. code-block:: text
+
+   data/g1/samples/npz/
+     walk1_subject1.npz
+     walk1_subject1_mirror.npz    # sagittal mirror of walk1_subject1
+
+Training discovers both files automatically (``npz/*.npz``). No train/play flag
+is required.
+
+What gets mirrored
+~~~~~~~~~~~~~~~~~~
+
+Mirroring runs **after FK** on the exported arrays (``motion/motion_mirror.py``):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Channel
+     - Transform
+   * - ``joint_pos``, ``joint_vel``
+     - Swap left/right joint pairs; negate roll/yaw axes (see robot symmetry config)
+   * - ``body_pos_w``, ``body_lin_vel_w``
+     - Swap left/right bodies; flip world **y** (reflection across the XZ plane)
+   * - ``body_quat_w`` (xyzw)
+     - Swap bodies; negate quaternion **x** and **z**
+   * - ``body_ang_vel_w``
+     - Swap bodies; negate **x** and **z** components (axial vector under reflection)
+   * - ``fps``, ``joint_names``, ``robot``
+     - Unchanged
+
+The robot's **`RobotSymmetryConfig``** defines joint swap pairs and signs.
+G1 ships in-tree at ``robots/g1/symmetry.py``. Extension robots register their
+own config (see :doc:`extensions/robot_entity` and :doc:`extensions/extensions`).
+
+CLI notes
+~~~~~~~~~
+
+- ``--mirror`` requires a symmetry config for ``--robot``; otherwise conversion errors.
+- Mirrored output stem: ``<clip_stem><mirror_suffix>`` (default suffix ``_mirror``).
+- Sources whose stem already ends with the mirror suffix are skipped (avoids
+  ``walk_mirror_mirror.npz`` on re-convert).
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8 --mirror
+
+Online mirroring during training (phase 2) will reuse the same symmetry config
+inside ``MotionCommand``; offline ``--mirror`` is the recommended starting point.
+
 Supported formats
 -----------------
 
@@ -131,6 +191,9 @@ Workflow
    uv run wbc-mjlab-data-to-npz --robot <robot> --dataset <dataset>
    # large libraries: parallel FK on GPU
    uv run wbc-mjlab-data-to-npz --robot <robot> --dataset <dataset> --batch-size 8
+
+   # optional: sagittal mirror (doubles npz/ — see "Sagittal mirroring" above)
+   uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --mirror
 
    # 2. Train
    uv run wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset>

@@ -41,7 +41,9 @@ Call once from your package entry point (``mjlab.tasks``):
    )
 
 Then install the extension editable alongside wbc-mjlab (see :doc:`../installation`)
-and confirm ``wbc-mjlab-list-envs`` lists ``Wbc-MyRobot``. Full walkthrough:
+and confirm ``wbc-mjlab-list-envs`` lists ``Wbc-MyRobot``. Optional
+``symmetry_config`` on ``WbcRobotSpec`` enables ``wbc-mjlab-data-to-npz --mirror``
+(see :doc:`../data` and :doc:`../extensions/robot_entity`). Full walkthrough:
 :doc:`../extensions/example_extension`.
 
 Registration

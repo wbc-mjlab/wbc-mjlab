@@ -15,6 +15,7 @@ API overview
 3. ``register_robot_motion_spec`` — FK scene for ``wbc-mjlab-data-to-npz``
 4. ``register_project_root`` — extension-owned ``data/<robot>/`` tree
 5. ``register_wbc_tasks`` — ``--task`` ids
+6. ``register_robot_symmetry_config`` (optional) — when ``symmetry_config`` is set on the spec
 
 ``WbcRobotSpec`` fields
 -----------------------
@@ -39,16 +40,18 @@ API overview
      - Root containing ``data/<robot_id>/``
    * - ``mjcf_path``
      - Optional shortcut when motion_spec omits mjcf_path
+   * - ``symmetry_config``
+     - Optional :class:`~wbc_mjlab.robots.symmetry.RobotSymmetryConfig` for ``--mirror`` on ``wbc-mjlab-data-to-npz``
 
 Minimal registration
 --------------------
 
 .. code-block:: python
 
-   from pathlib import Path
    from wbc_mjlab.extension import WbcRobotSpec, register_wbc_extension
    from wbc_mjlab.motion.robot_assets import RobotMotionSpec
    from wbc_mjlab.tasks.config import WbcTaskConfig
+   from my_robot_wbc.robots.mybot.symmetry import MYBOT_SYMMETRY_CONFIG
 
    ROOT = Path(__file__).resolve().parents[2]
 
@@ -68,6 +71,7 @@ Minimal registration
          scene_cfg_fn=lambda: mybot_base_cfg().scene,
          mjcf_path=MYBOT_XML,
        ),
+       symmetry_config=MYBOT_SYMMETRY_CONFIG,
      ),
      WbcTaskConfig(
        task_id="Wbc-Mybot",
@@ -90,6 +94,7 @@ Package layout (recommended)
        mjlab_entry.py        # register_wbc_extension(...)
        robots/<id>/
          constants.py        # body names, XML paths
+         symmetry.py         # RobotSymmetryConfig for --mirror (optional)
          base.py             # <robot>_base_cfg()
          actuators.py
          tasks.py            # WbcTaskConfig table
