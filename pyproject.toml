@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "wbc-mjlab"
-version = "0.0.4"
+version = "0.0.5"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 description = "Unified whole-body motion tracking on mjlab — one MDP, paper methods as tasks"
