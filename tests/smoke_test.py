@@ -40,6 +40,7 @@ def test_import_and_list_tasks() -> None:
   task_ids = list_wbc_task_ids()
   assert "Wbc-G1" in task_ids
   assert "Wbc-G1-Zest" in task_ids
+  assert "Wbc-G1-EE" in task_ids
 
 
 if __name__ == "__main__":

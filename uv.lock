@@ -4461,7 +4461,7 @@ wheels = [
 
 [[package]]
 name = "wbc-mjlab"
-version = "0.0.4"
+version = "0.0.5"
 source = { editable = "." }
 dependencies = [
     { name = "mjlab" },

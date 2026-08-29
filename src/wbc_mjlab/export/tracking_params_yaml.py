@@ -72,6 +72,7 @@ def _joint_position_action(cfg: Any):
   for term in cfg.actions.values():
     if type(term).__name__ in (
       "JointPositionActionCfg",
+      "DefaultOffsetJointPositionActionCfg",
       "ReferenceJointPositionActionCfg",
     ):
       return term
@@ -82,7 +83,7 @@ def _action_mode(action) -> str:
   name = type(action).__name__
   if name == "ReferenceJointPositionActionCfg":
     return "reference_residual"
-  if name == "JointPositionActionCfg":
+  if name in ("JointPositionActionCfg", "DefaultOffsetJointPositionActionCfg"):
     return "default_relative"
   raise RuntimeError(f"WBC tracking params: unsupported joint action {name!r}")
 
@@ -169,25 +170,44 @@ def _observation_dim(
   raise KeyError(f"unexpected actor term {name!r}")
 
 
+def _term_body_count(term: Any, default_body_count: int) -> int:
+  names = (getattr(term, "params", None) or {}).get("body_names")
+  if names:
+    return len(names)
+  return default_body_count
+
+
 def _wbc_command_dim(
   actor_names: list[str],
   *,
   joint_count: int,
   body_count: int,
+  term_body_counts: dict[str, int] | None = None,
 ) -> int:
   if "command" in actor_names:
     return 10 + joint_count
+  counts = term_body_counts or {}
   return sum(
-    _observation_dim(name, joint_count=joint_count, body_count=body_count)
+    _observation_dim(
+      name,
+      joint_count=joint_count,
+      body_count=counts.get(name, body_count),
+    )
     for name in actor_names
     if name in REFERENCE_OBS_TERM_NAMES
   )
 
 
-def _observation_params(name: str, *, command_name: str) -> dict[str, str]:
+def _observation_params(
+  name: str, *, command_name: str, term: Any | None = None
+) -> dict[str, Any]:
+  params: dict[str, Any] = {}
   if name in _MOTION_OBS_PARAM_TERMS:
-    return {"command_name": command_name}
-  return {}
+    params["command_name"] = command_name
+  term_params = getattr(term, "params", None) or {}
+  if "body_names" in term_params:
+    params["body_names"] = list(term_params["body_names"])
+  return params
 
 
 def _build_robot_entity(cfg: Any):
@@ -241,20 +261,31 @@ def build_wbc_tracking_params(
   actor_history_length = _actor_history_length(cfg)
   motion_cmd = cfg.commands["motion"]
   body_count = len(motion_cmd.body_names)
+  actor_terms = cfg.observations["actor"].terms
+  term_body_counts = {
+    name: _term_body_count(actor_terms[name], body_count) for name in actor_names
+  }
   wbc_command_dim = _wbc_command_dim(
-    actor_names, joint_count=len(joint_names), body_count=body_count
+    actor_names,
+    joint_count=len(joint_names),
+    body_count=body_count,
+    term_body_counts=term_body_counts,
   )
   command_name = getattr(_joint_position_action(cfg), "command_name", "motion")
 
   actor_observations: dict[str, Any] = {}
   for name in actor_names:
     dim = _observation_dim(
-      name, joint_count=len(joint_names), body_count=body_count
+      name,
+      joint_count=len(joint_names),
+      body_count=term_body_counts[name],
     )
     actor_observations[name] = {
       "dim": dim,
       "scale": [1.0] * dim,
-      "params": _observation_params(name, command_name=command_name),
+      "params": _observation_params(
+        name, command_name=command_name, term=actor_terms[name]
+      ),
     }
 
   stiffness, damping, default_pos = _pd_from_robot(cfg, joint_names)

@@ -20,6 +20,14 @@ Actions
    :members:
    :undoc-members: False
 
+.. autoclass:: wbc_mjlab.env.mdp.actions.DefaultOffsetJointPositionActionCfg
+   :members:
+   :undoc-members: False
+
+.. autoclass:: wbc_mjlab.env.mdp.actions.DefaultOffsetJointPositionAction
+   :members:
+   :undoc-members: False
+
 Motion command
 --------------
 

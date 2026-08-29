@@ -32,6 +32,8 @@ Which task should I use?
      - ``Wbc-G1-BinaryFailure``
    * - **State-estimation** actor terms
      - ``Wbc-G1-SE`` / ``Wbc-G1-Zest-SE``
+   * - **EE + root tracking** (no joint-ref command)
+     - ``Wbc-G1-EE`` / ``Wbc-G1-EE-SE``
 
 Full catalog: :doc:`../tasks/index`. Stuck? :doc:`../troubleshooting`.
 

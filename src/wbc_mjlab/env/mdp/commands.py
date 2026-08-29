@@ -824,6 +824,18 @@ class MotionCommand(CommandTerm):
     self._episode_similarity_sum[env_ids] = 0.0
     self._episode_step_count[env_ids] = 0
     self.update_relative_body_poses()
+    self._seed_default_relative_action(env_ids)
+
+  def _seed_default_relative_action(self, env_ids: torch.Tensor) -> None:
+    """Warm-start default-relative actions after RSI (no-op for residual actions)."""
+    action_manager = getattr(self._env, "action_manager", None)
+    if action_manager is None or "joint_pos" not in action_manager.active_terms:
+      return
+    seed = getattr(
+      action_manager.get_term("joint_pos"), "seed_from_motion_reference", None
+    )
+    if seed is not None:
+      seed(env_ids)
 
   def update_relative_body_poses(self) -> None:
     anchor_pos_w_repeat = self.anchor_pos_w[:, None, :].repeat(

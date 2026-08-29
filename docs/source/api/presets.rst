@@ -10,5 +10,6 @@ Design: :doc:`../concepts/presets_and_tasks`. Task catalog: :doc:`../tasks/index
 
 .. autofunction:: wbc_mjlab.presets.apply_wbc
 .. autofunction:: wbc_mjlab.presets.apply_zest
+.. autofunction:: wbc_mjlab.presets.apply_end_effector
 .. autofunction:: wbc_mjlab.presets.apply_se_actor
 .. autofunction:: wbc_mjlab.presets.apply_binary_failure

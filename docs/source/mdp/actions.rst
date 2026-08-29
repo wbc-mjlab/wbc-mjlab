@@ -28,6 +28,16 @@ Alternative
 ``make_base_wbc_env_cfg(use_reference_residual_action=False)`` switches to mjlab's
 absolute ``JointPositionActionCfg`` with default joint offsets.
 
+``apply_end_effector`` swaps to ``DefaultOffsetJointPositionActionCfg``:
+
+.. code-block:: text
+
+   q_target = q_default + scale · action
+
+On RSI resample (training), ``a`` is seeded to ``(q_ref − q_default) / scale``
+so the first PD target matches the clip. Deploy uses the same action equation
+with measured joints, not ``q_ref``.
+
 API: :doc:`../api/mdp` (Actions).
 
 Related: :doc:`motion_command`, :doc:`../extensions/robot_entity`.
