@@ -10,13 +10,21 @@ from wbc_mjlab.env.mdp.actions import (
   DefaultOffsetJointPositionActionCfg,
   ReferenceJointPositionActionCfg,
 )
-from wbc_mjlab.robots.g1.constants import G1_MOTION_BODY_NAMES
+from wbc_mjlab.robots.g1.constants import (
+  G1_ENDEFFECTOR_BODY_NAMES,
+  G1_MOTION_BODY_NAMES,
+)
 from wbc_mjlab.robots.g1.tasks import (
   g1_wbc_ee_env_cfg,
   g1_wbc_ee_se_env_cfg,
   g1_wbc_env_cfg,
 )
 from wbc_mjlab.tasks import list_wbc_task_ids
+
+_EE_REF_PARAMS = {
+  "command_name": "motion",
+  "body_names": G1_ENDEFFECTOR_BODY_NAMES,
+}
 
 
 def test_ee_task_ids_registered() -> None:
@@ -39,8 +47,9 @@ def test_ee_preset_replaces_actor_joint_refs_keeps_wbc_rewards() -> None:
   for name in ("ref_body_pos", "ref_body_ori"):
     assert name in actor
     assert actor[name].func is critic[name].func
-    assert actor[name].params == {"command_name": "motion"}
-  assert list(actor).index("ref_body_pos") < list(actor).index("joint_pos")
+    assert actor[name].params == _EE_REF_PARAMS
+    # Critic still sees all motion keybodies.
+    assert "body_names" not in critic[name].params
 
   assert isinstance(cfg.actions["joint_pos"], DefaultOffsetJointPositionActionCfg)
   assert not isinstance(cfg.actions["joint_pos"], ReferenceJointPositionActionCfg)
@@ -59,6 +68,7 @@ def test_ee_se_keeps_body_ref_command_and_adds_anchor_error() -> None:
   cfg = g1_wbc_ee_se_env_cfg()
   actor = cfg.observations["actor"].terms
   assert "ref_body_pos" in actor
+  assert actor["ref_body_pos"].params == _EE_REF_PARAMS
   assert "ref_joint_pos" not in actor
   assert "ref_base_height" not in actor
   assert "motion_anchor_pos_error_w" in actor
@@ -69,6 +79,6 @@ def test_ee_se_keeps_body_ref_command_and_adds_anchor_error() -> None:
 def test_ref_body_observation_dims() -> None:
   from wbc_mjlab.export.tracking_params_yaml import _observation_dim
 
-  n_bodies = len(G1_MOTION_BODY_NAMES)
-  assert _observation_dim("ref_body_pos", joint_count=29, body_count=n_bodies) == 3 * n_bodies
-  assert _observation_dim("ref_body_ori", joint_count=29, body_count=n_bodies) == 6 * n_bodies
+  n_ee = len(G1_ENDEFFECTOR_BODY_NAMES)
+  assert _observation_dim("ref_body_pos", joint_count=29, body_count=n_ee) == 3 * n_ee
+  assert _observation_dim("ref_body_ori", joint_count=29, body_count=n_ee) == 6 * n_ee

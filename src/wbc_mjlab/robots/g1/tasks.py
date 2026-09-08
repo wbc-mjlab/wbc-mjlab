@@ -63,7 +63,7 @@ def g1_wbc_binary_failure_env_cfg() -> ManagerBasedRlEnvCfg:
 
 def g1_wbc_ee_env_cfg() -> ManagerBasedRlEnvCfg:
   cfg = g1_wbc_env_cfg()
-  apply_end_effector(cfg)
+  apply_end_effector(cfg, body_names=G1_ENDEFFECTOR_BODY_NAMES)
   return cfg
 
 
@@ -116,7 +116,7 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
     task_id="Wbc-G1-EE",
     robot_id="g1",
     description=(
-      "Wbc-G1 + actor ref_body_* command (no joint refs); critic/rewards keep q_ref."
+      "Wbc-G1 + actor EE ref_body_* command (no joint refs); critic/rewards keep full tracking."
     ),
     experiment_name="wbc_g1_ee",
     build_env_cfg=g1_wbc_ee_env_cfg,
