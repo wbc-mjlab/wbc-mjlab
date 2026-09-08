@@ -60,10 +60,16 @@ KNEES_BENT_KEYFRAME = EntityCfg.InitialStateCfg(
 # Collision config.
 ##
 
+# Same policy as mjlab G1 tracking: matched ``*_collision`` geoms fully own
+# the contact structure (contype/conaffinity/condim/priority are required in
+# mjlab 1.6+). ``contype=1, conaffinity=1`` enables self-collision; feet use
+# condim=3 / priority=1, other keybody capsules condim=1 / priority=0.
 FULL_COLLISION = CollisionCfg(
   geom_names_expr=(".*_collision",),
+  contype=1,
+  conaffinity=1,
   condim={r"^(left|right)_foot[1-7]_collision$": 3, ".*_collision": 1},
-  priority={r"^(left|right)_foot[1-7]_collision$": 1},
+  priority={r"^(left|right)_foot[1-7]_collision$": 1, ".*": 0},
   friction={r"^(left|right)_foot[1-7]_collision$": (0.6,)},
 )
 
@@ -72,7 +78,7 @@ FULL_COLLISION_WITHOUT_SELF = CollisionCfg(
   contype=0,
   conaffinity=1,
   condim={r"^(left|right)_foot[1-7]_collision$": 3, ".*_collision": 1},
-  priority={r"^(left|right)_foot[1-7]_collision$": 1},
+  priority={r"^(left|right)_foot[1-7]_collision$": 1, ".*": 0},
   friction={r"^(left|right)_foot[1-7]_collision$": (0.6,)},
 )
 
