@@ -42,6 +42,7 @@ One robot entity can expose multiple tasks by stacking different presets:
 
 - ``apply_wbc`` → default WBC
 - ``apply_zest`` → paper reproduction
+- ``apply_wbc`` + ``apply_end_effector`` → actor ``ref_body_*`` command (WBC rewards kept)
 - ``apply_wbc`` + ``apply_se_actor`` → state-estimation actor obs
 
 Compose presets in order: base cfg → primary preset → optional obs/IMU tweaks.

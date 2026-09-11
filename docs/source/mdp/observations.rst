@@ -65,8 +65,11 @@ Examples in this repo:
      - Modular ``ref_*`` terms; **no** ``ref_joint_vel`` (deploy-style)
    * - **BeyondMimic-style** (``Wbc-G1-BinaryFailure``)
      - Full base template including ``ref_joint_vel``
-   * - **State estimation** (``Wbc-G1-SE``, ``Wbc-G1-Zest-SE``)
+   * - **State estimation** (``Wbc-G1-SE``, ``Wbc-G1-Zest-SE``, ``Wbc-G1-EE-SE``)
      - Drops height/gravity proxies; adds anchor pose error + ``base_lin_vel``
+   * - **End-effector command** (``Wbc-G1-EE``, ``Wbc-G1-EE-SE``)
+     - Actor replaces ``ref_joint_*`` with existing ``ref_body_pos`` /
+       ``ref_body_ori``; critic keeps joint refs.
    * - **Bundled command** (mjlab tracking, some deploy runtimes)
      - Single ``command`` vector instead of per-field ``ref_*`` terms
 
@@ -213,9 +216,12 @@ Preset changes to reference obs
      - Reference-related change
    * - ``apply_wbc``, ``apply_zest``
      - Remove ``ref_joint_vel`` from actor (deploy-style)
-   * - ``apply_se_actor`` (``Wbc-G1-SE``, ``Wbc-G1-Zest-SE``)
+   * - ``apply_se_actor`` (``Wbc-G1-SE``, ``Wbc-G1-Zest-SE``, ``Wbc-G1-EE-SE``)
      - Remove ``ref_base_height``, ``ref_gravity_b``, ``projected_gravity``; add
        ``motion_anchor_pos_error_w``, ``motion_anchor_ori_error``, ``base_lin_vel``
+   * - ``apply_end_effector`` (``Wbc-G1-EE``, ``Wbc-G1-EE-SE``)
+     - Actor only: remove ``ref_joint_pos`` / ``ref_joint_vel``; add existing
+       ``ref_body_pos`` / ``ref_body_ori``. Critic keeps joint refs.
    * - Default ``Wbc-G1-BinaryFailure``
      - Keeps full base actor including ``ref_joint_vel``
 
@@ -274,6 +280,7 @@ Presets and robot wiring
 ------------------------
 
 - ``apply_wbc`` / ``apply_zest`` drop ``ref_joint_vel`` from the actor
+- ``apply_end_effector`` replaces actor ``ref_joint_*`` with ``ref_body_pos`` / ``ref_body_ori``
 - ``apply_se_actor`` swaps height/gravity proxies for anchor pose error + ``base_lin_vel``
 - Robot entities call ``wire_<robot>_imu_sensors`` when SE layouts need named IMU sensors
 

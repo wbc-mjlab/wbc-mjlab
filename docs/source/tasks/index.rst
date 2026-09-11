@@ -54,9 +54,12 @@ Available presets (core)
    * - ``apply_binary_failure``
      - ``presets/binary_failure.py``
      - BeyondMimic-style ``binary_failure`` RSI
+   * - ``apply_end_effector``
+     - ``presets/end_effector.py``
+     - Actor overlay: ``ref_body_*`` command, default-offset actions (compose on wbc)
    * - ``apply_se_actor``
      - ``presets/se_actor.py``
-     - Actor obs swap (compose on top of wbc/zest)
+     - Actor obs swap (compose on top of wbc/zest/end_effector)
 
 Preset → task map (in-tree example)
 -----------------------------------
@@ -83,6 +86,12 @@ Preset → task map (in-tree example)
    * - ``Wbc-G1-BinaryFailure``
      - ``apply_binary_failure``
      - ``g1_wbc_binary_failure_env_cfg``
+   * - ``Wbc-G1-EE``
+     - ``apply_wbc`` → ``apply_end_effector``
+     - ``g1_wbc_ee_env_cfg``
+   * - ``Wbc-G1-EE-SE``
+     - ``apply_wbc`` → ``apply_end_effector`` → ``apply_se_actor`` + IMU
+     - ``g1_wbc_ee_se_env_cfg``
 
 Extension tasks (e.g. ``Wbc-H2``) use the same pattern — see
 :doc:`../extensions/extensions`.
@@ -139,28 +148,48 @@ Preset comparison (in-tree example)
 
 .. list-table::
    :header-rows: 1
-   :widths: 22 26 26 26
+   :widths: 16 21 21 21 21
 
    * -
      - ``Wbc-G1``
      - ``Wbc-G1-Zest``
      - ``Wbc-G1-BinaryFailure``
+     - ``Wbc-G1-EE``
    * - Preset
      - ``apply_wbc``
      - ``apply_zest``
      - ``apply_binary_failure``
+     - ``apply_end_effector``
    * - Body rewards
      - all keybodies
      - EE bodies only
      - all keybodies
+     - same as ``Wbc-G1``
+   * - Joint rewards / critic ``q_ref``
+     - yes
+     - yes
+     - off
+     - **yes** (actor drops ``ref_joint_*``)
+   * - Actor command
+     - ``ref_joint_pos``
+     - ``ref_joint_pos``
+     - ``ref_joint_*``
+     - ``ref_body_pos`` / ``ref_body_ori``
+   * - Action
+     - residual on ``q_ref``
+     - residual on ``q_ref``
+     - residual on ``q_ref``
+     - default-offset
    * - RSI
      - reward-aligned ``similarity_ema``
      - reward-aligned ``similarity_ema``
      - ``binary_failure``
+     - reward-aligned ``similarity_ema``
    * - ``ee_body_pos`` term
      - yes
      - **removed**
      - yes (base)
+     - yes
 
 Example: ``apply_zest`` (preset code)
 -------------------------------------
@@ -252,13 +281,19 @@ Composing presets
 
 .. code-block:: python
 
+   def g1_wbc_ee_env_cfg() -> ManagerBasedRlEnvCfg:
+     cfg = g1_wbc_env_cfg()          # apply_wbc first
+     apply_end_effector(cfg)
+     return cfg
+
    def g1_wbc_zest_se_env_cfg() -> ManagerBasedRlEnvCfg:
      cfg = g1_wbc_zest_env_cfg()
      apply_se_actor(cfg)
      wire_g1_imu_sensors(cfg)
      return cfg
 
-Order matters: base cfg → primary paper preset → optional obs/IMU tweaks.
+Order matters: base cfg → primary paper preset → optional obs overlays
+(``apply_end_effector``, ``apply_se_actor``) → IMU tweaks.
 
 When to add a preset vs a task
 ------------------------------
@@ -302,6 +337,12 @@ Task guides (in-tree)
    * - ``Wbc-G1-BinaryFailure``
      - ``logs/rsl_rl/wbc_g1_binary/``
      - :doc:`wbc-g1-binary-failure`
+   * - ``Wbc-G1-EE``
+     - ``logs/rsl_rl/wbc_g1_ee/``
+     - :doc:`wbc-g1-ee`
+   * - ``Wbc-G1-EE-SE``
+     - ``logs/rsl_rl/wbc_g1_ee_se/``
+     - :doc:`wbc-g1-ee-se`
 
 .. toctree::
    :maxdepth: 1
@@ -312,6 +353,8 @@ Task guides (in-tree)
    wbc-g1-zest
    wbc-g1-zest-se
    wbc-g1-binary-failure
+   wbc-g1-ee
+   wbc-g1-ee-se
    adding
 
 Related: :doc:`adding`, :doc:`../mdp/index`, :doc:`../architecture`.

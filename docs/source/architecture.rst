@@ -19,7 +19,7 @@ Every task cfg is assembled in the same order:
         ↓
    apply_<preset>(...)           # paper / deploy recipe (presets/*.py)
         ↓
-   [optional] apply_se_actor()   # actor obs swap
+   [optional] apply_se_actor()   # actor obs swap (wbc / zest / end_effector)
         ↓
    WbcTaskConfig.build_env_cfg   # --task id
 

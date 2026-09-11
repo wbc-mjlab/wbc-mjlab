@@ -25,7 +25,7 @@ reference from ``MotionCommand``:
      - Joint state vs reference
 
 Kernel: ``exp(−κ · error² / σ²)``. Presets such as ``apply_wbc`` set κ, σ, and
-**which bodies** participate.
+**which bodies** participate. ``apply_end_effector`` does not retune rewards.
 
 Regularizers
 ------------

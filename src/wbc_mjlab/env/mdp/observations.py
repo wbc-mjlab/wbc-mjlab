@@ -222,28 +222,61 @@ def robot_body_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
   return mat[..., :2].reshape(mat.shape[0], -1)
 
 
-def ref_body_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  """Reference keybody positions in the robot anchor frame."""
+def _ref_body_indexes(
+  command: MotionCommand, body_names: tuple[str, ...] | None
+) -> list[int]:
+  """Indices into ``command.cfg.body_names`` (command order; all if ``body_names`` is None)."""
+  if body_names is None:
+    return list(range(len(command.cfg.body_names)))
+  name_to_idx = {name: i for i, name in enumerate(command.cfg.body_names)}
+  missing = [name for name in body_names if name not in name_to_idx]
+  if missing:
+    raise ValueError(
+      f"body_names {missing} not in motion command bodies {list(command.cfg.body_names)}"
+    )
+  return [name_to_idx[name] for name in body_names]
+
+
+def ref_body_pos_b(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  body_names: tuple[str, ...] | None = None,
+) -> torch.Tensor:
+  """Reference keybody positions in the robot anchor frame.
+
+  Args:
+    body_names: Subset of motion command bodies (default: all), in the given order.
+  """
   command = _motion_command(env, command_name)
-  num_bodies = len(command.cfg.body_names)
+  indexes = _ref_body_indexes(command, body_names)
+  num_bodies = len(indexes)
   pos_b, _ = subtract_frame_transforms(
     command.robot_anchor_pos_w[:, None, :].repeat(1, num_bodies, 1),
     command.robot_anchor_quat_w[:, None, :].repeat(1, num_bodies, 1),
-    command.body_pos_w,
-    command.body_quat_w,
+    command.body_pos_w[:, indexes],
+    command.body_quat_w[:, indexes],
   )
   return pos_b.view(env.num_envs, -1)
 
 
-def ref_body_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  """Reference keybody orientations in the robot anchor frame (6D rotation columns)."""
+def ref_body_ori_b(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  body_names: tuple[str, ...] | None = None,
+) -> torch.Tensor:
+  """Reference keybody orientations in the robot anchor frame (6D rotation columns).
+
+  Args:
+    body_names: Subset of motion command bodies (default: all), in the given order.
+  """
   command = _motion_command(env, command_name)
-  num_bodies = len(command.cfg.body_names)
+  indexes = _ref_body_indexes(command, body_names)
+  num_bodies = len(indexes)
   _, ori_b = subtract_frame_transforms(
     command.robot_anchor_pos_w[:, None, :].repeat(1, num_bodies, 1),
     command.robot_anchor_quat_w[:, None, :].repeat(1, num_bodies, 1),
-    command.body_pos_w,
-    command.body_quat_w,
+    command.body_pos_w[:, indexes],
+    command.body_quat_w[:, indexes],
   )
   mat = matrix_from_quat(ori_b)
   return mat[..., :2].reshape(mat.shape[0], -1)

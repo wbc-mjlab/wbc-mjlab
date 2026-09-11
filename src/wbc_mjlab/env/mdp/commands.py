@@ -824,6 +824,18 @@ class MotionCommand(CommandTerm):
     self._episode_similarity_sum[env_ids] = 0.0
     self._episode_step_count[env_ids] = 0
     self.update_relative_body_poses()
+    self._seed_default_relative_action(env_ids)
+
+  def _seed_default_relative_action(self, env_ids: torch.Tensor) -> None:
+    """Warm-start default-relative actions after RSI (no-op for residual actions)."""
+    action_manager = getattr(self._env, "action_manager", None)
+    if action_manager is None or "joint_pos" not in action_manager.active_terms:
+      return
+    seed = getattr(
+      action_manager.get_term("joint_pos"), "seed_from_motion_reference", None
+    )
+    if seed is not None:
+      seed(env_ids)
 
   def update_relative_body_poses(self) -> None:
     anchor_pos_w_repeat = self.anchor_pos_w[:, None, :].repeat(
@@ -850,26 +862,41 @@ class MotionCommand(CommandTerm):
       delta_ori_w, self.body_pos_w - anchor_pos_w_repeat
     )
 
-  def compute(self, dt: float) -> None:
-    self._update_metrics()
-    self.time_left -= dt
-    resample_env_ids = (self.time_left <= 0.0).nonzero().flatten()
-    if len(resample_env_ids) > 0:
-      self._resample(resample_env_ids)
-    self._update_command(advance_time=dt > 0.0)
+  def compute(
+    self, dt: float | torch.Tensor, env_ids: torch.Tensor | None = None
+  ) -> None:
+    # Stash dt so _update_command can skip motion-frame advances on dt=0
+    # (explicit reset and auto-reset envs). Base compute owns timers.
+    self._last_compute_dt = dt
+    super().compute(dt, env_ids)
 
-  def _update_command(self, *, advance_time: bool = True):
-    if self.cfg.rsi.strategy == "similarity_ema" and advance_time:
-      self._episode_similarity_sum += self._step_tracking_similarity()
-      self._episode_step_count += 1
+  def _update_command(self, env_ids: torch.Tensor | None) -> None:
+    """Advance clip frames on the per-step path; refresh relative poses always.
 
-    if advance_time:
-      self.time_steps += 1
+    ``env_ids`` is None on the regular step (all envs) and the reset ids on
+    ``reset()``. Motion time only advances where ``dt > 0`` so a reset does
+    not skip the frame the robot was just written to.
+    """
+    dt = getattr(self, "_last_compute_dt", 0.0)
+    if env_ids is not None:
+      advance = None
+    elif isinstance(dt, torch.Tensor):
+      advance = dt > 0.0
+    elif dt > 0.0:
+      advance = torch.ones(self.num_envs, dtype=torch.bool, device=self.device)
+    else:
+      advance = None
 
-    seg_end = self.motion.segment_end_idx[self.trajectory_ids]
-    env_ids = torch.where(self.time_steps >= seg_end)[0]
-    if env_ids.numel() > 0:
-      self._resample_command(env_ids)
+    if advance is not None and bool(advance.any()):
+      if self.cfg.rsi.strategy == "similarity_ema":
+        sim = self._step_tracking_similarity()
+        self._episode_similarity_sum[advance] += sim[advance]
+        self._episode_step_count[advance] += 1
+      self.time_steps[advance] += 1
+      seg_end = self.motion.segment_end_idx[self.trajectory_ids]
+      wrap_ids = torch.where(advance & (self.time_steps >= seg_end))[0]
+      if wrap_ids.numel() > 0:
+        self._resample_command(wrap_ids)
 
     self.update_relative_body_poses()
 
