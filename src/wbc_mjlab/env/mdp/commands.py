@@ -236,6 +236,12 @@ class MotionCommand(CommandTerm):
     )
     self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
     self.trajectory_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+    # Translate each reference trajectory so its selected start frame is centered
+    # on the environment origin. Keep the offset for the whole episode so the
+    # robot and all reference-position rewards remain in the same world frame.
+    self.reference_translation_w = torch.zeros(
+      self.num_envs, 3, dtype=torch.float, device=self.device
+    )
     self.body_pos_relative_w = torch.zeros(
       self.num_envs, len(cfg.body_names), 3, device=self.device
     )
@@ -620,6 +626,7 @@ class MotionCommand(CommandTerm):
     return (
       self.motion.body_pos_w[self.time_steps]
       + self._env.scene.env_origins[:, None, :]
+      + self.reference_translation_w[:, None, :]
     )
 
   @property
@@ -639,6 +646,7 @@ class MotionCommand(CommandTerm):
     return (
       self.motion.body_pos_w[self.time_steps][:, self.motion_anchor_body_index]
       + self._env.scene.env_origins
+      + self.reference_translation_w
     )
 
   @property
@@ -771,6 +779,10 @@ class MotionCommand(CommandTerm):
     else:
       assert rsi.sampling_mode == "adaptive"
       self._adaptive_sampling(env_ids)
+
+    start_root_xy = self.motion.body_pos_w[self.time_steps[env_ids], 0, :2]
+    self.reference_translation_w[env_ids] = 0.0
+    self.reference_translation_w[env_ids, :2] = -start_root_xy
 
     root_pos = self.body_pos_w[env_ids, 0].clone()
     root_ori = self.body_quat_w[env_ids, 0].clone()

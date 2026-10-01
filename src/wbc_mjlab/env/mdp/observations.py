@@ -120,6 +120,8 @@ def ref_base_ang_acc_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tenso
   """Reference anchor angular acceleration in anchor frame (critic privileged)."""
   return _motion_command(env, command_name).ref_base_ang_acc_b
 
+def height_map(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
+  return torch.flatten(env.scene.sensors[sensor_name].data.heights, start_dim=1, end_dim=-1)
 
 # --- Critic privileged keybody / anchor-relative features ---
 

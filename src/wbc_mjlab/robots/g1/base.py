@@ -5,8 +5,12 @@ from __future__ import annotations
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
-from mjlab.sensor import ContactMatch, ContactSensorCfg
-
+from mjlab.sensor import (ContactMatch, 
+  ContactSensorCfg,
+  GridPatternCfg,
+  ObjRef,
+  TerrainHeightSensorCfg,
+)
 import wbc_mjlab.env.mdp as mdp
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.env.wbc_env_cfg import make_base_wbc_env_cfg
@@ -64,7 +68,19 @@ def g1_base_cfg() -> ManagerBasedRlEnvCfg:
     num_slots=1,
     history_length=4,
   )
-  cfg.scene.sensors = (feet_ground_cfg, self_collision_cfg)
+  terrain_scan_cfg = TerrainHeightSensorCfg(
+    name="terrain_scan",
+    frame=ObjRef(type="body", name="pelvis", entity="robot"),  # Set per-robot.
+    ray_alignment="base",
+    reduction="none",
+    pattern=GridPatternCfg(size=(1.6, 1.0), resolution=0.25),
+    max_distance=5.0,
+    exclude_parent_body=True,
+    include_geom_groups=(0,),  # Terrain only.
+    debug_vis=False,
+  )
+
+  cfg.scene.sensors = (feet_ground_cfg, self_collision_cfg, terrain_scan_cfg)
 
   cfg.actions["joint_pos"].scale = G1_ACTION_SCALE
 
@@ -110,8 +126,8 @@ def g1_base_cfg() -> ManagerBasedRlEnvCfg:
     "robot", site_names=G1_FOOT_SITE_NAMES
   )
 
-  cfg.sim.nconmax = 35
-  cfg.sim.njmax = 250
+  cfg.sim.nconmax = 256
+  cfg.sim.njmax = 1024
 
   cfg.viewer.body_name = G1_ANCHOR_BODY_NAME
   cfg.viewer.distance = 2.8
