@@ -1,220 +1,209 @@
 .. _usage:
 
-Usage
-=====
+Command-line reference
+======================
 
-CLI commands
-------------
+Every command, with its options. Run any command with ``--help`` for the full list. With
+pip, drop the ``uv run`` prefix.
 
 .. list-table::
    :header-rows: 1
+   :widths: 40 60
 
    * - Command
-     - Purpose
-   * - ``wbc-mjlab-train``
-     - Train (wraps ``mjlab.scripts.train``)
-   * - ``wbc-mjlab-play``
-     - Play / eval
-   * - ``wbc-mjlab-list-envs``
-     - List registered tasks
-   * - ``wbc-mjlab-data-to-npz``
-     - Build motion NPZ from CSV / PKL (``--batch-size N`` for parallel GPU conversion)
-   * - ``wbc-mjlab-export-tracking-params``
-     - Write ``config.yaml``
-   * - ``wbc-mjlab-data-vis``
-     - Play motion NPZ clips in Viser (browser)
-   * - ``wbc-mjlab-plot-rsi-bins``
-     - Plot saved ``rsi_bin_stats.npz`` (offline)
+     - Does
+   * - :ref:`wbc-mjlab-studio <cli-studio>`
+     - The whole pipeline in a browser
+   * - :ref:`wbc-mjlab-data-to-npz <cli-convert>`
+     - Convert source clips (CSV / PKL) to NPZ
+   * - :ref:`wbc-mjlab-data-vis <cli-data-vis>`
+     - Play converted clips (no policy)
+   * - :ref:`wbc-mjlab-list-envs <cli-list>`
+     - List robots and tasks
+   * - :ref:`wbc-mjlab-train <cli-train>`
+     - Train a task
+   * - :ref:`wbc-mjlab-play <cli-train>`
+     - Evaluate a checkpoint; exports ``policy.onnx`` + ``config.yaml``
+   * - :ref:`wbc-mjlab-demo <cli-demo>`
+     - Play the bundled demo checkpoint
+   * - :ref:`wbc-mjlab-export-tracking-params <cli-export>`
+     - Write a task's deploy ``config.yaml``
+   * - :ref:`wbc-mjlab-plot-rsi-bins <cli-rsi>`
+     - Plot saved adaptive-sampling state
+   * - :ref:`python -m wbc_mjlab.studio.train_preset <cli-train-preset>`
+     - Train a Studio preset
 
-See :doc:`visualization` for reference alignment, RSI panels, and Viser overlays.
+.. _cli-studio:
 
-Common flags
-------------
+wbc-mjlab-studio
+----------------
 
-WBC flags (stripped before the rest is passed to mjlab):
+.. code-block:: bash
+
+   uv run wbc-mjlab-studio [--host 0.0.0.0] [--port 8765] [--token SECRET] [--ui web|viser]
 
 .. list-table::
-   :header-rows: 1
-   :widths: 32 68
+   :widths: 30 70
 
-   * - Flag
-     - Meaning
+   * - ``--host``
+     - Interface to serve on (default ``0.0.0.0``: the network; ``127.0.0.1``: this machine)
+   * - ``--port``
+     - UI port (default 8765)
+   * - ``--token``
+     - Require this token from network clients (default: no access control)
+   * - ``--robot`` · ``--device``
+     - Robot to start with · torch device for playback and conversion
+   * - ``--ui``
+     - ``web`` (default) or ``viser``
+   * - ``--no-open-browser``
+     - Don't open a browser tab
+
+Guide: :doc:`studio`.
+
+.. _cli-convert:
+
+wbc-mjlab-data-to-npz
+---------------------
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-data-to-npz --robot g1 --dataset my_clips --batch-size 8
+
+.. list-table::
+   :widths: 30 70
+
+   * - ``--robot``
+     - Robot model to run forward kinematics on (default ``g1``)
+   * - ``--dataset`` · ``--dataset-path``
+     - ``data/<robot>/<name>/`` · any folder; output goes to its ``npz/``
+   * - ``--input-path`` · ``--output-dir``
+     - A single file or folder in, an explicit folder out
+   * - ``--format``
+     - Source format (``default`` CSV, ``gmr_pkl``); default from the file extension
+   * - ``--input-fps`` · ``--output-fps``
+     - Source rate (CSV default 30) · export rate (default 50)
+   * - ``--batch-size``
+     - Parallel FK workers on the GPU (default 1)
+   * - ``--debias-z`` · ``--debias-foot-sole-z``
+     - Shift clips so the feet touch the floor · override the robot's sole height
+   * - ``--mirror``
+     - Also write left-right mirrored clips (needs a symmetry config)
+   * - ``--device`` · ``--render`` · ``--line-range``
+     - Torch device · render while converting (batch size 1) · CSV row range
+
+Formats and output: :doc:`reference/data_formats`.
+
+.. _cli-data-vis:
+
+wbc-mjlab-data-vis
+------------------
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-data-vis --robot g1 --dataset samples
+
+Plays converted clips in viser with a timeline. Options: ``--robot``, ``--dataset``,
+``--dataset-path``, ``--motion-file``, ``--fps``, ``--cache-motion-bundle``.
+
+.. _cli-list:
+
+wbc-mjlab-list-envs
+-------------------
+
+Lists registered robots and tasks (built-in, extensions, robots added in the Studio) with
+their log folders.
+
+.. _cli-train:
+
+wbc-mjlab-train · wbc-mjlab-play
+--------------------------------
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+   uv run wbc-mjlab-play  --task Wbc-G1 --dataset samples --viewer viser
+
+wbc-mjlab options (parsed first):
+
+.. list-table::
+   :widths: 34 66
+
    * - ``--task <id>``
-     - Task id (e.g. ``Wbc-G1``, ``Wbc-G1-Zest``). Preferred; robot inferred.
-   * - ``--robot <id>``
-     - Robot id (default ``g1``). Required for ``data-to-npz``; optional for train/play.
+     - Task to train / play (robot taken from it) — :doc:`tasks/index`
    * - ``--dataset <name>``
-     - Load ``data/<robot>/<name>/npz/*.npz``
-   * - ``--dataset-path <dir|file>``
-     - Explicit dataset folder or ``.npz`` file
-   * - ``--motion-file <path>``
-     - Explicit motion NPZ or dataset directory (alias for env motion path)
+     - Motion library ``data/<robot>/<name>/npz/``
+   * - ``--dataset-path`` · ``--motion-file``
+     - A dataset folder or an NPZ anywhere
    * - ``--cache-motion-bundle``
-     - Write/read ``<dataset>/<dataset>.npz`` on disk
-   * - ``--no-state-estimation``
-     - Shorthand for Zest-style task when using ``--robot`` (e.g. ``Wbc-G1-Zest``)
+     - Write / reuse ``<dataset>/<dataset>.npz`` (faster restarts)
+   * - ``--robot <id>`` · ``--no-state-estimation``
+     - Shorthand instead of ``--task``: the robot's default task · its non-SE variant
 
-Train / play also accept **mjlab** flags (pass-through):
+Everything else passes through to mjlab (`mjlab CLI <https://mujocolab.github.io/mjlab/main/>`_):
 
 .. list-table::
-   :header-rows: 1
-   :widths: 32 68
+   :widths: 34 66
 
-   * - Flag
-     - Meaning
-   * - ``--agent.resume True``
-     - Resume latest (or selected) run — see :doc:`workflows/training`
-   * - ``--agent.load-run <name>``
-     - Run folder under ``logs/rsl_rl/<experiment>/``
-   * - ``--agent.load-checkpoint <pat>``
-     - Checkpoint pattern (default ``model_.*.pt``)
+   * - ``--env.scene.num-envs N``
+     - Parallel environments (default 8192)
    * - ``--agent.max-iterations N``
-     - Training horizon
-   * - ``--checkpoint-file <path>``
-     - Play: explicit ``model_*.pt`` (else latest under experiment logs)
-   * - ``--viewer viser`` / ``native``
-     - Play viewer backend
-   * - ``--gpu-ids 0,1``
-     - Multi-GPU train (mjlab)
+     - Training length
+   * - ``--agent.run-name NAME``
+     - Suffix of the run folder
+   * - ``--agent.resume True`` · ``--agent.load-run`` · ``--agent.load-checkpoint``
+     - Continue a run — :doc:`workflows/training`
+   * - ``--agent.logger tensorboard|wandb``
+     - Logger (default TensorBoard)
+   * - ``--gpu-ids 0 1`` · ``all``
+     - Train on several GPUs
+   * - ``--checkpoint-file PATH`` *(play)*
+     - A specific checkpoint (default: latest of the task)
+   * - ``--viewer viser|native`` *(play)*
+     - Viewer (viser when headless)
 
-Conversion-only:
+.. _cli-demo:
 
-.. list-table::
-   :header-rows: 1
-   :widths: 32 68
+wbc-mjlab-demo
+--------------
 
-   * - Flag
-     - Meaning
-   * - ``--batch-size N``
-     - Parallel GPU FK workers (``1`` required with ``--render``)
-   * - ``--format <name>``
-     - Source format (``default``, ``gmr_pkl``, …)
-   * - ``--input-fps`` / ``--output-fps``
-     - Source and export rates (default output **50** Hz)
+Plays the bundled checkpoint (``demos/wbc_g1``) on the converted ``samples``. Options include
+``--agent trained|zero|random``, ``--num-envs``, ``--viewer``, ``--video``.
 
-Train / play
-------------
+.. _cli-export:
 
-Pick a **task** (:doc:`tasks/index`), then pass a **dataset**:
-
-.. code-block:: bash
-
-   uv run wbc-mjlab-train --task Wbc-G1-Zest --dataset lafan
-   uv run wbc-mjlab-play --task Wbc-G1-Zest --dataset lafan
-
-``wbc-mjlab-train`` wraps mjlab's train script — **all mjlab CLI flags pass through**
-(``--agent.*``, ``--env.*``, ``--gpu-ids``, …). See :doc:`workflows/training` for
-**resume** (``--agent.resume True``), **multi-GPU**, and log layout.
-
-**Preferred:** ``--task`` + dataset (robot inferred from task → ``data/g1/…``):
+wbc-mjlab-export-tracking-params
+--------------------------------
 
 .. code-block:: bash
 
-   uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan
-   uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --cache-motion-bundle
+   uv run wbc-mjlab-export-tracking-params --task Wbc-G1 --out params/config.yaml [--play]
 
-Training loads ``npz/*.npz`` in memory by default. Pass **`--cache-motion-bundle`**
-to write or reuse ``data/g1/lafan/lafan.npz`` on disk.
+Rewrites the deploy ``config.yaml`` of a task (training and play already write it). Schema:
+:doc:`api/export`.
 
-**Shorthand** (default task ``Wbc-G1`` for robot ``g1``):
+.. _cli-rsi:
 
-.. code-block:: bash
-
-   uv run wbc-mjlab-train --robot g1 --dataset lafan
-   uv run wbc-mjlab-train --robot g1 --no-state-estimation --dataset lafan   # → Wbc-G1-Zest
-
-Motion source (pick one):
-
-.. list-table::
-   :header-rows: 1
-
-   * - Flag
-     - Resolves to
-   * - ``--dataset lafan``
-     - load ``data/g1/lafan/npz/*.npz`` (or ``lafan.npz`` with ``--cache-motion-bundle``)
-   * - ``--dataset-path /path/to/lafan/``
-     - load ``npz/*.npz`` in that folder
-   * - ``--dataset-path /path/to/custom.npz``
-     - that file
-   * - ``--motion-file …``
-     - explicit NPZ or dataset directory
-   * - ``--cache-motion-bundle``
-     - write/read ``<dataset>/<dataset>.npz`` on disk
-
-Motion conversion
------------------
-
-Conversion needs **`--robot``** (MuJoCo asset / scene), not a task id:
+wbc-mjlab-plot-rsi-bins
+-----------------------
 
 .. code-block:: bash
 
-   uv run wbc-mjlab-data-to-npz --robot g1 --dataset lafan
-   uv run wbc-mjlab-data-to-npz --robot g1 --dataset lafan --batch-size 128
+   uv run wbc-mjlab-plot-rsi-bins logs/rsl_rl/<experiment>/<run>/params/rsi_bin_stats.npz \
+     [--trajectory N] [--output plot.png]
 
-``--batch-size N`` runs **N parallel FK workers** on the GPU. ``--render`` preview
-is only supported with ``--batch-size 1``.
+.. _cli-train-preset:
 
-See :doc:`data` for layout and download links.
-
-Visualize motion NPZ
---------------------
-
-.. code-block:: bash
-
-   uv run wbc-mjlab-data-vis --robot g1 --dataset lafan
-   uv run wbc-mjlab-data-vis --motion-file data/g1/lafan/npz/walk1_subject1.npz
-
-When a dataset has ``npz/*.npz`` clips, the GUI lists them in a **Motion** dropdown.
-
-WBC tracking params YAML
+Training a Studio preset
 ------------------------
 
-Checkpoint saves write ``params/config.yaml`` alongside ``params/policy.onnx``.
-
 .. code-block:: bash
 
-   uv run wbc-mjlab-export-tracking-params --task Wbc-G1-Zest --out /path/to/config.yaml
+   uv run python -m wbc_mjlab.studio.train_preset --preset <name> --dataset samples [train options]
 
-Train → export → run on hardware with a deploy runtime. See :doc:`workflows/deploy`
-(`wbc-g1-deploy <https://github.com/wbc-mjlab/wbc-g1-deploy>`_ is a reference
-implementation for one platform).
+Registers ``<base>--<name>`` from ``~/.config/wbc-mjlab/presets/<name>.yaml`` and trains it;
+accepts every ``wbc-mjlab-train`` option. Single GPU only. File format:
+:ref:`reference-preset-file`.
 
-Repo layout
------------
+.. seealso::
 
-.. code-block:: text
-
-   data/g1/<dataset>/      # retargeted clips
-   source/wbc_mjlab/
-     env/                  # Shared WBC MDP (wbc_env_cfg.py, mdp/*)
-     presets/              # apply_wbc, apply_zest, …
-     robots/<id>/          # base.py, tasks.py, assets
-     tasks/                # WbcTaskConfig + registration
-     extension.py          # register_wbc_extension API
-
-Add a robot or paper task
--------------------------
-
-**New robot:** publish an extension package — :doc:`extensions/index`.
-
-**New paper task (in-tree or extension):**
-
-1. Preset in ``presets/<method>.py`` (or stack existing ``apply_*``)
-2. Task builder + ``WbcTaskConfig`` in ``robots/<id>/tasks.py``
-3. Document under :doc:`tasks/index`
-
-See :doc:`architecture` for the layer model and :doc:`contributing` for PR workflow.
-
-Development commands
---------------------
-
-.. code-block:: bash
-
-   make sync          # CUDA env
-   make format        # ruff format + fix
-   make lint          # ruff check
-   make smoke         # wbc-mjlab-list-envs
-   make test          # pytest
-   make build         # wheel + smoke import test
-
-Optional: ``uvx pre-commit install`` (after ``make sync``).
+   :doc:`reference/configuration` — files, directories and environment variables

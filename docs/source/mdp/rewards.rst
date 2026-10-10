@@ -43,4 +43,6 @@ from the **same active** ``motion_*`` terms and weights — see :doc:`rsi`.
 API: :doc:`../api/mdp` (Rewards). Callable names in code use the
 ``motion_*_error_exp`` form (cfg term ids may be shorter aliases in presets).
 
-Related: :doc:`../tasks/index`, :doc:`../extensions/robot_entity`.
+.. seealso::
+
+   :doc:`../tasks/index`, :doc:`../extensions/robot_entity`.

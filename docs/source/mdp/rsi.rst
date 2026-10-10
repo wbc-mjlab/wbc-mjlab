@@ -1,7 +1,7 @@
 .. _rsi:
 
-RSI (reference-state initialization)
-====================================
+RSI configuration
+=================
 
 **Reference-state initialization (RSI)** chooses *where* in a motion clip each
 episode begins. wbc-mjlab uses **adaptive bin sampling**: clips are split into time
@@ -111,9 +111,8 @@ Inspect bins live in Viser during play or plot offline with ``wbc-mjlab-plot-rsi
 
 API: :doc:`../api/mdp` (RSI / adaptive sampling).
 
-Related
--------
+.. seealso::
 
-- :doc:`motion_command` — resampling hook
-- :doc:`../tasks/index` — which tasks use which RSI strategy
-- :doc:`../research` — paper citations (ZEST, BeyondMimic)
+   - :doc:`motion_command` — resampling hook
+   - :doc:`../tasks/index` — which tasks use which RSI strategy
+   - :doc:`../research` — paper citations (ZEST, BeyondMimic)

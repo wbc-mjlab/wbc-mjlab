@@ -1,29 +1,32 @@
 .. _visualization:
 
-Visualization (Viser)
-=====================
+Evaluate and visualize
+======================
 
-wbc-mjlab extends mjlab's **Viser** stack with WBC-specific overlays for motion
-tracking: reference alignment, tracking-error coloring, and adaptive RSI bin panels.
-
-Code lives under ``src/wbc_mjlab/viewer/`` and hooks into ``MotionCommand`` in
-``env/mdp/commands.py``.
-
-Commands
---------
+Check a policy or a clip by eye: the reference next to the robot, tracking errors, and where
+adaptive sampling starts episodes.
 
 .. list-table::
    :header-rows: 1
-   :widths: 28 72
+   :widths: 30 70
 
-   * - Command
-     - Purpose
+   * - Tool
+     - Best for
+   * - Studio *Play* (:doc:`studio`)
+     - A policy on up to 64 envs at once, reference ghosts, live reward terms, pushes,
+       terrain; any checkpoint, also mid-training
+   * - Studio *Data* (:doc:`studio`)
+     - Clips before and after conversion, with quality checks and curves
    * - ``wbc-mjlab-play --viewer viser``
-     - Policy eval in the browser with WBC GUI overlays (tracking tasks)
-   * - ``wbc-mjlab-data-vis --robot <id> --dataset <name>``
-     - Preview motion NPZ clips (no policy)
-   * - ``wbc-mjlab-plot-rsi-bins <path/to/rsi_bin_stats.npz>``
-     - Offline matplotlib plot of saved RSI failure levels
+     - One task in viser: reference alignment, error colouring, the sampling panel, a frame
+       scrubber with *Start here*
+   * - ``wbc-mjlab-data-vis``
+     - Converted clips in viser, no policy
+   * - ``wbc-mjlab-plot-rsi-bins``
+     - Saved sampling state, offline
+
+The rest of this page covers the viser viewers of the command-line tools (code:
+``src/wbc_mjlab/viewer/``, hooked into ``MotionCommand`` in ``env/mdp/commands.py``).
 
 Play viewer
 -----------
@@ -130,4 +133,7 @@ Module map
    * - ``scripts/plot_rsi_bins.py``
      - Matplotlib RSI export
 
-Related: :doc:`mdp/motion_command`, :doc:`mdp/rsi`, :doc:`workflows/demo`, :doc:`usage`.
+.. seealso::
+
+   - :doc:`mdp/motion_command` · :doc:`mdp/rsi` — what the panels show
+   - :doc:`workflows/deploy` — from a checkpoint you trust to the robot

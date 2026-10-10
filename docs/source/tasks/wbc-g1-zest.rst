@@ -1,5 +1,5 @@
-ZEST reproduction
-=================
+Wbc-G1-Zest — ZEST reproduction
+===============================
 
 Task id: ``Wbc-G1-Zest`` · In-tree reference on robot ``g1``.
 
@@ -26,7 +26,7 @@ The task builder calls the preset with robot-specific body tuples:
      )
      return cfg
 
-What ``apply_zest`` mutates on ``cfg`` — see :doc:`index` for annotated preset
+What ``apply_zest`` mutates on ``cfg`` — see :doc:`../concepts/presets_and_tasks` for annotated preset
 source and the preset ↔ task model.
 
 Summary

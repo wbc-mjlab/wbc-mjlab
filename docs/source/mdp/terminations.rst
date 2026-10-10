@@ -26,4 +26,6 @@ Presets enable thresholds and body sets; the callables are shared. For example,
 
 API: :doc:`../api/mdp` (Terminations).
 
-Related: :doc:`rewards`, :doc:`../extensions/robot_entity`.
+.. seealso::
+
+   :doc:`rewards`, :doc:`../extensions/robot_entity`.

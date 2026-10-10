@@ -217,3 +217,153 @@ html[data-theme="dark"] .btn.btn-primary:hover {
 html[data-theme="dark"] .article-header-buttons .wbc-quick-link:hover {
   color: var(--wbc-accent-hover);
 }
+
+/* ---- Landing page ---------------------------------------------------------- */
+
+.wbc-hero {
+  margin: 0.25rem 0 1.5rem;
+}
+
+.wbc-hero .wbc-lead p {
+  font-size: 1.22rem;
+  line-height: 1.6;
+  color: var(--pst-color-text-base);
+  max-width: 46rem;
+  margin-bottom: 1.25rem;
+}
+
+.wbc-hero .wbc-btn {
+  margin: 0 0.5rem 0.5rem 0;
+  padding: 0.5rem 1.15rem;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.wbc-hero-figure img {
+  border-radius: 12px;
+  border: 1px solid var(--pst-color-border);
+}
+
+/* pipeline: compact step cards */
+.wbc-pipeline .sd-card .sd-card-title {
+  font-size: 0.95rem;
+  margin-bottom: 0.35rem;
+}
+
+.wbc-pipeline .sd-card .sd-card-text {
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+/* feature cards are not links: no hover lift */
+.bd-content .sd-card.wbc-feature .sd-card-title {
+  color: var(--pst-color-text-base) !important;
+  font-size: 1rem;
+}
+
+.bd-content .sd-card .sd-card-title svg.sd-octicon {
+  color: var(--pst-color-primary);
+  margin-right: 0.35rem;
+  vertical-align: -0.1em;
+}
+
+/* ---- Typography ------------------------------------------------------------ */
+
+.bd-article h1 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.bd-article h2 {
+  margin-top: 2.25rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--pst-color-border);
+  font-weight: 650;
+}
+
+.bd-article h3 {
+  margin-top: 1.6rem;
+  font-weight: 600;
+}
+
+/* ---- Tables ---------------------------------------------------------------- */
+
+.bd-content table.table {
+  border: 1px solid var(--pst-color-border);
+  border-radius: 8px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  font-size: 0.92rem;
+}
+
+.bd-content table.table thead th {
+  background: color-mix(in srgb, var(--pst-color-primary) 9%, var(--pst-color-surface));
+  font-weight: 600;
+  border-bottom: 1px solid var(--pst-color-border);
+}
+
+.bd-content table.table td,
+.bd-content table.table th {
+  padding: 0.55rem 0.8rem;
+  vertical-align: top;
+}
+
+.bd-content table.table tbody tr + tr td {
+  border-top: 1px solid color-mix(in srgb, var(--pst-color-border) 70%, transparent);
+}
+
+.bd-content table.table th.stub {
+  font-weight: 600;
+  color: var(--pst-color-text-muted);
+}
+
+/* ---- Inline elements ------------------------------------------------------- */
+
+kbd.kbd,
+kbd {
+  font-size: 0.8em;
+  padding: 0.1em 0.45em;
+  border-radius: 5px;
+  border: 1px solid var(--pst-color-border);
+  border-bottom-width: 2px;
+  background: var(--pst-color-surface);
+  color: var(--pst-color-text-base);
+  box-shadow: none;
+}
+
+/* ---- Admonitions ----------------------------------------------------------- */
+
+.bd-content .admonition {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.bd-content .admonition.seealso {
+  border-left-color: var(--pst-color-primary);
+}
+
+/* ---- Tabs ------------------------------------------------------------------ */
+
+.sd-tab-set > label {
+  font-weight: 600;
+}
+
+/* hero buttons on one row */
+.wbc-hero > p {
+  display: inline-block;
+  margin: 0;
+}
+
+/* headings in the body text colour (the theme greys them) */
+html[data-theme="dark"] .bd-article h1,
+html[data-theme="dark"] .bd-article h2,
+html[data-theme="dark"] .bd-article h3 {
+  color: var(--wbc-text);
+}
+
+html[data-theme="light"] .bd-article h1,
+html[data-theme="light"] .bd-article h2,
+html[data-theme="light"] .bd-article h3 {
+  color: var(--wbc-text-light);
+}

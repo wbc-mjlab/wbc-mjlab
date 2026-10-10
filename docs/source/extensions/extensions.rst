@@ -137,4 +137,6 @@ Reference implementation
 See :doc:`example_extension` for a walkthrough of the published H2 extension layout
 (`wbc-mjlab-extension-h2 <https://github.com/wbc-mjlab/wbc-mjlab-extension-h2>`_).
 
-Related: :doc:`robot_entity`, :doc:`../data`, :doc:`../usage`.
+.. seealso::
+
+   :doc:`robot_entity`, :doc:`../data`, :doc:`../usage`.

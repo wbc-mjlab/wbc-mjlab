@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/wbc_mjlab_logo.png" width="96" alt="WBC-MJLab logo"></p>
+
 # WBC-Mjlab: Whole Body Control in MuJoCo Lab
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
@@ -19,7 +21,8 @@ Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://ar
 - **Tasks, not forks** — ZEST, BeyondMimic-style RSI, deploy obs, etc. are **`--task` switches** (`Wbc-G1`, `Wbc-G1-Zest`, `Wbc-G1-BinaryFailure`, …) with the same CLI and log layout for fair comparison.
 - **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache.
 - **Building blocks** — paper presets in `presets/` and G1 task builders in `robots/g1/tasks.py`; add a paper setup or tune your own WBC without forking the core MDP.
-- **Plug-in robots** — external packages register via `register_wbc_extension` (same MDP, same CLIs); see [wbc-mjlab-extension-h2](https://github.com/wbc-mjlab/wbc-mjlab-extension-h2) for a reference layout.
+- **Plug-in robots** — add a humanoid from its MJCF / URDF [without code](https://wbc-mjlab.github.io/wbc-mjlab/source/extensions/custom_robots.html), or ship an extension package via `register_wbc_extension` ([H2 example](https://github.com/wbc-mjlab/wbc-mjlab-extension-h2)).
+- **[WBC Studio](https://wbc-mjlab.github.io/wbc-mjlab/source/studio.html)** — the whole pipeline in a browser: robots, clip QA and conversion, presets, training jobs, playback on many envs.
 - **One policy, many skills** — one policy for walk, jog, run, crawl, fight, get-up, lie-down, flips, and more.
 - **Sim → real** — train/play export `policy.onnx` + `config.yaml` aligned with the deploy runtime.
 
@@ -27,37 +30,37 @@ Details: [Documentation](https://wbc-mjlab.github.io/wbc-mjlab/) · [CONTRIBUTIN
 
 ## Quick start
 
-Requires [mjlab](https://github.com/mujocolab/mjlab) (≥ 1.5) and an NVIDIA GPU for training.
+Requires [mjlab](https://github.com/mujocolab/mjlab) (≥ 1.5) and an NVIDIA GPU for training ([installation](https://wbc-mjlab.github.io/wbc-mjlab/source/installation.html)).
 
 ```bash
 git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
 uv run wbc-mjlab-list-envs
 ```
 
-`uv run` syncs from `uv.lock` on first use. For CUDA/CPU PyTorch and dev deps: `make sync` / `make sync-cpu`. See the [installation guide](https://wbc-mjlab.github.io/wbc-mjlab/source/installation.html).
+**Demo** — [live web demo](https://wbc-mjlab.github.io/wbc-demo/), or locally with the bundled checkpoint: `uv run wbc-mjlab-demo` (convert the samples first).
 
-**Convert trajectory samples** (10 source CSVs [manifest & credits](data/g1/samples/README.md)) to npz - calculating FK for body targets, velocities etc:
+### In the browser: WBC Studio
 
 ```bash
+uv run wbc-mjlab-studio      # open the printed link (also from other machines on the network)
+```
+
+Five steps — **Robot → Data → Preset → Train → Play**: pick or [add a robot](https://wbc-mjlab.github.io/wbc-mjlab/source/extensions/custom_robots.html) from its MJCF / URDF, import, check and convert clips, tune observations / rewards / sampling / terrain / PPO as presets with reusable modules, launch and follow training jobs, play policies on many envs with reference ghosts. Options, files and the HTTP API: [Studio guide](https://wbc-mjlab.github.io/wbc-mjlab/source/studio.html).
+
+### From the command line
+
+```bash
+# convert source clips (CSV / PKL) to NPZ — 10 bundled samples, see data/g1/samples/README.md
 uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
-```
 
-**Demo** — [live web demo](https://wbc-mjlab.github.io/wbc-demo/) (trained policy in the browser); local play with bundled checkpoint (convert samples first):
-
-```bash
-uv run wbc-mjlab-demo
-```
-
-**Train** on converted npz library (check mjlab train args for resuming, number of envs etc):
-
-```bash
+# train a task (Wbc-G1, Wbc-G1-Zest, Wbc-G1-Terrain-Scan, …)
 uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+
+# play / evaluate the last run (exports policy.onnx + config.yaml)
+uv run wbc-mjlab-play --task Wbc-G1 --dataset samples --viewer viser
 ```
 
-**Evaluation** of last exported log on library (check args for viewer, choosing chekpoint, motion etc):
-```bash
-uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
-```
+More: [quickstart](https://wbc-mjlab.github.io/wbc-mjlab/source/workflows/quickstart.html) · [tasks](https://wbc-mjlab.github.io/wbc-mjlab/source/tasks/index.html) · [motion data](https://wbc-mjlab.github.io/wbc-mjlab/source/data.html) · [training & resume](https://wbc-mjlab.github.io/wbc-mjlab/source/workflows/training.html) · [deploy](https://wbc-mjlab.github.io/wbc-mjlab/source/workflows/deploy.html) · [all commands](https://wbc-mjlab.github.io/wbc-mjlab/source/usage.html).
 
 ## Related repos
 

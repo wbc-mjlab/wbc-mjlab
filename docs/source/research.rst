@@ -35,6 +35,10 @@ running on **mjlab** + MuJoCo Warp instead of Isaac Sim.
 
    * - Project
      - Role
+   * - `mjlab <https://github.com/mujocolab/mjlab>`_
+     - The foundation — the GPU-accelerated manager-based RL framework by
+       `Kevin Zakka <https://github.com/kevinzakka>`_ et al. wbc-mjlab reuses its environment
+       stack, RSL-RL runner and training entry point (multi-GPU via ``torchrunx``).
    * - `HybridRobotics/whole_body_tracking <https://github.com/HybridRobotics/whole_body_tracking>`_
      - Reference **BeyondMimic** training stack (Isaac Lab); adaptive RSI and tracking
        MDP ideas. Cite the `BeyondMimic paper <https://arxiv.org/abs/2508.08241>`_ when

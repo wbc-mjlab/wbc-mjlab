@@ -1,5 +1,5 @@
-ZEST + state-estimation
-=======================
+Wbc-G1-Zest-SE — ZEST + state estimation
+========================================
 
 Task id: ``Wbc-G1-Zest-SE`` · In-tree reference on robot ``g1``.
 

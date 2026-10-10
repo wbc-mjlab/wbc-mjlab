@@ -27,4 +27,6 @@ DR, and assistive wrench — same pattern for every registered robot.
 
 API: :doc:`../api/mdp` (Events / assistive wrench).
 
-Related: :doc:`rsi`, :doc:`motion_command`, :doc:`../architecture`.
+.. seealso::
+
+   :doc:`rsi`, :doc:`motion_command`, :doc:`../architecture`.

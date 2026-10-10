@@ -1,5 +1,5 @@
-End-effector actor command
-==========================
+Wbc-G1-EE — end-effector command
+================================
 
 Task id: ``Wbc-G1-EE`` · In-tree reference on robot ``g1``.
 

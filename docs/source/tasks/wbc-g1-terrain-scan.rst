@@ -1,5 +1,5 @@
-Terrain + height scan
-=====================
+Wbc-G1-Terrain-Scan — rough terrain
+===================================
 
 Task id: ``Wbc-G1-Terrain-Scan`` · In-tree reference on robot ``g1``.
 

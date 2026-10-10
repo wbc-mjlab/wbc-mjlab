@@ -1,5 +1,5 @@
-State-estimation observations
-=============================
+Wbc-G1-SE — state estimation
+============================
 
 Task id: ``Wbc-G1-SE`` · In-tree reference on robot ``g1``.
 

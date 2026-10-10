@@ -1,7 +1,7 @@
 .. _deploy:
 
-Deploy export
-=============
+Export and deploy
+=================
 
 Train and play write **robot-agnostic artifacts** under each run's ``params/`` folder.
 Any hardware runtime that consumes the same contract can load them — no wbc-mjlab

@@ -1,12 +1,12 @@
-Default WBC stack
-=================
+Wbc-G1 — default stack
+======================
 
 Task id: ``Wbc-G1`` · In-tree reference on robot ``g1``.
 
 **Default WBC + deploy stack** — ZEST Table S4 tracking on all motion keybodies,
 reward-aligned RSI, deploy-style actor obs.
 
-- **Preset:** ``apply_wbc`` (``presets/wbc.py``) — see :doc:`index`
+- **Preset:** ``apply_wbc`` (``presets/wbc.py``) — see :doc:`../concepts/presets_and_tasks`
 - **Builder:** ``g1_wbc_env_cfg()`` = ``g1_base_cfg()`` + ``apply_wbc(...)``
 - **Paper link:** ZEST Table S4 (with deploy extras) — `arXiv:2602.00401 <https://arxiv.org/abs/2602.00401>`_
 

@@ -1,120 +1,154 @@
 .. _quickstart:
 
-Quickstart: install → convert → train → play
-============================================
+Quickstart
+==========
 
-After this page you can train and play a policy on the bundled **``samples``**
-clips. Requires Linux + NVIDIA GPU for training; CPU works for conversion and
-short smoke tests.
+Train and watch your first whole-body tracking policy on the bundled sample clips. Every step
+works in the **Studio** (browser) or on the **command line** — pick a tab once and the others
+follow.
 
-**No GPU?** Try the `live web demo <https://wbc-mjlab.github.io/wbc-demo/>`_,
-`Google Colab notebook <https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb>`_,
-or :doc:`demo` (``wbc-mjlab-demo``) — no training required.
+.. admonition:: Before you start
+   :class: tip
 
-.. _which-task:
+   - wbc-mjlab installed (:doc:`../installation`) — ``uv run wbc-mjlab-list-envs`` lists
+     ``Wbc-G1`` and friends
+   - An NVIDIA GPU for training (CPU is enough for steps 1–2)
+   - About 15 minutes for a smoke run; a real policy trains for hours
 
-Which task should I use?
-------------------------
+   No GPU? Try the `live demo <https://wbc-mjlab.github.io/wbc-demo/>`_ or
+   :doc:`Colab <demo>` instead.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 38 62
+1. Open the pipeline
+--------------------
 
-   * - Goal
-     - Start with
-   * - **First train** (default stack)
-     - ``Wbc-G1`` + ``--dataset samples``
-   * - **ZEST-style** paper stack
-     - ``Wbc-G1-Zest``
-   * - **Deploy-friendly** actor obs
-     - ``Wbc-G1`` (``apply_wbc``)
-   * - **BeyondMimic-style** binary-failure RSI
-     - ``Wbc-G1-BinaryFailure``
-   * - **State-estimation** actor terms
-     - ``Wbc-G1-SE`` / ``Wbc-G1-Zest-SE``
-   * - **EE + root tracking** (no joint-ref command)
-     - ``Wbc-G1-EE`` / ``Wbc-G1-EE-SE``
+.. tab-set::
+   :sync-group: ui
 
-Full catalog: :doc:`../tasks/index`. Stuck? :doc:`../troubleshooting`.
+   .. tab-item:: Studio
+      :sync: studio
 
-1. Install
-----------
+      .. code-block:: bash
 
-Follow :doc:`../installation` (``uv`` or ``pip`` from source), then verify:
+         uv run wbc-mjlab-studio
 
-.. code-block:: bash
+      Open the printed link. The top bar shows the pipeline: **Robot → Data → Preset → Train →
+      Play**. G1 is selected.
 
-   uv run wbc-mjlab-list-envs
+   .. tab-item:: Command line
+      :sync: cli
 
-You should see registered tasks (e.g. ``Wbc-G1``, ``Wbc-G1-Zest``, ``Wbc-G1-BinaryFailure``
-on the in-tree ``g1`` entity).
+      Everything below runs from the repository root.
 
-2. Convert motion → NPZ
------------------------
+2. Convert the sample clips
+---------------------------
 
-.. code-block:: bash
+The 10 bundled G1 clips (walk, run, dance, fall and get up, flips …) are CSV files; training
+needs them as NPZ with body poses and velocities.
 
-   uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
+.. tab-set::
+   :sync-group: ui
 
-.. tip::
+   .. tab-item:: Studio
+      :sync: studio
 
-   Preview clips before training: ``uv run wbc-mjlab-data-vis --robot g1 --dataset samples``.
+      *Data* → pick **samples** → click a clip to watch it → *Convert* → **Convert 10**.
+
+   .. tab-item:: Command line
+      :sync: cli
+
+      .. code-block:: bash
+
+         uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
+         uv run wbc-mjlab-data-vis --robot g1 --dataset samples     # optional: watch them
+
+**Check:** ``data/g1/samples/npz/`` holds one ``.npz`` per clip.
 
 3. Train
 --------
 
-Default task **``Wbc-G1``**:
+``Wbc-G1`` is the default stack (:doc:`which task? <../tasks/index>`). A smoke run of 1000
+iterations shows the loop works; a full run is about 30k.
 
-.. code-block:: bash
+.. tab-set::
+   :sync-group: ui
 
-   uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+   .. tab-item:: Studio
+      :sync: studio
 
-Logs: ``logs/rsl_rl/wbc_g1/<timestamp>/``.
+      *Preset* → **Wbc-G1** → **Train** → set iterations to **1k** → **Launch**. The job
+      shows progress, curves and a link to TensorBoard.
 
-.. tip::
+   .. tab-item:: Command line
+      :sync: cli
 
-   Full training is long. For a **smoke run** (pipeline check only):
+      .. code-block:: bash
 
-   .. code-block:: bash
+         uv run wbc-mjlab-train --task Wbc-G1 --dataset samples --agent.max-iterations 1000
 
-      uv run wbc-mjlab-train --task Wbc-G1 --dataset samples \
-        --agent.max-iterations 1000
+**Check:** ``logs/rsl_rl/wbc_g1/<run>/`` fills with ``model_*.pt`` checkpoints and
+``params/policy.onnx`` + ``params/config.yaml``.
 
-   Resume a real run later with ``--agent.resume True`` — see :doc:`training`.
+4. Watch the policy
+-------------------
 
-4. Play / evaluate
-------------------
+.. tab-set::
+   :sync-group: ui
 
-.. code-block:: bash
+   .. tab-item:: Studio
+      :sync: studio
 
-   uv run wbc-mjlab-play --task Wbc-G1 --dataset samples --viewer viser
+      *Play* → pick the run → **Load policy**. Each env shows its reference as a ghost; pick a
+      clip in the bar above the 3D view, push the robot with :kbd:`p`.
 
-Play writes ``params/policy.onnx`` and ``params/config.yaml`` before the viewer
-opens. Use ``--checkpoint-file /path/to/model_*.pt`` to pick a specific checkpoint.
+   .. tab-item:: Command line
+      :sync: cli
 
-5. What you get in ``params/``
-------------------------------
+      .. code-block:: bash
+
+         uv run wbc-mjlab-play --task Wbc-G1 --dataset samples --viewer viser
+
+      Open the viser link; the sidebar shows the clip, reference alignment and the adaptive
+      sampling bins.
+
+After 1000 iterations the robot follows the easy clips roughly; flips and get-ups need the
+full run.
+
+What you have now
+-----------------
 
 .. code-block:: text
 
-   train / play
-        │
-        ▼
-   logs/rsl_rl/<experiment>/<run>/params/
-        ├── policy.onnx      ← deploy policy
-        ├── config.yaml      ← obs layout, joints, PD (wbc_tracking_params_v1)
-        ├── env.yaml
-        └── agent.yaml
-        │
-        ▼
-   deploy runtime (e.g. wbc-g1-deploy)
-
-Copy ``policy.onnx`` + ``config.yaml`` into your runtime — see :doc:`deploy`.
+   logs/rsl_rl/wbc_g1/<run>/
+     model_*.pt              checkpoints (continue with --agent.resume True)
+     params/policy.onnx      the policy, ready for a robot runtime
+     params/config.yaml      observation layout, joints, PD gains for that runtime
 
 Next steps
 ----------
 
-- :doc:`../recipes` — “How do I…?” index
-- Long runs / resume / multi-GPU: :doc:`training`
-- Full motion libraries: :doc:`../data`
-- Add your robot: :ref:`first-run-extension`
+.. grid:: 1 2 2 2
+   :gutter: 2
+
+   .. grid-item-card:: :octicon:`database` Your own clips
+      :link: ../data
+      :link-type: doc
+
+      Import, check and convert a motion library.
+
+   .. grid-item-card:: :octicon:`rocket` A full training run
+      :link: training
+      :link-type: doc
+
+      Iterations, resume, many GPUs, logs.
+
+   .. grid-item-card:: :octicon:`list-unordered` Other tasks
+      :link: ../tasks/index
+      :link-type: doc
+
+      ZEST, state estimation, end-effector command, rough terrain.
+
+   .. grid-item-card:: :octicon:`cpu` On the robot
+      :link: deploy
+      :link-type: doc
+
+      Hand ``policy.onnx`` + ``config.yaml`` to a deploy runtime.

@@ -1,7 +1,7 @@
 .. _api_registry:
 
-Env and task registry
-=====================
+Task registry
+=============
 
 Builders and registration helpers used by CLIs and extension packages.
 

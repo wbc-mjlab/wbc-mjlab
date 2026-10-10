@@ -40,4 +40,6 @@ with measured joints, not ``q_ref``.
 
 API: :doc:`../api/mdp` (Actions).
 
-Related: :doc:`motion_command`, :doc:`../extensions/robot_entity`.
+.. seealso::
+
+   :doc:`motion_command`, :doc:`../extensions/robot_entity`.

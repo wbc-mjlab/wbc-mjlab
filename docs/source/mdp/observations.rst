@@ -293,4 +293,6 @@ observation modules directly.
 
 API: :doc:`../api/mdp` (Observations).
 
-Related: :doc:`motion_command`, :doc:`../tasks/index`, :doc:`../extensions/robot_entity`.
+.. seealso::
+
+   :doc:`motion_command`, :doc:`../tasks/index`, :doc:`../extensions/robot_entity`.

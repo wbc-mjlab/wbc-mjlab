@@ -3,39 +3,87 @@
 How do I…?
 ==========
 
-Short answers to common goals. Each link jumps to the full guide.
+Short answers, grouped by stage of the pipeline. Each links to the full guide.
+
+Get going
+---------
 
 .. list-table::
-   :header-rows: 1
-   :widths: 40 60
+   :widths: 46 54
 
-   * - I want to…
-     - Go here
-   * - **Try without a GPU**
-     - `Live demo <https://wbc-mjlab.github.io/wbc-demo/>`_ ·
-       `Colab <https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb>`_ ·
-       :doc:`workflows/demo`
-   * - **Run the full local loop** (convert → train → play)
+   * - Try it without a GPU
+     - `Live demo <https://wbc-mjlab.github.io/wbc-demo/>`_ · :doc:`workflows/demo`
+   * - Train my first policy
      - :doc:`workflows/quickstart`
-   * - **Pick the right ``--task``**
-     - :ref:`which-task` (on Quickstart)
-   * - **Resume training**
-     - :doc:`workflows/training`
-   * - **Export ONNX + ``config.yaml`` for the robot**
-     - :doc:`workflows/deploy`
-   * - **Convert LAFAN / GMR / custom clips**
-     - :doc:`data`
-   * - **Visualize motion NPZ or RSI bins**
-     - :doc:`visualization`
-   * - **Add a new robot (extension → retarget → train)**
-     - :ref:`first-run-extension` · :doc:`extensions/example_extension`
-   * - **Add a paper-style task / preset**
-     - :doc:`tasks/index` · :doc:`api/presets`
-   * - **Look up observation term sizes**
-     - :ref:`reference-obs-dims` (Shared MDP) · ``config.yaml`` after export
-   * - **Look up a reward / RSI / command symbol**
-     - :doc:`api/mdp`
-   * - **Fix a common error**
-     - :doc:`troubleshooting`
+   * - Do everything in a browser — also on a remote GPU server
+     - :doc:`studio`
 
-Philosophy (shared MDP, tasks not forks): :doc:`concepts/index`.
+Motion data
+-----------
+
+.. list-table::
+   :widths: 46 54
+
+   * - Convert LAFAN / GMR / my own clips
+     - :doc:`data`
+   * - Spot bad clips before training
+     - :doc:`data` (*Check the clips*) — Studio *Data → Clip*
+   * - Double the library with mirrored clips
+     - :doc:`data` (``--mirror``)
+   * - Look up the NPZ arrays or CSV columns
+     - :doc:`reference/data_formats`
+
+Train
+-----
+
+.. list-table::
+   :widths: 46 54
+
+   * - Pick a task
+     - :doc:`tasks/index`
+   * - Tune rewards, observations, sampling or PPO without code
+     - :doc:`studio` (*Preset*)
+   * - Reuse a set of changes, e.g. state estimation
+     - :doc:`studio` (*modules*)
+   * - Resume, extend or pin a checkpoint
+     - :doc:`workflows/training`
+   * - Train on several GPUs
+     - :doc:`workflows/training` (*Multi-GPU*)
+   * - Train on rough terrain
+     - :doc:`tasks/wbc-g1-terrain-scan`
+
+Evaluate and deploy
+-------------------
+
+.. list-table::
+   :widths: 46 54
+
+   * - Watch a policy on many clips at once
+     - :doc:`studio` (*Play*)
+   * - Debug the reference and adaptive sampling in viser
+     - :doc:`visualization`
+   * - Export ONNX + ``config.yaml`` for the robot
+     - :doc:`workflows/deploy`
+   * - Look up observation sizes
+     - :ref:`reference-obs-dims` · the run's ``params/config.yaml``
+
+Extend
+------
+
+.. list-table::
+   :widths: 46 54
+
+   * - Add a robot from its MJCF / URDF
+     - :doc:`extensions/custom_robots`
+   * - Ship a robot as a package
+     - :doc:`extensions/index`
+   * - Add a paper's setup as a task
+     - :doc:`tasks/adding`
+   * - Script the Studio
+     - :doc:`reference/studio_api`
+
+Something broke
+---------------
+
+:doc:`troubleshooting` covers the common errors — missing tasks, empty motion library, DOF
+mismatch, GPU / GL errors, resume, Studio access and robot checks.

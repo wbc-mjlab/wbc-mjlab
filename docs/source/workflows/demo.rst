@@ -3,7 +3,7 @@
 Demo & Colab
 ============
 
-Try WBC-MJLab without a full training run.
+Try a trained WBC-MJLab policy without training one — in the browser, in Colab, or locally.
 
 .. grid:: 1 2 2 2
    :gutter: 3
@@ -23,13 +23,6 @@ Try WBC-MJLab without a full training run.
       **Open notebook** — bundled checkpoint + sample clips in the cloud.
 
       Notebook: ``notebooks/demo.ipynb`` in the repo root.
-
-Quick links
------------
-
-- `Live web demo <https://wbc-mjlab.github.io/wbc-demo/>`_
-- `Open in Colab <https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb>`_
-- `wbc-demo source <https://github.com/wbc-mjlab/wbc-demo>`_
 
 Bundled local demo
 ------------------

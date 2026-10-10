@@ -1,108 +1,71 @@
 .. _training:
 
-Training
-========
+Train a policy
+==============
 
-WBC training runs can take a long time (large motion libraries, adaptive RSI
-curriculum, high ``max_iterations``).
+Launch a training run, follow it, and continue it later. Runs are long — WBC tasks default
+to 200k PPO iterations and are meant to be stopped and resumed, not restarted.
 
-Built on mjlab
---------------
+.. admonition:: You need
+   :class: tip
 
-WBC-MJLab is **inspired by and built on** `mjlab <https://github.com/mujocolab/mjlab>`_ —
-the lightweight GPU-accelerated RL framework created by
-`Kevin Zakka <https://github.com/kevinzakka>`_. Training reuses mjlab's manager-based
-env stack, RSL-RL runner, and ``scripts.train`` entry point (including multi-GPU via
-``torchrunx``).
+   A converted motion library (:doc:`../data`) and a task (:doc:`../tasks/index`).
 
-``wbc-mjlab-train`` is a thin wrapper that adds WBC **task** and **dataset** flags on
-top; **all mjlab train flags still pass through**. For upstream train/env options, see
-`mjlab documentation <https://mujocolab.github.io/mjlab/main/>`_ and cite mjlab in
-papers — :doc:`../research`.
+Launch a run
+------------
 
-WBC-MJLab also draws on open whole-body tracking stacks such as
-`HybridRobotics/whole_body_tracking <https://github.com/HybridRobotics/whole_body_tracking>`_
-(BeyondMimic on Isaac Lab) and
-`NVlabs/GR00T-WholeBodyControl <https://github.com/NVlabs/GR00T-WholeBodyControl>`_,
-reimplemented as **lightweight, modular mjlab presets** rather than monolithic
-frameworks — see :doc:`../research` (Lineage & inspiration).
+.. tab-set::
+   :sync-group: ui
 
-mjlab CLI (everything passes through)
--------------------------------------
+   .. tab-item:: Studio
+      :sync: studio
 
-After wbc-mjlab strips its own flags, the remaining argv is forwarded to mjlab's
-tyro-based ``TrainConfig``. That means the full mjlab surface is available:
+      *Train*: the preset and dataset come from the previous steps. Set the environments and
+      iterations, a run name and the logger, then **Launch**. The job runs detached — it
+      survives closing the browser or restarting the Studio.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 28 72
+   .. tab-item:: Command line
+      :sync: cli
 
-   * - Flag group
-     - Examples
-   * - **Agent (PPO / runner)**
-     - ``--agent.max-iterations 200000``, ``--agent.save-interval 250``, ``--agent.seed 42``
-   * - **Environment**
-     - ``--env.scene.num-envs 4096``, ``--env.sim.dt 0.005``, nested ``--env.*`` overrides
-   * - **Logging**
-     - ``--agent.logger wandb``, ``--agent.run-name my_ablation``, ``--log-root logs/rsl_rl``
-   * - **Video**
-     - ``--video``, ``--video-interval 2000``
-   * - **GPUs**
-     - ``--gpu-ids 0 1 2 3``, ``--gpu-ids all``, ``--gpu-ids`` omitted with ``CUDA_VISIBLE_DEVICES=""`` for CPU
+      .. code-block:: bash
 
-Discover the full schema:
+         uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan \
+           --env.scene.num-envs 8192 --agent.max-iterations 30000 --agent.run-name first
+
+``wbc-mjlab-train`` wraps mjlab's training script: it adds ``--task`` and the motion-data
+options, and passes every other option through (``--agent.*``, ``--env.*``, ``--gpu-ids`` …).
+All options: :ref:`cli-train` · ``uv run wbc-mjlab-train Wbc-G1 --help`` shows the task's
+defaults.
+
+Follow progress
+---------------
+
+- **Studio** — *Train → Jobs*: progress and ETA, curves (reward, tracking errors, per-term
+  rewards, sampling, losses), the log, and a TensorBoard button.
+- **TensorBoard** — ``tensorboard --logdir logs/rsl_rl``; ``--agent.logger wandb`` for W&B.
+- **Watch the policy** — load any checkpoint mid-training in the Studio's *Play* step or with
+  ``wbc-mjlab-play`` (:doc:`../visualization`).
+
+Each run writes ``logs/rsl_rl/<experiment>/<timestamp>_<run_name>/``: checkpoints, TensorBoard
+events and ``params/`` (configs, ``policy.onnx``, ``config.yaml``, sampling state) —
+:ref:`reference-configuration`.
+
+Train a Studio preset
+---------------------
+
+Presets edited in the Studio train like a task — from the Studio's *Train* step, or from the
+command line:
 
 .. code-block:: bash
 
-   uv run wbc-mjlab-train --help
-   uv run wbc-mjlab-train Wbc-G1 --help    # defaults filled from task config
+   uv run python -m wbc_mjlab.studio.train_preset --preset my_preset --dataset samples \
+     --env.scene.num-envs 4096 --agent.max-iterations 30000
 
-WBC-specific flags (parsed first)
----------------------------------
+All ``wbc-mjlab-train`` flags pass through. Single GPU only: ``torchrunx`` workers would not
+see the preset task. See :doc:`../studio`.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 28 72
-
-   * - Flag
-     - Effect
-   * - ``--task Wbc-G1``
-     - Registered task id (selects env + RL cfg)
-   * - ``--dataset lafan``
-     - Resolve ``data/<robot>/lafan/`` → ``--motion-file``
-   * - ``--dataset-path /path``
-     - Explicit NPZ file or folder of clips
-   * - ``--cache-motion-bundle``
-     - Use/write stacked ``<dataset>.npz`` on disk
-   * - ``--robot g1``
-     - Override robot id (usually inferred from task)
-   * - ``--use_wandb``
-     - Opt in to wandb (default logger is **tensorboard** in wbc-mjlab)
-
-Shorthand: ``--robot g1 --dataset samples`` maps to the default task for that robot.
-
-Log layout
-----------
-
-.. code-block:: text
-
-   logs/rsl_rl/<experiment_name>/<timestamp>_<run_name>/
-     model_<iteration>.pt
-     params/
-       env.yaml
-       agent.yaml
-       policy.onnx          # policy-only export on save
-       config.yaml          # deploy tracking params
-       rsi_bin_stats.npz    # when RSI persistence enabled
-
-``experiment_name`` comes from the task's ``WbcTaskConfig`` (e.g. ``wbc_g1`` for
-``Wbc-G1``).
-
-Resume training
----------------
-
-WBC defaults to **200k** PPO iterations — runs are meant to be **stopped and
-continued**, not restarted from scratch each time.
+Resume a run
+------------
 
 .. code-block:: bash
 
@@ -138,8 +101,8 @@ Pick a specific prior run:
 Use the **same ``--task`` and motion data** as the original run so env dimensions and
 motion library match the checkpoint.
 
-Multi-GPU training
-------------------
+Train on several GPUs
+---------------------
 
 mjlab launches **one process per GPU** via ``torchrunx`` when more than one GPU is
 selected. Each worker gets a subset of parallel envs on its device; gradients are
@@ -164,10 +127,12 @@ Worker logs go to ``<run_dir>/torchrunx/`` unless overridden with ``--torchrunx-
 Tips
 ----
 
-- **TensorBoard:** ``tensorboard --logdir logs/rsl_rl``
 - **Fewer envs for debugging:** ``--env.scene.num-envs 512``
 - **Extend horizon:** ``--agent.max-iterations 300000`` (works with resume)
-- **Play while training:** use ``wbc-mjlab-play`` on the latest ``model_*.pt`` in any
-  run folder — see :doc:`../visualization`
+- **Faster restarts on big libraries:** ``--cache-motion-bundle``
 
-Related: :doc:`../usage`, :doc:`quickstart`, :doc:`../tasks/index`, :doc:`../mdp/rsi`.
+.. seealso::
+
+   - :doc:`deploy` — export the trained policy for a robot
+   - :doc:`../concepts/adaptive_sampling` — what the sampling curves show
+   - :ref:`cli-train` — every option

@@ -1,5 +1,5 @@
-End-effector tracking + state-estimation obs
-============================================
+Wbc-G1-EE-SE — end-effector command + state estimation
+======================================================
 
 Task id: ``Wbc-G1-EE-SE`` · In-tree reference on robot ``g1``.
 

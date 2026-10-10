@@ -3,92 +3,131 @@
 Troubleshooting
 ===============
 
-Quick fixes for the errors people hit first. Still stuck? Open an
-`issue <https://github.com/wbc-mjlab/wbc-mjlab/issues/new>`_.
+Fixes for the errors people hit most, by area. Not here? Search the
+`issues <https://github.com/wbc-mjlab/wbc-mjlab/issues>`_ or open one with the command and its
+output.
+
+.. contents:: On this page
+   :local:
+   :depth: 2
+
+Install and registration
+------------------------
 
 No tasks in ``wbc-mjlab-list-envs``
-----------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Symptom:** empty list, or only unexpected ids.
+The list is empty or misses expected ids.
 
-**Checks:**
+1. Install the package in the active environment (``make sync`` or ``uv sync``).
+2. Extension robots: install the extension (``uv pip install -e …``) and check its
+   ``[project.entry-points."mjlab.tasks"]`` points at its entry module.
+3. Robots added in the Studio: ``~/.config/wbc-mjlab/robots/<id>/robot.yaml`` exists; a broken
+   one prints ``custom robot <id> not registered: …`` on startup.
 
-1. Install the package in the active env (``make sync`` / ``uv sync``).
-2. Extension robots: install the extension editable and confirm
-   ``[project.entry-points."mjlab.tasks"]`` points at your ``mjlab_entry``.
-3. Re-run ``uv run wbc-mjlab-list-envs`` after install.
+``Unknown WBC task`` / ``No WBC env builder for robot``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-See :doc:`extensions/index`.
+Use an id from ``wbc-mjlab-list-envs``; prefer ``--task Wbc-G1`` over ``--robot``. Extensions
+must call ``register_wbc_extension`` at import time.
+
+EGL / GL errors
+~~~~~~~~~~~~~~~
+
+On headless machines set ``MUJOCO_GL=egl`` (or ``disable`` for runs without rendering).
+Training needs an NVIDIA GPU; without one, use the
+`live demo <https://wbc-mjlab.github.io/wbc-demo/>`_ or :doc:`Colab <workflows/demo>`.
+
+Motion data
+-----------
 
 ``No clip NPZs`` / empty motion library
----------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Symptom:** train/play fails looking for ``npz/*.npz``.
-
-**Fix:** convert first:
+Training looks for ``data/<robot>/<dataset>/npz/*.npz`` — convert first:
 
 .. code-block:: bash
 
    uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
 
-Confirm files exist under ``data/<robot>/<dataset>/npz/``. Layout: :doc:`data`.
+``expected N joint DOFs … got M``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Joint DOF mismatch on convert
------------------------------
+The clips weren't retargeted to this robot: the joint count must match the model. Check
+``--robot``, the joint order (``data/g1/README.md`` for G1) and ``--format``.
 
-**Symptom:** ``expected N joint DOFs … got M``.
+``mirroring needs a left/right symmetry config``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Fix:** source CSV/PKL joint count must match the robot model. Check
-``data/g1/README.md`` (or your extension) for joint order; use the correct
-``--robot`` and ``--format``.
+Convert without ``--mirror``. Mirroring needs a ``RobotSymmetryConfig`` — G1 and extensions
+that register one have it; robots added in the Studio don't.
 
-Unknown task / robot
---------------------
-
-**Symptom:** ``Unknown WBC task …`` or ``No WBC env builder for robot …``.
-
-**Fix:** use an id from ``wbc-mjlab-list-envs``. Prefer ``--task Wbc-G1`` over
-guessing ``--robot``. Extension robots must call ``register_wbc_extension`` at
-import time.
-
-CUDA / MuJoCo GL errors on train
---------------------------------
-
-**Symptom:** EGL / GL import failures on headless machines.
-
-**Fix:** set ``MUJOCO_GL=egl`` (or ``disable`` for non-rendering smoke tests).
-Training needs an NVIDIA GPU; for no-GPU try the
-`live demo <https://wbc-mjlab.github.io/wbc-demo/>`_ or
-`Colab <https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb>`_.
-
-Install: :doc:`installation`.
+Training and play
+-----------------
 
 Resume loads the wrong run
---------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Symptom:** training continues from an unexpected checkpoint.
-
-**Fix:** pin the run and file:
+Pin the run and the checkpoint:
 
 .. code-block:: bash
 
    uv run wbc-mjlab-train --task Wbc-G1 --dataset samples \
-     --agent.resume True \
-     --agent.load-run 2026-07-03_14-30-00 \
-     --agent.load-checkpoint model_5000.pt
+     --agent.resume True --agent.load-run 2026-07-03_14-30-00 --agent.load-checkpoint model_5000.pt
 
-Details: :doc:`workflows/training`.
+Play finds no checkpoint
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-Play has no checkpoint
-----------------------
+Play loads the latest ``model_*.pt`` under ``logs/rsl_rl/<experiment>/``: train once, or pass
+``--checkpoint-file /path/to/model_*.pt``.
 
-**Symptom:** play fails or uses a random/zero agent.
+An old run of a Studio preset replays differently
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Fix:** train once, or pass ``--checkpoint-file /path/to/model_*.pt``. Default
-play picks the latest ``model_*.pt`` under ``logs/rsl_rl/<experiment>/``.
+Runs trained from the Studio keep their preset in ``params/studio_preset.yaml`` and replay
+from it. Runs older than that snapshot use the preset file as it is now — restore the old
+values (or a copy of the preset) to replay them as trained.
 
-Docs build / autodoc
---------------------
+Studio
+------
 
-Local live reload: ``make docs-watch`` (watches ``docs/`` and ``src/``).
-One-shot: ``make docs``. See ``docs/BUILDING.md``.
+Not reachable from another machine
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the LAN link the Studio prints, not ``127.0.0.1``; don't start it with
+``--host 127.0.0.1``; open the port (``sudo ufw allow 8765/tcp``). With ``--token``, open
+``/?token=…`` once or type the token on the sign-in page.
+
+Port 8765 already in use
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Another Studio is still running — stop it with Ctrl+C in its terminal (the port is freed on
+exit), or use ``--port 8766``. ``fuser -k 8765/tcp`` stops whatever holds the port.
+
+Robots added from model files
+-----------------------------
+
+The check fails or the robot falls in Play
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Edit the robot (*Robot* → sliders icon) and fix what the check names:
+
+- *starts inside the floor* — raise the root height;
+- *touches the floor with …* — the root height or default pose puts other bodies on the
+  floor, or the feet are wrong;
+- *blew up* — lower the gains or raise the armature;
+- *torque saturated* — raise the efforts (``*`` marks guessed values: check the datasheet).
+
+*Sags* is only a warning — plain PD doesn't balance a humanoid; the policy does.
+
+The model doesn't load
+~~~~~~~~~~~~~~~~~~~~~~
+
+MuJoCo reads STL, OBJ and MSH meshes only: convert ``.dae`` meshes to ``.stl`` / ``.obj``.
+Pick the robot's model file, not a scene that includes it. Fixed-base robots aren't supported.
+More: :doc:`extensions/custom_robots`.
+
+Docs
+----
+
+Build locally with ``make docs`` (live reload: ``make docs-watch``) — ``docs/BUILDING.md``.

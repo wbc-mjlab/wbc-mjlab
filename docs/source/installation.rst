@@ -3,6 +3,10 @@
 Installation
 ============
 
+wbc-mjlab extends `mjlab <https://github.com/mujocolab/mjlab>`_ and installs with it. Use a
+source checkout to run the bundled samples and the Studio, or add it as a dependency of your
+own project.
+
 System requirements
 -------------------
 
@@ -10,12 +14,8 @@ System requirements
 - **Evaluation:** Linux, macOS, or Windows (WSL) with CPU PyTorch
 - **Python:** 3.10–3.13
 
-`wbc-mjlab <https://github.com/wbc-mjlab/wbc-mjlab>`_ extends
-`mjlab <https://github.com/mujocolab/mjlab>`_. Install mjlab's stack via one of
-the paths below.
-
-From source (development)
----------------------------
+From source (recommended)
+-------------------------
 
 For hacking on ``wbc_mjlab`` or running the bundled samples.
 
@@ -54,8 +54,8 @@ For hacking on ``wbc_mjlab`` or running the bundled samples.
 
       You are responsible for a CUDA-capable PyTorch build when training on GPU.
 
-Verification
-------------
+Verify
+------
 
 .. tab-set::
 
@@ -72,6 +72,8 @@ Verification
       .. code-block:: bash
 
          wbc-mjlab-list-envs
+
+The output lists the robot ``g1`` and the tasks ``Wbc-G1``, ``Wbc-G1-Zest`` and friends.
 
 Optional extras
 ---------------
@@ -158,32 +160,23 @@ When developing alongside a sibling ``mjlab`` repo, pin mjlab in ``pyproject.tom
 
 Remove the override before publishing the lockfile for PyPI-only users.
 
-After install
--------------
+Next steps
+----------
 
-.. tab-set::
+.. grid:: 1 2 2 2
+   :gutter: 2
 
-   .. tab-item:: uv
+   .. grid-item-card:: :octicon:`play` Quickstart
+      :link: workflows/quickstart
+      :link-type: doc
 
-      .. code-block:: bash
+      Convert the samples, train and watch a first policy.
 
-         uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples
-         uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
-         uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
+   .. grid-item-card:: :octicon:`browser` WBC Studio
+      :link: studio
+      :link-type: doc
 
-   .. tab-item:: pip
-
-      With your virtualenv active:
-
-      .. code-block:: bash
-
-         wbc-mjlab-data-to-npz --robot g1 --dataset samples
-         wbc-mjlab-train --task Wbc-G1 --dataset samples
-         wbc-mjlab-play --task Wbc-G1 --dataset samples
-
-Bundled motion credits: ``data/g1/samples/README.md`` in the repository.
-
-See :doc:`workflows/quickstart` for the full end-to-end workflow.
+      ``uv run wbc-mjlab-studio`` — the whole pipeline in a browser.
 
 Related projects
 ----------------

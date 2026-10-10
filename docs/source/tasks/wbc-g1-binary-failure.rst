@@ -1,5 +1,5 @@
-BeyondMimic-style RSI
-=====================
+Wbc-G1-BinaryFailure — BeyondMimic-style sampling
+=================================================
 
 Task id: ``Wbc-G1-BinaryFailure`` · In-tree reference on robot ``g1``.
 

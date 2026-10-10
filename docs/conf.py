@@ -30,6 +30,11 @@ extensions = [
 
 source_suffix = ".rst"
 
+# Copy buttons skip shell prompts and console output.
+copybutton_prompt_text = r"\$ "
+copybutton_prompt_is_regexp = True
+copybutton_only_copy_prompt_lines = False
+
 bibtex_bibfiles = ["source/_static/refs.bib"]
 
 suppress_warnings = [
@@ -94,7 +99,7 @@ language = "en"
 # Project site: https://wbc-mjlab.github.io/wbc-mjlab/
 html_baseurl = "https://wbc-mjlab.github.io/wbc-mjlab/"
 
-html_title = "WBC-MJLab Documentation"
+html_title = "WBC-MJLab"
 html_theme_path = [sphinx_book_theme.get_html_theme_path()]
 html_theme = "sphinx_book_theme"
 html_show_sphinx = False
@@ -112,6 +117,9 @@ html_theme_options = {
   "use_issues_button": True,
   "use_edit_page_button": True,
   "show_toc_level": 2,
+  "show_navbar_depth": 1,
+  "home_page_in_toc": False,
+  "navigation_with_keys": True,
   "logo": {
     "image_light": "wbc_mjlab_logo.png",
     "image_dark": "wbc_mjlab_logo.png",

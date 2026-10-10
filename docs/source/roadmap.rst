@@ -32,7 +32,8 @@ Open — data & robots
 
 - ☐ **Retargeting quality** — fix floating-above-ground references (H2 first); improves
   training and deploy reference quality — `#39 <https://github.com/wbc-mjlab/wbc-mjlab/issues/39>`_
-- ☐ More robots via extension packages (beyond in-tree G1 + reference H2)
+- ☐ More robots via extension packages (beyond in-tree G1 + reference H2) — or added from
+  their model files in the Studio
 
 Open — developer experience
 ---------------------------
@@ -48,6 +49,12 @@ Shipped
 - ☑ PyPI package `wbc-mjlab <https://pypi.org/project/wbc-mjlab/>`_
 - ☑ Sphinx docs + GitHub Pages (`docs site <https://wbc-mjlab.github.io/wbc-mjlab/>`_)
 - ☑ Extension API (``register_wbc_extension``) + autodoc API reference
+- ☑ Sagittal mirroring on conversion (``--mirror``, #49) and end-effector tracking tasks
+  (``Wbc-G1-EE``, #51)
+- ☑ **WBC Studio** — the pipeline in a browser: clip QA, conversion, presets with
+  observation / reward editing and modules, training jobs, playback on many envs, HTTP API
+  (:doc:`studio`)
+- ☑ Robots without code — add a humanoid from its MJCF / URDF (:doc:`extensions/custom_robots`)
 
 Related repos (not tracked in this issue list): `wbc-g1-deploy
 <https://github.com/wbc-mjlab/wbc-g1-deploy>`_, `wbc-demo

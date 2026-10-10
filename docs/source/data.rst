@@ -1,232 +1,118 @@
 .. _data:
 
-Motion data
-===========
+Prepare motion data
+===================
 
-Motion libraries for WBC tracking live under **`data/<robot>/<dataset_name>/`**.
+Training needs a **motion library**: clips retargeted to your robot, converted to NPZ with
+forward kinematics (body poses and velocities the rewards and observations read). This guide
+takes clips from source files to a dataset ready to train on.
 
-.. tip::
+.. admonition:: You need
+   :class: tip
 
-   First time on **G1**? Convert the bundled samples and train with ``Wbc-G1`` —
-   see :doc:`workflows/quickstart`. New robot? Scaffold an extension, retarget,
-   then convert — :ref:`first-run-extension`. Errors like empty ``npz/``:
-   :doc:`troubleshooting`.
+   Clips already retargeted to the robot's joints — CSV or GMR pickle. Retarget human motion
+   with any tool, e.g. `GMR <https://github.com/YanjieZe/GMR>`_. To try things first, use the
+   bundled ``samples`` (10 G1 clips, credits in ``data/g1/samples/README.md``).
 
-A small **`samples/`** folder is version-controlled under each robot (e.g.
-``g1/samples/``) with a few clips from public datasets for smoke tests. All other
-dataset folders stay local — download full libraries from Hugging Face (see robot
-guides) or convert your own clips.
-
-Only READMEs, ``samples/``, and ``.gitkeep`` placeholders are version-controlled;
-other clip and bundle files stay gitignored.
-
-Robot guides
-------------
-
-.. list-table::
-   :header-rows: 1
-
-   * - Robot
-     - Guide
-   * - **g1** (in-tree example)
-     - ``data/g1/README.md`` — downloads, joint order, example datasets
-
-Directory layout
-----------------
-
-.. code-block:: text
-
-   data/<robot>/<dataset>/
-     *.csv / *.pkl          # source clips (or under raw/)
-     npz/<clip>.npz         # per-clip exports (source of truth for training)
-     <dataset>.npz          # optional cached stack (--cache-motion-bundle)
-
-- Put source clips in the dataset folder or in **`raw/`** — converters prefer ``raw/`` when it contains ``.csv`` or ``.pkl`` files.
-- **`npz/`** and **`*.npz`** are **never committed** — run ``wbc-mjlab-data-to-npz`` after adding source clips.
-- **`<dataset>.npz`** is optional: written only when you pass **`--cache-motion-bundle`** on train/play.
-- **`params/motion_library.yaml`** is written automatically on **play** from the loaded motion bundle.
-
-Per-clip NPZ schema
+1. Create a dataset
 -------------------
 
-``wbc-mjlab-data-to-npz`` writes one ``.npz`` per source clip under ``npz/``.
-``MotionCommand`` / ``MotionLoader`` load either a directory of those clips or a
-pre-stacked bundle.
+A dataset is a folder of clips under ``data/<robot>/<dataset>/``.
 
-Required arrays (time axis ``T``, joints ``J``, bodies ``B``):
+.. tab-set::
 
-.. list-table::
-   :header-rows: 1
-   :widths: 28 72
+   .. tab-item:: Studio
 
-   * - Key
-     - Shape / meaning
-   * - ``fps``
-     - Scalar or length-1 array — export rate (default **50** Hz)
-   * - ``joint_pos``
-     - ``(T, J)`` — joint positions (rad)
-   * - ``joint_vel``
-     - ``(T, J)`` — joint velocities (rad/s)
-   * - ``body_pos_w``
-     - ``(T, B, 3)`` — body positions in world frame (m)
-   * - ``body_quat_w``
-     - ``(T, B, 4)`` — body orientations, **xyzw**
-   * - ``body_lin_vel_w``
-     - ``(T, B, 3)`` — body linear velocities (m/s)
-   * - ``body_ang_vel_w``
-     - ``(T, B, 3)`` — body angular velocities (rad/s)
+      *Data → Library → Import*: pick a folder of CSV / PKL clips (copy it, or link it without
+      copying), or upload files. The new dataset appears in the library.
 
-Bodies ``B`` follow the robot model body order from FK. Training selects a
-**keybody subset** via ``MotionCommandCfg.body_names`` (robot entity / preset).
+   .. tab-item:: Command line
 
-Optional stacked bundle (``--cache-motion-bundle``) concatenates clips and stores
-segment start/length metadata so RSI can sample across the library.
+      .. code-block:: bash
 
-Sagittal mirroring (``--mirror``)
----------------------------------
+         mkdir -p data/g1/my_clips
+         cp /path/to/retargeted/*.csv data/g1/my_clips/
 
-Bilateral humanoids often benefit from **left-right mirrored reference motion**:
-it doubles the motion library without new mocap and improves left/right
-generalization during RSI sampling.
+Clips may also sit in a ``raw/`` subfolder. Full layout and formats:
+:doc:`reference/data_formats`. Large public libraries for G1 (LAFAN and others):
+``data/g1/README.md``.
 
-Pass ``--mirror`` to ``wbc-mjlab-data-to-npz`` to export an extra NPZ per source
-clip:
+2. Check the clips
+------------------
 
-.. code-block:: text
+Look at clips before spending GPU hours on them: retargeting errors (feet in the floor,
+joint flips, limit violations) are much cheaper to catch here.
 
-   data/g1/samples/npz/
-     walk1_subject1.npz
-     walk1_subject1_mirror.npz    # sagittal mirror of walk1_subject1
+.. tab-set::
 
-Training discovers both files automatically (``npz/*.npz``). No train/play flag
-is required.
+   .. tab-item:: Studio
 
-What gets mirrored
-~~~~~~~~~~~~~~~~~~
+      Click a clip in *Data*: it plays **straight from the source file**, before
+      conversion. The *Clip* tab lists quality issues — joint-limit violations, joint-speed
+      spikes, feet below or above the ground, time airborne — and plots root height and
+      speed, foot heights and any joint against its limits. *Grid* plays up to 49 clips of a
+      search side by side.
 
-Mirroring runs **after FK** on the exported arrays (``motion/motion_mirror.py``):
+   .. tab-item:: Command line
 
-.. list-table::
-   :header-rows: 1
-   :widths: 28 72
+      After conversion (next step):
 
-   * - Channel
-     - Transform
-   * - ``joint_pos``, ``joint_vel``
-     - Swap left/right joint pairs; negate roll/yaw axes (see robot symmetry config)
-   * - ``body_pos_w``, ``body_lin_vel_w``
-     - Swap left/right bodies; flip world **y** (reflection across the XZ plane)
-   * - ``body_quat_w`` (xyzw)
-     - Swap bodies; negate quaternion **x** and **z**
-   * - ``body_ang_vel_w``
-     - Swap bodies; negate **x** and **z** components (axial vector under reflection)
-   * - ``fps``, ``joint_names``, ``robot``
-     - Unchanged
+      .. code-block:: bash
 
-The robot's **`RobotSymmetryConfig``** defines joint swap pairs and signs.
-G1 ships in-tree at ``robots/g1/symmetry.py``. Extension robots register their
-own config (see :doc:`extensions/robot_entity` and :doc:`extensions/extensions`).
+         uv run wbc-mjlab-data-vis --robot g1 --dataset my_clips
 
-CLI notes
-~~~~~~~~~
-
-- ``--mirror`` requires a symmetry config for ``--robot``; otherwise conversion errors.
-- Mirrored output stem: ``<clip_stem><mirror_suffix>`` (default suffix ``_mirror``).
-- Sources whose stem already ends with the mirror suffix are skipped (avoids
-  ``walk_mirror_mirror.npz`` on re-convert).
-
-.. code-block:: bash
-
-   uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8 --mirror
-
-Online mirroring during training (phase 2) will reuse the same symmetry config
-inside ``MotionCommand``; offline ``--mirror`` is the recommended starting point.
-
-Supported formats
+3. Convert to NPZ
 -----------------
 
-Source layouts are defined in ``wbc_mjlab.motion.motion_formats``. The converter
-infers format from the file extension; pass ``--format`` to pick a registered name.
+.. tab-set::
+
+   .. tab-item:: Studio
+
+      *Data → Convert*: choose *missing*, *all* or *selected* clips, set the options and
+      **Convert**. The job runs in the background with progress and log.
+
+   .. tab-item:: Command line
+
+      .. code-block:: bash
+
+         uv run wbc-mjlab-data-to-npz --robot g1 --dataset my_clips --batch-size 8
+
+Output: ``data/g1/my_clips/npz/<clip>.npz``. Options:
 
 .. list-table::
    :header-rows: 1
+   :widths: 32 68
 
-   * - Format key
-     - Extension
-     - Role
-   * - ``default``
-     - ``.csv``
-     - LAFAN / retarget CSV (no header, m + quat xyzw + rad)
-   * - ``gmr_pkl``
-     - ``.pkl``
-     - GMR / ``bvh_to_robot`` pickle dict
-   * - **NPZ**
-     - train / play
-     - Per-clip exports or a pre-stacked training bundle
+   * - Option
+     - Use it when
+   * - ``--batch-size N``
+     - Always for more than a few clips — N parallel FK workers on the GPU
+   * - ``--input-fps`` · ``--output-fps``
+     - Source rate isn't 30 Hz (CSV) · you want another training rate than 50 Hz
+   * - ``--debias-z``
+     - Clips float above or sink into the floor — shifts each clip so the feet touch it
+   * - ``--mirror``
+     - Doubling the library with left-right mirrored copies — needs the robot's symmetry
+       config (:ref:`reference-mirroring`)
+   * - ``--format gmr_pkl``
+     - The extension doesn't identify the format
 
-CSV ``default`` (LAFAN / retarget)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Conversion uses ``--robot`` (the model), not a task. Re-running converts again; the Studio's
+*missing* option converts only new clips.
 
-Comma-separated rows, no header::
-
-   root_pos(3) + root_rot_xyzw(4) + joint_pos(n_dof)   # meters, radians
-
-Joint count must match the target robot. Default input rate is 30 Hz unless
-``--input-fps`` is set.
-
-PKL (``gmr_pkl``)
-^^^^^^^^^^^^^^^^^
-
-Python dict with at least::
-
-   fps, root_pos (T×3), root_rot (T×4, xyzw), dof_pos (T×n_dof)
-
-Optional keys: ``joint_names``, ``dof_joint_names``, or ``joint_order``.
-
-Workflow
---------
+4. Train on it
+--------------
 
 .. code-block:: bash
 
-   # 1. Add clips under data/<robot>/<dataset>/
-   uv run wbc-mjlab-data-to-npz --robot <robot> --dataset <dataset>
-   # large libraries: parallel FK on GPU
-   uv run wbc-mjlab-data-to-npz --robot <robot> --dataset <dataset> --batch-size 8
+   uv run wbc-mjlab-train --task Wbc-G1 --dataset my_clips
 
-   # optional: sagittal mirror (doubles npz/ — see "Sagittal mirroring" above)
-   uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --mirror
+``--dataset`` resolves to ``data/<robot>/<name>/npz/`` with the robot taken from the task. For
+big libraries, ``--cache-motion-bundle`` writes a stacked ``<dataset>.npz`` that loads faster
+on the next run. Other sources (a folder or file anywhere): :doc:`reference/data_formats`.
 
-   # 2. Train
-   uv run wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset>
+.. seealso::
 
-   # 3. Optional cached bundle
-   uv run wbc-mjlab-train --task Wbc-<Robot> --dataset <dataset> --cache-motion-bundle
-
-``--batch-size N`` runs **N parallel FK workers** on GPU. Use ``--batch-size 1`` for ``--render`` preview.
-
-Conversion requires **`--robot``** (MuJoCo asset). Train/play use **`--task``** (robot inferred).
-
-Train / play motion source
---------------------------
-
-.. list-table::
-   :header-rows: 1
-
-   * - Flag
-     - Resolves to
-   * - ``--dataset <name>``
-     - ``data/<robot>/<name>/`` (loads ``npz/*.npz`` in memory)
-   * - ``--dataset-path <dir>``
-     - load ``npz/*.npz`` in that folder
-   * - ``--dataset-path <file>.npz``
-     - that file directly
-   * - ``--motion-file <file>.npz``
-     - explicit NPZ path
-   * - ``--cache-motion-bundle``
-     - write/read ``<dataset>/<dataset>.npz`` on disk
-
-Version control
----------------
-
-Everything under ``data/`` is gitignored except READMEs, ``samples/``, and
-``.gitkeep`` files. See the repository ``.gitignore``.
+   - :doc:`workflows/training` — train, resume, scale to many GPUs
+   - :doc:`extensions/index` — data for a new robot
+   - :doc:`reference/data_formats` — formats, NPZ arrays, mirroring

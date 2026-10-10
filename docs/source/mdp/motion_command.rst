@@ -79,9 +79,8 @@ xy/yaw overlay), **tracking-error coloring**, and **RSI bin panels** during
 
 API: :doc:`../api/mdp` (Motion command).
 
-Related
--------
+.. seealso::
 
-- :doc:`rsi` — how start frames are sampled
-- :doc:`observations`, :doc:`rewards` — terms that consume the command
-- :doc:`../data` — motion NPZ format
+   - :doc:`rsi` — how start frames are sampled
+   - :doc:`observations`, :doc:`rewards` — terms that consume the command
+   - :doc:`../reference/data_formats` — motion NPZ format

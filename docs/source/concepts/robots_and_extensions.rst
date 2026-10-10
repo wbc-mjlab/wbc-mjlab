@@ -38,6 +38,9 @@ Robot entity vs extension package
      - When
    * - **In-tree** (``robots/g1/``)
      - Reference platform shipped with core — study, don't copy-paste for new hardware
+   * - **Added in the Studio**
+     - New robot from its MJCF / URDF, no code — ``~/.config/wbc-mjlab/robots/<id>/robot.yaml``,
+       registered by the core entry point (:doc:`../extensions/custom_robots`)
    * - **Extension package**
      - New robot — separate repo, ``register_wbc_extension``, ``mjlab.tasks`` entry point
 
@@ -56,6 +59,8 @@ a **specific registered robot** — not global env forks.
 
 Build your own
 --------------
+
+Fastest: upload the model in the Studio — :doc:`../extensions/custom_robots`.
 
 End-to-end first run (retarget → convert → train): :ref:`first-run-extension`.
 

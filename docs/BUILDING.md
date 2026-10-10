@@ -25,31 +25,43 @@ you change RST or Python docstrings. Stop with Ctrl+C.
 
 ## Structure
 
-User-facing pages are **standalone reStructuredText** under `docs/source/`.
-Sidebar order: Getting Started → **Concepts** → User Guide → API Reference → Development.
+The site follows [Diátaxis](https://diataxis.fr/): every page has **one** job, and the
+sidebar groups pages by that job. Put new content in the section that matches what the reader
+is doing — and link to it from the others instead of repeating it.
+
+| Section | Reader is… | Pages |
+|---|---|---|
+| **Get started** | new, following along | `installation`, `workflows/quickstart`, `workflows/demo` |
+| **How-to guides** | doing a task | `recipes` (index), `studio`, `data`, `tasks/` (choose / add a task), `workflows/training`, `visualization`, `workflows/deploy`, `extensions/` (add a robot), `troubleshooting` |
+| **Concepts** | understanding | `concepts/` (modularity, presets and tasks, robots, adaptive sampling), `architecture` |
+| **Reference** | looking up a fact | `usage` (CLI), `reference/` (configuration and files, Studio HTTP API, data formats), `mdp/` (terms), `api/` (autodoc) |
+| **Project** | contributing, citing | `contributing`, `roadmap`, `research` |
 
 ```
 docs/
-  conf.py
-  index.rst
+  conf.py               theme, extensions, copy-button prompts
+  index.rst             landing page + the sidebar (one toctree per section)
   source/
-    concepts/           # modularity, RSI, presets, robots (conceptual)
-    architecture.rst    # config pipeline
-    tasks/              # task catalog + guides (User Guide)
-    mdp/                # Shared MDP design (User Guide)
-    api/                # Live autodoc (extension, registry, presets, mdp, export)
-    extensions/        # extensions how-to (User Guide)
-    installation.rst
-    usage.rst
-    data.rst
-    research.rst
-    contributing.rst
-    roadmap.rst
-    visualization.rst   # Viser overlays, reference align, RSI panels
-    workflows/
-      training.rst      # resume, multi-GPU, mjlab CLI passthrough
-    _static/
+    installation.rst · workflows/ · recipes.rst · studio.rst · data.rst · visualization.rst
+    tasks/              catalog (index), one page per task, adding.rst
+    extensions/         add a robot: model files (custom_robots) or a package
+    concepts/ · architecture.rst
+    usage.rst           command-line reference
+    reference/          configuration, studio_api, data_formats
+    mdp/                shared MDP terms
+    api/                autodoc
+    _static/            css/custom.css (wbc-demo palette), refs.bib, logo
 ```
+
+Page conventions:
+
+- Open with one or two sentences on what the page is for; how-to guides list prerequisites in
+  a `tip` admonition titled *You need* / *Before you start*.
+- Show Studio and command-line paths side by side with `.. tab-set::` and
+  `:sync-group: ui` (`:sync: studio` / `:sync: cli`) so the reader's choice sticks.
+- End with a `.. seealso::` block (next steps), not a free-text "Related" line.
+- Keep published URLs stable: move content between pages, not pages between folders.
+- `make docs` must build with **no warnings**.
 
 Edit `.rst` files directly — there are no markdown include wrappers.
 

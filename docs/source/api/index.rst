@@ -1,7 +1,7 @@
 .. _api:
 
-API Reference
-=============
+Python API
+==========
 
 Live signatures and docstrings from source (Sphinx autodoc) — the callable
 surface.
@@ -19,3 +19,4 @@ surface.
    presets
    mdp
    export
+   studio

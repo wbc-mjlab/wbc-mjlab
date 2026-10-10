@@ -139,4 +139,6 @@ Adapting for your robot
 Keep ``apply_wbc`` (or other core presets) unchanged — only pass your body name tuples.
 Then follow :ref:`first-run-extension` (retarget → ``data-to-npz`` → train).
 
-Related: :doc:`extensions`, :doc:`robot_entity`, :doc:`../tasks/index`.
+.. seealso::
+
+   :doc:`extensions`, :doc:`robot_entity`, :doc:`../tasks/index`.
