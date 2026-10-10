@@ -21,6 +21,10 @@ def register_default() -> None:
   tasks_mod.register_all_wbc_tasks()
   tasks_mod._set_active_run("g1", _DEFAULT_TASK_ID)
   _BOOTSTRAPPED = True
+  # robots added in the Studio (``~/.config/wbc-mjlab/robots/<id>/robot.yaml``)
+  from wbc_mjlab.robots import custom
+
+  custom.register_all()
 
 
 if os.environ.get("WBC_MJLAB_SKIP_MJLAB_REGISTER") != "1":

@@ -40,9 +40,11 @@ classifiers = [
   "Natural Language :: English",
 ]
 dependencies = [
+  "fastapi>=0.115",
   "mjlab>=1.6.0",
   # mediapy (mjlab dep) breaks on numpy 2.5+; keep in sync with mjlab.
   "numpy<2.5",
+  "uvicorn>=0.30",
 ]
 
 [project.urls]
@@ -59,6 +61,7 @@ wbc-mjlab-export-tracking-params = "wbc_mjlab.export.export_cli:main"
 wbc-mjlab-export-web-reference = "wbc_mjlab.export.web_reference_bundle:main"
 wbc-mjlab-data-vis = "wbc_mjlab.scripts.vis_data:cli"
 wbc-mjlab-plot-rsi-bins = "wbc_mjlab.scripts.plot_rsi_bins:main"
+wbc-mjlab-studio = "wbc_mjlab.scripts.studio:cli"
 
 [project.entry-points."mjlab.tasks"]
 wbc_mjlab = "wbc_mjlab.mjlab_entry"
@@ -69,6 +72,7 @@ cpu = ["torch>=2.7.0"]
 
 [dependency-groups]
 dev = [
+  "httpx>=0.28.1",
   "pre-commit>=4.3.0",
   "pytest>=8.0.0",
   "ruff>=0.14.14",
@@ -126,6 +130,9 @@ src = ["src"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Body"]
 
 [tool.pytest.ini_options]
 markers = [

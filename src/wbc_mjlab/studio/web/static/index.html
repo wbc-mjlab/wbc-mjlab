@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WBC-MJLab Studio</title>
+  <link rel="icon" href="/static/brand/logo-64.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/static/brand/logo.png" />
+  <meta name="theme-color" content="#0d1620" />
+  <script>
+    // theme before first paint (same key + default as wbc-demo)
+    try {
+      const t = localStorage.getItem("wbc-demo-theme");
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" id="brand" href="https://wbc-mjlab.github.io/wbc-mjlab/" target="_blank" rel="noopener" title="WBC-MJLab documentation">
+      <span class="brand-logo">
+        <img src="/static/brand/logo-64.png" alt="WBC-MJLab" width="28" height="28" />
+        <span class="brand-dot" aria-hidden="true"></span>
+      </span>
+      <span class="wordmark">WBC-MJLab <span>Studio</span></span>
+    </a>
+    <nav class="stepper" id="stepper" aria-label="Pipeline"></nav>
+    <div class="top-right">
+      <span class="chip" id="robot-chip" title="Robot (everything follows it)"></span>
+      <button type="button" class="chip" id="status-chip" title="Activity"></button>
+      <button type="button" class="icon-btn theme-toggle" id="theme-toggle" title="Toggle light / dark">☀</button>
+    </div>
+  </header>
+
+  <main class="studio" id="studio">
+    <section class="stage-col">
+      <div class="stage" id="stage">
+        <div id="viewport"></div>
+        <div class="vignette"></div>
+        <div class="labels" id="labels"></div>
+
+        <div class="stage-top">
+          <div class="stage-left">
+            <div class="stage-title glass">
+              <span class="pill idle" id="stage-pill">pose</span>
+              <div class="titles"><strong id="stage-title">Robot</strong><span id="stage-sub">loading…</span></div>
+            </div>
+            <div class="clip-bar glass" id="clip-bar" hidden>
+              <button type="button" class="icon-btn" id="c-prev" title="Previous clip  [">
+                <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+              </button>
+              <div class="clip-search">
+                <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>
+                <input id="c-clip" list="c-clips" placeholder="clip for the focused env" autocomplete="off" spellcheck="false" />
+                <datalist id="c-clips"></datalist>
+              </div>
+              <button type="button" class="icon-btn" id="c-next" title="Next clip  ]">
+                <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+              </button>
+              <span class="state" id="c-state"></span>
+              <span class="sep"></span>
+              <span class="faint" style="font-size:0.72rem">env</span>
+              <input type="number" id="c-env" min="0" value="0" title="Focused env  , ." />
+              <span class="sep"></span>
+              <button type="button" class="btn small ghost" id="c-random" title="Unpin: this env draws random clips again">Shuffle</button>
+              <button type="button" class="btn small amber" id="c-push" title="Push the focused robot  p">Push</button>
+            </div>
+          </div>
+          <div class="toolbar glass" id="toolbar">
+            <button type="button" class="icon-btn" data-opt="ghost" title="Reference ghost  g">
+              <svg viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 0-7 7v10l2.3-1.6L9.7 20 12 18.4 14.3 20l2.4-1.6L19 20V10a7 7 0 0 0-7-7z"/><circle cx="9.5" cy="10.5" r="0.8"/><circle cx="14.5" cy="10.5" r="0.8"/></svg>
+            </button>
+            <button type="button" class="icon-btn" data-opt="marks" title="Markers: keybodies, targets, root path, feet  o">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="1.6"/><circle cx="19" cy="6" r="1.6"/><circle cx="6" cy="19" r="1.6"/><circle cx="18" cy="18" r="1.6"/></svg>
+            </button>
+            <button type="button" class="icon-btn" data-opt="labels" title="Instance labels  l">
+              <svg viewBox="0 0 24 24"><path d="M4 7h10l4 5-4 5H4z"/></svg>
+            </button>
+            <button type="button" class="icon-btn" data-opt="follow" title="Camera follows the focused robot  f">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.5"/></svg>
+            </button>
+            <span class="sep"></span>
+            <button type="button" class="icon-btn" id="cam-reset" title="Reset camera  r">
+              <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+            </button>
+            <button type="button" class="icon-btn" id="keys-btn" title="Keyboard shortcuts  ?">
+              <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="hud" id="hud" hidden></div>
+        <div class="busy-card glass" id="busy" hidden>
+          <strong id="busy-title">Working…</strong>
+          <span id="busy-stage"></span>
+          <div class="progress"><div id="busy-bar"></div></div>
+        </div>
+      </div>
+      <div class="transport" id="transport" hidden>
+        <button type="button" class="icon-btn" id="t-restart" title="Restart"><svg viewBox="0 0 24 24"><path d="M6 5v14M19 5l-10 7 10 7z"/></svg></button>
+        <button type="button" class="icon-btn primary" id="t-play" title="Play / pause  space"><svg viewBox="0 0 24 24"><path id="t-play-icon" d="M7 4l12 8-12 8z"/></svg></button>
+        <button type="button" class="icon-btn" id="t-step" title="Step  →"><svg viewBox="0 0 24 24"><path d="M5 5l10 7-10 7zM18 5v14"/></svg></button>
+        <span class="time" id="t-time">0.00 / 0.00 s</span>
+        <input id="t-frame" type="range" min="0" max="0" value="0" />
+        <span class="frame" id="t-frame-label">0 / 0</span>
+        <select id="t-speed" title="Playback speed">
+          <option value="0.1">0.1×</option>
+          <option value="0.25">0.25×</option>
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </div>
+    </section>
+
+    <aside class="inspector" id="inspector"></aside>
+  </main>
+  <div class="toasts" id="toasts"></div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
