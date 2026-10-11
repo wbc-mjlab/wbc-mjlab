@@ -310,7 +310,7 @@ def test_observation_overrides_modules_and_snapshot(preset_dir) -> None:
     "zz_noisy",
     {"observations": {"actor": {"terms": {"joint_pos": {"noise_scale": 0.0}}}}},
   )
-  assert [m["name"] for m in presets.list_modules("g1")] == ["se", "zz_noisy"]
+  assert [m["name"] for m in presets.list_modules("g1")] == ["se", "sgs", "zz_noisy"]
   with pytest.raises(ValueError):
     presets.save_module("se", {})
   presets.save("zz_obs", "Wbc-G1", {"observations": obs}, modules=["se", "zz_noisy"])

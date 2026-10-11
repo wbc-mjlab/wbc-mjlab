@@ -346,6 +346,9 @@ class MotionCommand(CommandTerm):
       dtype=torch.float,
       device=self.device,
     )
+    if cfg.rsi.strategy == "success_target":
+      # Unknown bins start at the kernel peak, so every bin gets tried early.
+      self.bin_failure_levels.fill_(1.0 - cfg.rsi.target_success)
     self.bin_visit_counts = torch.zeros(
       self.motion.num_trajectories,
       self.bins_per_trajectory,
@@ -441,6 +444,13 @@ class MotionCommand(CommandTerm):
 
     rsi = self.cfg.rsi
     strategy = rsi.strategy
+    terminated = None
+    if strategy in ("binary_failure", "success_target"):
+      terminated = self._env.termination_manager.terminated[env_ids]
+      # Reaching the clip end (wrap) is a success even on the step it happens.
+      traj = self.trajectory_ids[env_ids]
+      reached_end = self.time_steps[env_ids] >= self.motion.segment_end_idx[traj]
+      terminated = terminated & ~reached_end
     update_failure_ema(
       self.bin_failure_levels,
       strategy=strategy,
@@ -448,11 +458,7 @@ class MotionCommand(CommandTerm):
       alpha=rsi.alpha,
       traj_ids=self.trajectory_ids[env_ids],
       start_bins=self._episode_start_bin[env_ids],
-      episode_terminated=(
-        self._env.termination_manager.terminated[env_ids]
-        if strategy == "binary_failure"
-        else None
-      ),
+      episode_terminated=terminated,
       episode_similarity_sum=(
         self._episode_similarity_sum[env_ids] if strategy == "similarity_ema" else None
       ),
@@ -496,6 +502,7 @@ class MotionCommand(CommandTerm):
       uniform_ratio=rsi.uniform_ratio,
       num_samples=len(env_ids),
       device=self.device,
+      success_target=rsi.success_kernel(),
     )
     self.trajectory_ids[env_ids] = traj_ids
     self.time_steps[env_ids] = time_steps
@@ -1005,7 +1012,8 @@ class MotionCommand(CommandTerm):
       if self.cfg.rsi.strategy == "similarity_ema":
         sim = self._step_tracking_similarity()
         self._episode_similarity_sum[advance] += sim[advance]
-        self._episode_step_count[advance] += 1
+      # Every strategy needs it: episodes with no steps don't update the bins.
+      self._episode_step_count[advance] += 1
       self.time_steps[advance] += 1
       seg_end = self.motion.segment_end_idx[self.trajectory_ids]
       wrap_ids = torch.where(advance & (self.time_steps >= seg_end))[0]
@@ -1018,8 +1026,9 @@ class MotionCommand(CommandTerm):
     self._viewer_task_id = task_id
 
   def _record_bin_visits(self, traj_ids: torch.Tensor, bins: torch.Tensor) -> None:
-    for traj_id, bin_id in zip(traj_ids.tolist(), bins.tolist(), strict=True):
-      self.bin_visit_counts[int(traj_id), int(bin_id)] += 1.0
+    self.bin_visit_counts.index_put_(
+      (traj_ids, bins), torch.ones_like(traj_ids, dtype=torch.float), accumulate=True
+    )
 
   def _rsi_view_tensors(
     self,
@@ -1031,6 +1040,7 @@ class MotionCommand(CommandTerm):
       self.bin_valid_mask,
       temperature_base=rsi.temperature_base,
       uniform_ratio=rsi.uniform_ratio,
+      success_target=rsi.success_kernel(),
     )
     assist = compute_assist_gain_matrix(
       failure,

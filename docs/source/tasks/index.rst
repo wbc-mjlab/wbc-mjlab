@@ -39,6 +39,13 @@ By goal
 
       ``Wbc-G1-BinaryFailure`` — adaptive sampling driven by binary failures.
 
+   .. grid-item-card:: :octicon:`beaker` Success-guided sampling
+      :link: wbc-g1-sgs
+      :link-type: doc
+
+      ``Wbc-G1-SGS`` — ``Wbc-G1`` with SGS: episodes start on clip bins near a target
+      success rate instead of the hardest ones.
+
    .. grid-item-card:: :octicon:`location` End-effector command
       :link: wbc-g1-ee
       :link-type: doc
@@ -126,6 +133,9 @@ Papers
    * - BeyondMimic
      - `arXiv:2508.08241 <https://arxiv.org/abs/2508.08241>`_
      - ``Wbc-G1-BinaryFailure``
+   * - SGS
+     - `arXiv:2610.12465 <https://arxiv.org/abs/2610.12465>`_
+     - ``Wbc-G1-SGS``; the ``sgs`` Studio module on any task
    * - SONIC
      - `arXiv:2511.07820 <https://arxiv.org/abs/2511.07820>`_
      - planned — :doc:`../roadmap`
@@ -146,6 +156,7 @@ To add a task in code: :doc:`adding`.
    wbc-g1-zest
    wbc-g1-zest-se
    wbc-g1-binary-failure
+   wbc-g1-sgs
    wbc-g1-se
    wbc-g1-ee
    wbc-g1-ee-se
