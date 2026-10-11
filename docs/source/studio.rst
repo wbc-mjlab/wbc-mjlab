@@ -193,7 +193,9 @@ against base + modules.
 **Modules** are reusable pieces of a preset with no base task, shown as toggles under the
 preset picker. The built-in ``se`` module is the state-estimation actor, read off the
 ``<task>-SE`` vs ``<task>`` pair of the robot's tasks (on G1, ``Wbc-G1`` + ``se`` gives
-exactly the ``Wbc-G1-SE`` observations). Terms a module adds are tagged with its name.
+exactly the ``Wbc-G1-SE`` observations). The built-in ``sgs`` module switches adaptive
+sampling to success-guided sampling (:doc:`concepts/adaptive_sampling`), on any task and
+robot. Terms a module adds are tagged with its name.
 Modules apply in order, then the preset's own changes.
 
 **Save as…** stores either

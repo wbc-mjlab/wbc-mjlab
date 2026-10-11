@@ -22,7 +22,8 @@ Core fields
    * - ``sampling_mode``
      - ``adaptive`` (default), ``uniform``, or ``start`` (always clip start)
    * - ``strategy``
-     - Failure signal: ``similarity_ema`` or ``binary_failure``
+     - ``similarity_ema`` or ``binary_failure`` (hardest first), or ``success_target``
+       (SGS: target success rate)
    * - ``bin_width_s``
      - Bin duration in seconds (default **4.0** in WBC presets)
    * - ``uniform_ratio``
@@ -41,6 +42,14 @@ Core fields
      - Drop bins shorter than this fraction of ``bin_width`` (WBC/Zest presets)
    * - ``persist_failure_levels`` / ``failure_levels_filename``
      - Save/load ``rsi_bin_stats.npz`` across runs
+   * - ``target_success``
+     - ``success_target``: the bin success rate sampling aims for (0.66)
+   * - ``target_concentration``
+     - ``success_target``: κ, how sharply the kernel peaks at the target (5)
+   * - ``target_temperature``
+     - ``success_target``: T, softmax temperature over the kernel's log weights (2)
+   * - ``target_epsilon``
+     - ``success_target``: ε, floor inside the kernel (1e-4)
 
 Adaptive loop
 -------------
@@ -55,7 +64,9 @@ Adaptive loop
         ↓
    EMA-update bin_failure_levels[T, B]
         ↓
-   Next reset: sample (T', B') ∝ softmax(failure / temperature) + uniform_ratio
+   Next reset: sample (T', B') ∝ softmax(logits) + uniform_ratio
+               logits = failure / temperature          (similarity_ema, binary_failure)
+               logits = log w(1 − failure) / T          (success_target)
 
 Implementation: ``sample_adaptive_bins``, ``update_failure_ema`` in
 ``sampling.py``; bin updates from ``MotionCommand`` during rollouts.
@@ -82,8 +93,30 @@ WBC/Zest presets also set ``similarity_norm_by_remaining_clip=True``,
 ``binary_failure`` (BeyondMimic-style)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Failure = **1** if the episode **terminated early** (before timeout), else **0**.
+Failure = **1** if the episode **terminated** before its clip ended, else **0** (timeout or
+clip end); every episode updates its start bin, so a bin's level is its recent failure rate.
 Used by ``apply_binary_failure`` with ``similarity_terms = keybody_similarity_preset()``.
+
+``success_target`` (SGS)
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Success-guided sampling (`arXiv:2610.12465 <https://arxiv.org/abs/2610.12465>`_). Every
+episode updates its start bin: failure **1** if it terminated before its clip ended, **0**
+if it timed out or reached the clip end. ``1 − failure`` is the bin's success rate *p*;
+bins are sampled with
+
+.. code-block:: text
+
+   w = (p + ε)^(κ·t) · (1 − p + ε)^(κ·(1 − t)),   P(bin) ∝ exp(log w / T)
+
+mixed with ``uniform_ratio``. Unvisited bins start at *p = t*, the kernel's peak, so each
+gets tried early. ``apply_sgs`` (``presets/sgs.py``) sets the strategy with
+``alpha=0.01`` — about the paper's window of the last 100 episodes per bin — and the paper's
+locomotion values *t* = 0.66, κ = 5, T = 2. Its manipulation setting, *t* = 0.5, κ = 1,
+is broader. The paper's sweeps over *t*, κ, T and the window change results only mildly.
+
+The assistive wrench keeps working: it reads the same failure levels
+(``1 − success rate`` here).
 
 Hand-tuned similarity presets
 -----------------------------
@@ -103,8 +136,10 @@ Per-step kernel: ``exp(−error² / σ²)`` with defaults in ``DEFAULT_SIMILARIT
 Persistence
 -----------
 
-When ``persist_failure_levels=True``, training can write/read
-``rsi_bin_stats.npz`` via ``save_rsi_bin_stats`` / ``load_rsi_bin_stats``.
+When ``persist_failure_levels=True``, training writes ``params/rsi_bin_stats.npz`` with
+every checkpoint (``save_rsi_bin_stats``) and ``--agent.resume`` restores it
+(``load_rsi_bin_stats``). ``wbc-mjlab-play`` only reads it — it never writes the file, so
+playing a run on another dataset can't reset its curriculum.
 
 Inspect bins live in Viser during play or plot offline with ``wbc-mjlab-plot-rsi-bins``
 — see :doc:`../visualization`.
@@ -115,4 +150,4 @@ API: :doc:`../api/mdp` (RSI / adaptive sampling).
 
    - :doc:`motion_command` — resampling hook
    - :doc:`../tasks/index` — which tasks use which RSI strategy
-   - :doc:`../research` — paper citations (ZEST, BeyondMimic)
+   - :doc:`../research` — paper citations (ZEST, BeyondMimic, SGS)
