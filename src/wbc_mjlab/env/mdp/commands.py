@@ -619,6 +619,9 @@ class MotionCommand(TrackingView, CommandTerm):
     ):
       if not 0 <= share <= 1:
         raise ValueError("failure curriculum shares/decays must be in [0,1]")
+    if cfg.rsi.strategy == "success_target":
+      # Unknown bins start at the kernel peak, so every bin gets tried early.
+      self.bin_failure_levels.fill_(1.0 - cfg.rsi.target_success)
     self.bin_visit_counts = torch.zeros(
       self.motion.num_trajectories,
       self.bins_per_trajectory,
@@ -773,6 +776,13 @@ class MotionCommand(TrackingView, CommandTerm):
       self._recent_failures.mul_(rsi.recent_failure_decay).add_(counts)
     if strategy == "visited_return":
       return  # the pre-reset step event already recorded every visited bin
+    terminated = None
+    if strategy in ("binary_failure", "success_target"):
+      terminated = self._env.termination_manager.terminated[env_ids]
+      # Reaching the clip end (wrap) is a success even on the step it happens.
+      traj = self.trajectory_ids[env_ids]
+      reached_end = self.time_steps[env_ids] >= self.motion.segment_end_idx[traj]
+      terminated = terminated & ~reached_end
     update_failure_ema(
       self.bin_failure_levels,
       strategy=strategy,
@@ -780,11 +790,7 @@ class MotionCommand(TrackingView, CommandTerm):
       alpha=rsi.alpha,
       traj_ids=self.trajectory_ids[env_ids],
       start_bins=self._episode_start_bin[env_ids],
-      episode_terminated=(
-        self._env.termination_manager.terminated[env_ids]
-        if strategy == "binary_failure"
-        else None
-      ),
+      episode_terminated=terminated,
       episode_similarity_sum=(
         self._episode_similarity_sum[env_ids] if strategy == "similarity_ema" else None
       ),
@@ -830,6 +836,7 @@ class MotionCommand(TrackingView, CommandTerm):
       else False,
       memory=self._bin_memory,
       memory_ratio=rsi.memory_ratio,
+      success_target=rsi.success_kernel(),
     )
     if self._visited_returns is None:
       self._bin_memory.lerp_(softmax, rsi.memory_alpha)
@@ -1272,6 +1279,7 @@ class MotionCommand(TrackingView, CommandTerm):
       else False,
       memory=self._bin_memory,
       memory_ratio=rsi.memory_ratio,
+      success_target=rsi.success_kernel(),
     )
     valid = self._valid_bin_indices
     prob[valid[:, 0], valid[:, 1]] = curriculum_probabilities(
