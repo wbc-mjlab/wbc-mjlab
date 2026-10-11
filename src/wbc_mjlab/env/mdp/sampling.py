@@ -6,6 +6,9 @@
 - ``similarity_ema`` — failure from mean per-step tracking similarity (Zest RSI).
 - ``discounted_return`` — failure from the discounted return earned from the start bin,
   relative to the most it could have earned (SuperMimic, arXiv:2610.28480, App. D.1).
+- ``success_target`` — success-guided sampling (SGS, arXiv:2610.12465): per-bin
+  success rate (episode not terminated before its clip ends), bins weighted by a
+  Beta-shaped kernel peaking at ``target_success`` instead of hardest-first.
 """
 
 from __future__ import annotations
@@ -33,7 +36,11 @@ AdaptiveSimilarityTerm = Literal[
 ]
 
 AdaptiveSamplingStrategy = Literal[
-  "binary_failure", "similarity_ema", "discounted_return", "visited_return"
+  "binary_failure",
+  "similarity_ema",
+  "discounted_return",
+  "visited_return",
+  "success_target",
 ]
 
 DEFAULT_SIMILARITY_STDS: dict[AdaptiveSimilarityTerm, float] = {
@@ -115,6 +122,32 @@ class RsiCfg:
   """Blink reset mixtures: base RSI, recent failures, then independent policy probes."""
   memory_alpha: float = 0.001
   """Rate of that running average, per sampling call."""
+  # ``success_target`` (SGS) kernel: w = (p+ε)^(κt) · (1−p+ε)^(κ(1−t)) over bin
+  # success rate p, sampled with softmax(log w / T). Unvisited bins start at t.
+  target_success: float = 0.66
+  target_concentration: float = 5.0
+  target_temperature: float = 2.0
+  target_epsilon: float = 1.0e-4
+
+  def success_kernel(self) -> SuccessTargetKernel | None:
+    if self.strategy != "success_target":
+      return None
+    return SuccessTargetKernel(
+      target=self.target_success,
+      concentration=self.target_concentration,
+      temperature=self.target_temperature,
+      epsilon=self.target_epsilon,
+    )
+
+
+@dataclass(frozen=True)
+class SuccessTargetKernel:
+  """SGS bin weighting: favours bins whose success rate is near ``target``."""
+
+  target: float = 0.66
+  concentration: float = 5.0
+  temperature: float = 2.0
+  epsilon: float = 1.0e-4
 
 
 def keybody_similarity_preset() -> tuple[AdaptiveSimilarityTermCfg, ...]:
@@ -274,13 +307,11 @@ def update_failure_ema(
   episode_return_max: torch.Tensor | None = None,
 ) -> None:
   """EMA update of per-(trajectory, bin) failure level."""
-  if strategy == "binary_failure":
+  if strategy in ("binary_failure", "success_target"):
+    # Every episode counts: 1 if it terminated before its clip ended, else 0, so a
+    # bin's level is its recent failure rate and drops again once the policy learns it.
     assert episode_terminated is not None
-    if not torch.any(episode_terminated):
-      return
-    traj_ids = traj_ids[episode_terminated]
-    start_bins = start_bins[episode_terminated]
-    episode_failure = torch.ones(traj_ids.shape[0], device=bin_failure_levels.device)
+    episode_failure = episode_terminated.float()
   elif strategy == "discounted_return":
     assert episode_return is not None and episode_return_max is not None
     ratio = episode_return / episode_return_max.clamp(min=1.0e-6)
@@ -322,6 +353,7 @@ def bin_probabilities(
   temperature_scale_by_bins: bool = True,
   memory: torch.Tensor | None = None,
   memory_ratio: float = 0.0,
+  success_target: SuccessTargetKernel | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
   """Start probability of each valid bin from its failure level, and the softmax part.
 
@@ -329,10 +361,20 @@ def bin_probabilities(
   softmax weights), the rest ``softmax(level / temperature)``.
   """
   num_valid = max(1, levels.shape[0])
-  temperature = temperature_base
-  if temperature_scale_by_bins:
-    temperature = temperature / math.log(1.0 + num_valid)
-  softmax = torch.softmax(levels / temperature, dim=0)
+  if success_target is None:
+    temperature = temperature_base
+    if temperature_scale_by_bins:
+      temperature = temperature / math.log(1.0 + num_valid)
+    logits = levels / temperature
+  else:
+    k = success_target
+    success = 1.0 - levels
+    log_w = k.concentration * (
+      k.target * torch.log(success + k.epsilon)
+      + (1.0 - k.target) * torch.log(1.0 - success + k.epsilon)
+    )
+    logits = log_w / max(k.temperature, 1.0e-6)
+  softmax = torch.softmax(logits, dim=0)
   probs = (1.0 - uniform_ratio - memory_ratio) * softmax + uniform_ratio / num_valid
   if memory is not None and memory_ratio > 0.0:
     total = memory.sum()
@@ -341,6 +383,22 @@ def bin_probabilities(
     )
     probs = probs + memory_ratio * keep.to(probs.dtype)
   return probs, softmax
+
+
+def bin_sampling_probs(
+  failure_levels: torch.Tensor,
+  *,
+  temperature_base: float,
+  uniform_ratio: float,
+  success_target: SuccessTargetKernel | None = None,
+) -> torch.Tensor:
+  """Sampling distribution over valid bins from their failure levels (1-D)."""
+  return bin_probabilities(
+    failure_levels,
+    temperature_base=temperature_base,
+    uniform_ratio=uniform_ratio,
+    success_target=success_target,
+  )[0]
 
 
 def sample_adaptive_bins(
@@ -382,6 +440,7 @@ def compute_sampling_prob_matrix(
   temperature_scale_by_bins: bool = True,
   memory: torch.Tensor | None = None,
   memory_ratio: float = 0.0,
+  success_target: SuccessTargetKernel | None = None,
 ) -> torch.Tensor:
   """Per-(trajectory, bin) sampling probability (same policy as the sampler)."""
   valid = bin_valid_mask.nonzero(as_tuple=False)
@@ -395,6 +454,7 @@ def compute_sampling_prob_matrix(
     temperature_scale_by_bins=temperature_scale_by_bins,
     memory=memory,
     memory_ratio=memory_ratio,
+    success_target=success_target,
   )
   probs[valid[:, 0], valid[:, 1]] = probs_valid
   return probs
@@ -441,6 +501,8 @@ def rsi_failure_signal_label(
     return "EMA(1 − discounted return / attainable)"
   if strategy == "visited_return":
     return "1 − visited-bin bootstrapped return / reward ceiling"
+  if strategy == "success_target":
+    return "EMA(1 if terminated before clip end) — sampled near target success"
   if similarity_from_rewards:
     return "EMA(1 − mean motion-reward similarity)"
   return "EMA(1 − mean tracking similarity)"
