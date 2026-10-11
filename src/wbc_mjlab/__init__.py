@@ -1,6 +1,11 @@
 """WBC motion tracking extension for mjlab."""
 
-__version__ = "0.0.1"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+  __version__ = version("wbc-mjlab")  # single source: pyproject.toml
+except PackageNotFoundError:  # source tree without an install
+  __version__ = "0+unknown"
 
 # Load mjlab before any submodule: its import registers task packages, including
 # ``wbc_mjlab.mjlab_entry``. Importing e.g. ``wbc_mjlab.env.mdp.sampling`` first
