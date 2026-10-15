@@ -5,6 +5,7 @@ import { PlayPane } from "./panes/play.js";
 import { PresetPane } from "./panes/preset.js";
 import { RobotsPane } from "./panes/robots.js";
 import { TrainPane } from "./panes/train.js";
+import { Plots } from "./plots.js";
 import { api, debounce, h, popover, post, store, svgIcon, toast, wireThemeToggle } from "./ui.js";
 import { Viewer } from "./viewer.js";
 
@@ -42,6 +43,7 @@ class App {
     this.clipNames = [];
     this.clipKey = null;
     this._clipBar = debounce(() => this.refreshClipBar().catch((e) => console.error(e)), 120);
+    this.plots = new Plots(this);
     this.bindStage();
     this.bindKeys();
     wireThemeToggle(document.getElementById("theme-toggle"));
@@ -155,6 +157,7 @@ class App {
     apply();
     document.getElementById("cam-reset").addEventListener("click", () => v.resetCamera());
     document.getElementById("keys-btn").addEventListener("click", (e) => this.showKeys(e.currentTarget));
+    document.getElementById("plots-btn").addEventListener("click", () => this.plots.toggle());
 
     document.getElementById("t-play").addEventListener("click", () => this.transport("toggle"));
     document.getElementById("t-step").addEventListener("click", () => this.transport("step"));
@@ -200,6 +203,7 @@ class App {
       [", .", "previous / next env (grid, play)"],
       ["p", "push the focused robot"],
       ["g · o · l · f", "ghost · markers · labels · follow"],
+      ["j", "plots: clip, robot vs reference, rewards"],
       ["r", "reset camera"],
       ["click", "focus a robot (drag orbits, right-drag pans)"],
     ];
@@ -218,6 +222,7 @@ class App {
       else if (k === "o") this.toggleView("marks");
       else if (k === "l") this.toggleView("labels");
       else if (k === "f") this.toggleView("follow");
+      else if (k === "j") { e.preventDefault(); this.plots.toggle(); } // not typed into its search
       else if (k === "r") this.viewer.resetCamera();
       else if (k === "?") this.showKeys(document.getElementById("keys-btn"));
       else if (k === "[" || k === "]") this.shiftClip(k === "]" ? 1 : -1);
@@ -239,6 +244,10 @@ class App {
     if (!n || this.hud.owner !== "play") return;
     const i = this.clipNames.indexOf(this.hud.title);
     this.pickClip(this.clipNames[(((i < 0 ? 0 : i + d) % n) + n) % n]);
+  }
+
+  onPlotsToggle(open) {
+    document.getElementById("plots-btn").classList.toggle("on", open);
   }
 
   pickClip(name) {
@@ -409,6 +418,7 @@ class App {
       pill.textContent = owner === "robots" ? "pose" : owner === "import" ? "draft" : "idle";
       pill.className = "pill idle";
       document.getElementById("hud").hidden = true;
+      this.plots.sync(this.hud, owner);
       return;
     }
     title.textContent = hud.title;
@@ -429,6 +439,7 @@ class App {
     document.getElementById("t-time").textContent = `${(hud.time ?? 0).toFixed(2)} / ${(hud.duration ?? 0).toFixed(2)} s`;
     document.getElementById("t-frame-label").textContent = `${hud.frame} / ${Math.max(0, hud.frames - 1)}`;
     this.panes.data.onPlayhead?.(hud);
+    this.plots.sync(this.hud, owner);
     const now = performance.now();
     if (now - (this._hudAt || 0) < 200) return;
     this._hudAt = now;

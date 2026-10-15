@@ -150,6 +150,7 @@ class UnitreeActuator(IdealPdActuator[UnitreeCfgT], Generic[UnitreeCfgT]):
     self._friction_static: torch.Tensor | None = None
     self._friction_dynamic: torch.Tensor | None = None
     self._activation_vel: torch.Tensor | None = None
+    self.friction: torch.Tensor | None = None  # friction taken off the last effort
 
   def initialize(
     self,
@@ -181,10 +182,11 @@ class UnitreeActuator(IdealPdActuator[UnitreeCfgT], Generic[UnitreeCfgT]):
     assert self._friction_static is not None
     assert self._friction_dynamic is not None
     assert self._activation_vel is not None
-    return effort - (
+    self.friction = (
       self._friction_static * torch.tanh(cmd.vel / self._activation_vel)
       + self._friction_dynamic * cmd.vel
     )
+    return effort - self.friction
 
   def _clip_effort(self, effort: torch.Tensor) -> torch.Tensor:
     assert self._joint_vel is not None

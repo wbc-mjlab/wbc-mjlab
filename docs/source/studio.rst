@@ -64,8 +64,9 @@ Layout
   ``1 running · 40%`` …); the robot chip; the status chip (opens the activity log); theme.
 - **3D view** — whatever the current step is about: the robot and its wiring, a clip, a
   policy on many envs. The icon bar toggles the reference ghost, markers, labels and camera
-  follow; ``?`` lists the keys. Over a clip or a policy, the bar at the top picks the clip,
-  the focused env, shuffles and pushes; the transport bar at the bottom plays and scrubs.
+  follow, and opens **Plots** (:ref:`studio-plots`); ``?`` lists the keys. Over a clip or a
+  policy, the bar at the top picks the clip, the focused env, shuffles and pushes; the
+  transport bar at the bottom plays and scrubs.
 - **Side panel** — the current step: tabs only where they help, the main action at the
   bottom.
 
@@ -82,6 +83,8 @@ Layout
      - Push the robot (Play)
    * - :kbd:`g` · :kbd:`o` · :kbd:`l` · :kbd:`f` · :kbd:`r`
      - Ghost · markers · labels · camera follow · reset camera
+   * - :kbd:`j`
+     - Plots window (:ref:`studio-plots`)
    * - :kbd:`?`
      - Show the shortcuts
 
@@ -236,6 +239,62 @@ over every difficulty row, as in ``wbc-mjlab-play``.
 
 Runs of your own presets are rebuilt from their snapshot (``params/studio_preset.yaml``), so
 they replay as trained even after the preset changed.
+
+.. _studio-plots:
+
+Plots
+-----
+
+The chart icon in the 3D view's icon bar (or :kbd:`j`) opens **Plots**: a window over the
+stage you can drag, resize and make full screen (:kbd:`F`). It plots what the stage shows:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 42 40
+
+   * - Stage
+     - Channels
+     - Dashed
+   * - **Data** — one clip
+     - Root position, root roll / pitch / yaw, every joint (with its limits), the feet's sole
+       heights
+     - A converted clip's raw source, resampled to the clip's frames: what conversion
+       changed
+   * - **Play** — the focused env
+     - The robot's root and joints, PD targets, joint torques (the motor's, with its effort
+       limits; the friction a Unitree actuator takes off it as its own group), actions,
+       per-keybody tracking
+       error, every reward term **weighted** (as summed into the reward, with the total) and
+       **raw** (before the weight: the tracking kernels in [0, 1])
+     - The reference the policy tracks — for each row, the frame that step's rewards compared
+       the robot to
+
+Pick up to eight channels from the list (search, or *plot* a whole group — for rewards the
+largest contributors); each keeps its colour while plotted. One plot shows one unit: picking
+a channel of another unit (an angle after a torque) starts a new plot rather than adding a
+second y-axis.
+
+- **Compare** — *Reference* draws the reference dashed next to each channel; *Error* plots
+  actual − reference instead. The legend shows each channel's RMSE against its reference over
+  the visible time span; the tooltip reads actual, reference and their difference.
+- **Time** — scroll to zoom, :kbd:`Shift`-drag to pan, :kbd:`Ctrl`-drag (or *Zoom*) a box to
+  zoom time and values, double-click to see everything; *from / to* sets an exact range in
+  seconds. On a clip, dragging scrubs the clip and the stage follows; setting a range moves
+  the clip there.
+- **Play** — the window shows the last 60 s of the focused env and follows the newest steps
+  (*Live*, over the last 5–60 s), updated with every stage frame; a click pins a cursor to
+  read a moment while the policy keeps running. Dashed lines mark each new episode or clip,
+  with the clip's name. Every env of a session of up to 32 envs is recorded, so focusing
+  another env (also while paused) shows its record at once; in a larger session an env
+  records from when it is first focused.
+- **Units** — *Pos / Vel / Acc* (finite differences, not across episode boundaries) and
+  *deg / rad* for joint and root channels; *Limits* shades the joint limits — and, for
+  joint torques, the effort limits: the tightest of the asset's ``actuatorfrcrange`` /
+  actuator ``forcerange`` (× gear), the actuator's ``effort_limit`` and, for Unitree
+  actuators, the peak of the torque–speed envelope (lower at speed). The status line counts
+  the frames outside the joint limits, or at the effort limit (saturated).
+- **Table view** — the download button saves the plotted channels (and their references) as
+  CSV.
 
 .. _studio-files:
 

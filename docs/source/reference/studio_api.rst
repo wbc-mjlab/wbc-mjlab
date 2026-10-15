@@ -221,6 +221,53 @@ Play
    * - ``GET /api/scene/terrain.bin``
      - Terrain tiles under the robots (binary mesh, see below)
 
+Plots
+-----
+
+The data behind the Plots window (:ref:`studio-plots`). Each channel is
+``{id, name, group, unit, lower, upper}`` (``unit``: ``rad``, ``m``, ``Nm``, ``reward``,
+``raw`` or ``""`` for actions; joint torques with effort limits add ``limit_note``, where the
+limits come from); ``ref`` is NaN where a channel has no reference.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 44 56
+
+   * - Endpoint
+     - Description
+   * - ``GET /api/plots/clip``
+     - The clip open in Data, JSON: ``{title, fps, frames, channels, data, ref, ref_label}``
+       with ``data`` / ``ref`` ``rows × channels`` float32 arrays (little-endian, base64) —
+       ``ref`` is the raw source of a converted clip, resampled to its frames (or ``null``).
+       409 when no single clip is open
+   * - ``GET /api/plots/play?env=&since=&epoch=``
+     - A Play env's record (default ``env``: the focused one), binary:
+       ``[u32 header length][header JSON][pad to 4]`` then float32 ``data``, ``ref`` and
+       ``meta`` rows (little-endian; the header's ``cols`` gives their column counts).
+       The header: ``{epoch, env, fps, start, end, fresh}``; rows ``since``… of the record.
+       ``ref`` holds the ``ref_cols`` channels only (root and joints); ``meta`` the clip index,
+       frame in the clip and episode step per row. Without ``epoch`` or for another one
+       (``fresh: true``: another env, a restart) it returns every kept row (last 60 s) and the
+       header adds ``channels``, ``ref_cols``, ``clips`` and ``history_s``. Every env of a
+       session of up to 32 envs is recorded from the start; in a larger one an env records
+       from when it is first focused or fetched. 409 without a session
+
+.. code-block:: python
+
+   import json, struct, numpy as np, requests
+
+   S = "http://127.0.0.1:8765"
+   blob = requests.get(f"{S}/api/plots/play", params={"env": 0}).content
+   (hlen,) = struct.unpack_from("<I", blob)
+   head = json.loads(blob[4 : 4 + hlen])
+   rows = head["end"] - head["start"]
+   flat = np.frombuffer(blob, "<f4", offset=4 + hlen)
+   robot, ref, meta = np.split(flat, np.cumsum([rows * c for c in head["cols"]])[:2])
+   robot, ref = robot.reshape(rows, -1), ref.reshape(rows, -1)
+   knee = [c["id"] for c in head["channels"]].index("left_knee_joint")
+   ref_knee = ref[:, head["ref_cols"].index(knee)]
+   rmse = np.sqrt(np.nanmean((robot[:, knee] - ref_knee) ** 2))
+
 Live updates (websocket)
 ------------------------
 

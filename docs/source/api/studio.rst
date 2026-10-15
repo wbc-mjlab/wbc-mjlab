@@ -1,10 +1,11 @@
 .. _api_studio:
 
-Studio presets and robots
-=========================
+Studio presets, robots and plots
+================================
 
-The Studio's files are plain YAML handled by two modules you can use from scripts too.
-Guides: :doc:`../studio` and :doc:`../extensions/custom_robots`.
+The Studio's files are plain YAML handled by two modules you can use from scripts too; a
+third turns clips and Play rollouts into plot channels. Guides: :doc:`../studio` and
+:doc:`../extensions/custom_robots`.
 
 .. _api-studio-presets:
 
@@ -48,3 +49,18 @@ Robots without code
 .. autofunction:: wbc_mjlab.robots.custom.register
 .. autofunction:: wbc_mjlab.robots.custom.register_all
 .. autofunction:: wbc_mjlab.robots.custom.task_id_for
+
+.. _api-studio-plots:
+
+Plot channels
+-------------
+
+.. automodule:: wbc_mjlab.studio.plots
+   :no-members:
+
+.. autofunction:: wbc_mjlab.studio.plots.clip_channels
+.. autoclass:: wbc_mjlab.studio.plots.PlayRecorder
+   :members: follow, clear, record, fetch
+.. autofunction:: wbc_mjlab.studio.plots.encode_rows
+.. autofunction:: wbc_mjlab.studio.plots.effort_limits
+.. autofunction:: wbc_mjlab.studio.plots.joint_group
