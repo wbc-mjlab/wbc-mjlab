@@ -438,7 +438,6 @@ class App {
     frame.disabled = hud.owner !== "data";
     document.getElementById("t-time").textContent = `${(hud.time ?? 0).toFixed(2)} / ${(hud.duration ?? 0).toFixed(2)} s`;
     document.getElementById("t-frame-label").textContent = `${hud.frame} / ${Math.max(0, hud.frames - 1)}`;
-    this.panes.data.onPlayhead?.(hud);
     this.plots.sync(this.hud, owner);
     const now = performance.now();
     if (now - (this._hudAt || 0) < 200) return;

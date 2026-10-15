@@ -48,18 +48,12 @@ def test_load_raw_clip_and_analyze(core) -> None:
   qa = clipmod.analyze(clip, core.model, feet=feet, sole_z=sole)
   assert qa["frames"] == clip.frames
   assert any("resamples to 50 Hz" in i["text"] for i in qa["issues"])
-  s = clipmod.series(
-    clip,
-    core.model,
-    ["root_z", "feet", "joint:left_knee_joint"],
-    feet=feet,
-    sole_z=sole,
-  )
-  assert set(s["series"]) == {"root_z", "feet", "joint:left_knee_joint"}
-  assert (
-    s["series"]["joint:left_knee_joint"]["limits"][0]
-    < s["series"]["joint:left_knee_joint"]["limits"][1]
-  )
+  # issues with a curve name the Plots channels that show it, and where it starts
+  for issue in qa["issues"]:
+    if "plot" in issue:
+      assert issue["plot"]["channels"]
+      frame = issue["plot"].get("frame")
+      assert frame is None or 0 <= frame < clip.frames
 
 
 def test_wildcard_and_substring_search() -> None:

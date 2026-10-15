@@ -425,6 +425,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--color-accent); b
 .issues { display: grid; gap: 7px; }
 .issue { display: flex; gap: 9px; align-items: flex-start; font-size: 0.8rem; line-height: 1.4; }
 .issue .dot { margin-top: 5px; }
+.issue.is-link { width: 100%; margin: -3px -6px; padding: 3px 6px; box-sizing: content-box; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; font-size: 0.8rem; text-align: left; cursor: pointer; }
+.issue.is-link .issue-text { flex: 1; }
+.issue.is-link svg { width: 14px; height: 14px; margin-top: 2px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; color: var(--color-text-faint); }
+.issue.is-link:hover { background: var(--color-surface-hover); }
+.issue.is-link:hover svg { color: var(--color-accent); }
+.issue.is-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 .histogram { display: flex; align-items: flex-end; gap: 3px; height: 44px; }
 .histogram div { flex: 1; background: color-mix(in srgb, var(--color-accent) 65%, transparent); border-radius: 3px 3px 0 0; min-height: 2px; }
 .histogram-axis { display: flex; gap: 3px; font-family: var(--font-mono); font-size: 0.6rem; color: var(--color-text-faint); margin-top: 3px; }

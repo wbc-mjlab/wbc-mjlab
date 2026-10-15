@@ -23,7 +23,7 @@ const PAD = { left: 56, right: 12, top: 12, bottom: 26 };
 const LABEL_W = 116; // direct labels at the line ends (<= 4 series)
 const KINEMATIC = new Set(["rad", "m"]);
 const QUANTITY = { value: "", vel: "/s", acc: "/s²" };
-const WHAT = { rad: "angle", m: "position", Nm: "torque", reward: "reward (weighted)", raw: "reward (raw)", "": "action" };
+const WHAT = { rad: "angle", m: "position", "m/s": "speed", Nm: "torque", reward: "reward (weighted)", raw: "reward (raw)", "": "action" };
 const WINDOWS = [5, 10, 30, 60];
 const PULL_MS = 30; // at most one Play pull in flight, at most this often (stage frames drive it)
 const IDLE_MS = 500; // and at least this often (no stage frames: paused, nothing changed)
@@ -396,6 +396,52 @@ export class Plots {
     this.app.onPlotsToggle?.(false);
   }
 
+  /** Open on given channels of the Data clip (a QA issue): `{channels: [ids], frame, quantity}`
+   *  plots them with their limits, in that quantity, and seeks the clip to `frame`. */
+  focusOn(req) {
+    this.pending = req;
+    if (!this.open) this.show();
+    else if (this.source === "clip" && this.meta && !this.loading) this.applyPending();
+  }
+
+  applyPending() {
+    const req = this.pending;
+    this.pending = null;
+    if (!req || !this.meta) return;
+    const index = new Map(this.meta.channels.map((c, i) => [c.id, i]));
+    const picks = (req.channels || []).map((id) => index.get(id)).filter((i) => i !== undefined);
+    if (!picks.length) return;
+    for (const i of picks) this.collapsed.delete(this.meta.channels[i].group);
+    this.query = "";
+    this.$("pl-search").value = "";
+    this.selected = [];
+    this.slots = new Map();
+    for (const i of picks) this.addPick(i, { quiet: true });
+    const set = (id, key, on) => {
+      this[key] = on;
+      this.$(id).setAttribute("aria-pressed", String(on));
+    };
+    set("pl-limits", "showLimits", true);
+    set("pl-error", "errorMode", false);
+    const quantity = req.quantity || "value";
+    if (this.kinematic()) {
+      this.quantity = quantity;
+      for (const b of this.$("pl-quantity").querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.v === quantity));
+    }
+    this.note("");
+    const f = req.frame;
+    if (Number.isInteger(f) && this.view && (f < this.view[0] || f > this.view[1])) {
+      const span = this.view[1] - this.view[0];
+      this.setView(f - span / 2, f + span / 2);
+    }
+    this.afterPick();
+    this.$("pl-list").querySelector(`[data-ch="${picks[0]}"]`)?.scrollIntoView({ block: "nearest" });
+    if (Number.isInteger(f)) {
+      post("/api/data/playing", { playing: false })
+        .then(() => post("/api/data/frame", { frame: f })).catch(() => {});
+    }
+  }
+
   /** Every HUD frame: follow the stage (the Data clip or the Play session) and its playhead. */
   sync(hud, owner) {
     if (!this.open) return;
@@ -479,6 +525,7 @@ export class Plots {
       this.$("pl-subtitle").textContent = `${info.title} · ${info.frames} frames @ ${info.fps.toFixed(0)} Hz${this.ref ? ` · dashed: ${info.ref_label}` : ""}`;
     } catch (err) {
       this.key = key;
+      this.pending = null;
       this.renderEmpty(`Can't plot this clip: ${err.message}`);
       return;
     } finally {
@@ -487,6 +534,7 @@ export class Plots {
     this.renderList();
     this.renderLegend();
     this.draw();
+    if (this.pending) this.applyPending();
   }
 
   setChannels(info) {

@@ -139,8 +139,9 @@ Data
    * - ``GET /api/data/clips?dataset=&q=&status=&page=&size=``
      - Clip listing; ``q`` supports ``*`` wildcards, ``status`` ∈ ``all``, ``converted``,
        ``missing``, ``raw``
-   * - ``GET /api/data/series`` · ``/joints`` · ``/preview``
-     - Curves of the loaded clip · joint list · preview state
+   * - ``GET /api/data/joints`` · ``/preview``
+     - Joint list · preview state (``qa.issues[].plot``: the Plots channels and first frame
+       of an issue)
    * - ``POST /api/data/load`` ``{dataset, clip, source}`` · ``/grid`` · ``/close``
      - Preview a clip (``source``: ``auto``, ``npz``, ``raw``) · a grid of clips · close
    * - ``POST /api/data/frame`` · ``/time`` · ``/playing`` · ``/options``

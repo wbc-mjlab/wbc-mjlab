@@ -1,5 +1,4 @@
-// Step 2 · Data: datasets → clips → inspect (QA, curves, raw vs converted) → convert.
-import { lineChart } from "../chart.js";
+// Step 2 · Data: datasets → clips → inspect (QA, raw vs converted; curves in the Plots window) → convert.
 import {
   PaneFrame, api, button, chips, debounce, dot, empty, field, fmtDuration, group, h, help, iconButton, input,
   listRow, modal, plural, post, progressBar, qs, ring, searchBox, seg, select, strip, svgIcon, switchEl, tabs, tag, toast,
@@ -27,10 +26,8 @@ export class DataPane {
     this.preview = null;
     this.jobs = [];
     this.openJob = "";
-    this.joint = "";
     this.gridCount = 16;
     this.opts = { which: "missing", batch_size: 8, output_fps: 50, input_fps: 0, mirror: false, debias_z: false };
-    this.charts = [];
     this._reloadList = debounce(() => this.loadListing().then(() => this.render()), 180);
   }
 
@@ -94,7 +91,6 @@ export class DataPane {
       { value: "clip", label: "Clip", count: p.active ? (p.mode === "grid" ? p.count : null) : null },
       { value: "convert", label: "Convert", count: d?.missing || null, mod: !!d?.missing },
     ], this.tab, (t) => this.setTab(t)));
-    this.charts = [];
     if (this.tab === "library") this.renderLibrary(d);
     else if (this.tab === "clip") this.renderClip(p);
     else this.renderConvert(d);
@@ -248,7 +244,6 @@ export class DataPane {
       ? help(`vs raw: ${qa.vs_raw.frames_raw} frames @ ${qa.vs_raw.fps_raw} Hz → ${qa.frames} @ ${qa.fps} Hz; root height ${(100 * qa.vs_raw.dz_mean).toFixed(1)} cm${Math.hypot(...qa.vs_raw.xy_offset) > 0.05 ? `; npz carries a (${qa.vs_raw.xy_offset.map((v) => v.toFixed(1)).join(", ")}) m pool offset (re-centred here)` : ""}.`)
       : null;
     const opt = (k) => (v) => post("/api/data/options", { [k]: v });
-    this.chartsBox = h("div.charts", help("loading curves…"));
     this.frame.setBody(
       group("", {}, h("div.stack", head, source,
         strip([
@@ -258,9 +253,8 @@ export class DataPane {
           ["Airborne", qa.feet?.airborne !== undefined ? `${Math.round(100 * qa.feet.airborne)}%` : "—"],
         ]))),
       group("Quality", {},
-        h("div.issues", (qa.issues || []).map((i) => h("div.issue", dot({ ok: "ok", warn: "warn", error: "bad", info: "accent" }[i.level]), h("span", i.text)))),
+        h("div.issues", (qa.issues || []).map((i) => this.issueRow(i))),
         vsRaw ? h("div", { style: { marginTop: "8px" } }, vsRaw) : null),
-      group("Curves", { aside: "click to seek" }, this.chartsBox),
       group("Display", { collapsible: true, closed: true, key: "data-display" },
         h("div.grid2",
           p.has_compare ? switchEl("Raw source ghost", p.show_compare, opt("show_compare")) : null,
@@ -271,45 +265,18 @@ export class DataPane {
     this.frame.setFooter(
       button("Close", () => post("/api/data/close"), { cls: "ghost", icon: "x" }),
       h("span.spacer"),
+      button("Plots", () => this.app.plots.toggle(), { cls: "ghost", icon: "chart", title: "Curves of this clip: every joint, root, feet; the raw source dashed  j" }),
       button("Play with a policy", () => this.app.panes.play.prefillClip(this.dataset, p.clip), { cls: "", icon: "play", disabled: p.kind === "raw" && !p.has_compare, title: "Pin this clip in Play" }),
     );
-    this.loadCharts();
   }
 
-  async loadCharts() {
-    const p = this.preview;
-    if (!p?.active || p.mode !== "single") return;
-    if (!this.jointNames) this.jointNames = await api("/api/data/joints");
-    const limits = p.qa?.limits || [];
-    if (!this.joint || !this.jointNames.includes(this.joint)) this.joint = limits[0]?.joint || this.jointNames.find((n) => n.includes("knee")) || this.jointNames[0];
-    const keys = ["root_z", "speed", "feet", `joint:${this.joint}`, `jvel:${this.joint}`];
-    const s = await api(`/api/data/series?keys=${encodeURIComponent(keys.join(","))}`);
-    if (this.preview?.clip !== p.clip || !this.chartsBox?.isConnected) return;
-    const seek = (t) => post("/api/data/frame", { frame: Math.round(t * p.fps) });
-    const mk = (key, title) => {
-      const e = s.series[key];
-      if (!e) return null;
-      const c = lineChart(title, s.t, e.values.map((v, i) => ({ label: e.labels[i].replace(/_link$/, ""), values: v })), { unit: e.unit, limits: e.limits, zero: e.zero, onSeek: seek, last: false });
-      this.charts.push(c);
-      return c;
-    };
-    const joints = this.jointNames.map((n) => ({ value: n, label: `${limits.some((l) => l.joint === n) ? "⚠ " : ""}${n.replace(/_joint$/, "")}` }));
-    const jointSel = select(joints, this.joint, (v) => { this.joint = v; this.loadCharts(); });
-    this.charts = [];
-    this.chartsBox.replaceChildren(
-      h("div.charts.two", mk("root_z", "Root height"), mk("speed", "Root speed")),
-      mk("feet", "Foot sole height"),
-      field("Joint (limits shaded, ⚠ = violated)", jointSel),
-      h("div.charts.two", mk(`joint:${this.joint}`, "Position"), mk(`jvel:${this.joint}`, "Speed")),
-    );
-  }
-
-  onPlayhead(hud) {
-    if (hud.owner !== "data" || hud.grid || this.tab !== "clip") return;
-    const now = performance.now();
-    if (now - (this._playheadAt || 0) < 66) return; // ~15 Hz is plenty for a cursor
-    this._playheadAt = now;
-    for (const c of this.charts) c.setPlayhead?.(hud.time);
+  /** One QA line; with a ``plot`` it opens the Plots window on its channels and first bad frame. */
+  issueRow(i) {
+    const mark = dot({ ok: "ok", warn: "warn", error: "bad", info: "accent" }[i.level]);
+    if (!i.plot) return h("div.issue", mark, h("span", i.text));
+    const at = Number.isInteger(i.plot.frame) ? ` at frame ${i.plot.frame}` : "";
+    return h("button.issue.is-link", { type: "button", title: `Show in Plots${at}`, on: { click: () => this.app.plots.focusOn(i.plot) } },
+      mark, h("span.issue-text", i.text), svgIcon("chart"));
   }
 
   // ------------------------------------------------------------------ convert

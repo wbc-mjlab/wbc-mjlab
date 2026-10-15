@@ -163,12 +163,20 @@ def effort_limits(session) -> dict[str, tuple[float, float, str]]:
 
 
 # ---------------------------------------------------------------------- clip (Data)
+def _ground_speed(q: np.ndarray, fps: float) -> np.ndarray:
+  """Horizontal speed of the root (central differences of x, y)."""
+  if len(q) < 2:
+    return np.zeros(len(q), np.float32)
+  return np.linalg.norm(np.gradient(q[:, 0:2], 1.0 / fps, axis=0), axis=1)
+
+
 def _clip_columns(clip, model, feet: list[str], sole_z: float) -> list[np.ndarray]:
   from wbc_mjlab.studio.clips import _hinges, foot_heights
 
   q = clip.qpos
   cols = [q[:, i] for i in range(3)]
   cols += list(_rpy(q[:, 3:7]).T)
+  cols.append(_ground_speed(q, clip.fps))
   cols += [q[:, qadr] for _, qadr, *_ in _hinges(model)]
   cols += list(foot_heights(clip, model, feet, sole_z).values())
   return cols
@@ -181,6 +189,7 @@ def clip_channels(clip, model, *, feet: list[str], sole_z: float, compare=None) 
 
   limits = hinge_limits(model)
   channels = _root_channels()
+  channels.append(_ch("root_speed", "root speed (xy)", "Root speed", "m/s"))
   channels += [_joint_channel(n, limits) for n, *_ in _hinges(model)]
   channels += [
     _ch(f"foot_{n}", n.removesuffix("_link"), "Feet (sole height)", "m")

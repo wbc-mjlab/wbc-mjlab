@@ -93,6 +93,12 @@ def test_clip_channels_with_raw_source(core) -> None:
   knee = next(i for i, c in enumerate(chans) if c["name"] == "left_knee_joint")
   assert chans[knee]["unit"] == "rad" and chans[knee]["lower"] < chans[knee]["upper"]
   assert data[:, 2].min() > 0.3  # root height of a walk
+  speed = next(i for i, c in enumerate(chans) if c["id"] == "root_speed")
+  assert chans[speed]["unit"] == "m/s" and 0.3 < data[:, speed].mean() < 3.0
+  # the Data pane's QA issues open these channels in the Plots window
+  ids = {c["id"] for c in chans}
+  for issue in core.data.qa["issues"]:
+    assert set(issue.get("plot", {}).get("channels", [])) <= ids
   # converted clip vs its raw source: resampled to the clip's frames, close to it
   assert info["ref"] and info["ref_label"] == "raw source"
   ref = _rows(info["ref"], cols)

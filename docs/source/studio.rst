@@ -138,9 +138,10 @@ conversion, *Grid* plays up to 49 clips of a search side by side. *Scan* compute
 
 **Clip** — click a clip to play it, **raw sources included, before conversion**. Quality
 issues: joint-limit violations, joint-speed spikes, feet below or above the ground, time
-airborne. Curves: root height and speed, foot heights, any joint against its limits — click
-a curve to seek. For converted clips, *source* overlays the raw clip as a ghost to check the
-conversion. ``[`` ``]`` step through clips.
+airborne. Click an issue to open it in **Plots** (:ref:`studio-plots`): its joints or feet
+plotted against their limits, the clip paused at the first frame where it happens. The
+*Plots* button (or :kbd:`j`) opens the clip's curves. For converted clips, *source* overlays
+the raw clip as a ghost to check the conversion. ``[`` ``]`` step through clips.
 
 **Convert** — *missing*, *all* or *selected* clips, output fps, batch size (parallel FK on
 the GPU), mirror (needs the robot's symmetry config), debias height, input fps. **Convert N**
@@ -256,8 +257,8 @@ stage you can drag, resize and make full screen (:kbd:`F`). It plots what the st
      - Channels
      - Dashed
    * - **Data** — one clip
-     - Root position, root roll / pitch / yaw, every joint (with its limits), the feet's sole
-       heights
+     - Root position, root roll / pitch / yaw, root speed (horizontal), every joint (with
+       its limits), the feet's sole heights
      - A converted clip's raw source, resampled to the clip's frames: what conversion
        changed
    * - **Play** — the focused env

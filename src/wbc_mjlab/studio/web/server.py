@@ -585,10 +585,6 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     core.data.set_options(**opts)
     return ok()
 
-  @app.get("/api/data/series")
-  def data_series(keys: str = "root_z,speed,feet"):
-    return core.data.clip_series([k for k in keys.split(",") if k])
-
   @app.get("/api/plots/clip")
   def plots_clip():
     """Plot channels of the clip open in Data (Plots window)."""

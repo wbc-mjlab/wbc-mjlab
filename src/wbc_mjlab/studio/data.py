@@ -6,9 +6,9 @@
 * **Browser** — paged, ``*``-wildcard search over thousands of clips; per-row frames / fps /
   conversion state read from file headers only.
 * **Preview** — one clip on the robot (converted NPZ, or the raw source *before* conversion),
-  with QA (joint limits, speed spikes, foot penetration …), curves, the root path, and the raw
-  source as a ghost over the converted clip to see what conversion changed. **Grid** plays the
-  first N clips of the current search side by side.
+  with QA (joint limits, speed spikes, foot penetration …), plot channels, the root path,
+  and the raw source as a ghost over the converted clip to see what conversion changed.
+  **Grid** plays the first N clips of the current search side by side.
 * **Conversion / import** — ``wbc-mjlab-data-to-npz`` as a detached job on all, missing or
   selected clips (via a folder of symlinks), and source clips imported from a folder (copied
   or linked) or uploaded from the browser.
@@ -399,12 +399,6 @@ class DataService:
       "show_feet": self.show_feet,
       "qa": self.qa,
     }
-
-  def clip_series(self, keys: list[str]) -> dict:
-    if not self.clips or self.mode != "single":
-      return {"t": [], "series": {}}
-    feet, sole = self._robot_feet()
-    return clipmod.series(self.clips[0], self.c.model, keys, feet=feet, sole_z=sole)
 
   def plot_data(self) -> dict:
     """Plot channels of the open clip (Plots window), with its raw source as reference."""
