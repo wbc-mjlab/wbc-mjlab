@@ -8,6 +8,7 @@ import { THEME_EVENT, token } from "./ui.js";
 
 const HOME_OFFSET = new THREE.Vector3(2.6, -3.0, 1.1);
 const FOCUS_HEIGHT = 0.75;
+const PICK_RADIUS = 0.25; // m from a robot's vertical axis: a click there picks it
 const Y = new THREE.Vector3(0, 1, 0);
 
 function primitiveGeometry(g) {
@@ -384,6 +385,9 @@ export class Viewer {
       el.dataset.i = i;
       el.title = `${this.labels[i]} — click to focus`;
       el.classList.toggle("focus", i === this.focus);
+      // nearer labels over farther ones, the focused robot's over all
+      const far = this.camera.position.distanceTo(new THREE.Vector3(r[0], r[1], r[2]));
+      el.style.zIndex = i === this.focus ? "1000" : String(Math.max(1, 900 - Math.round(far * 10)));
     }
   }
 
@@ -541,8 +545,35 @@ export class Viewer {
       const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       const ray = new THREE.Raycaster();
       ray.setFromCamera(ndc, this.camera);
-      const hit = ray.intersectObjects(this.robots.geoms.map((g) => g.mesh), false)[0];
-      if (hit && hit.instanceId !== undefined && this.onPick) this.onPick(hit.instanceId);
+      const pick = this._pickAt(ray);
+      if (pick !== null && this.onPick) this.onPick(pick);
     });
+  }
+
+  /** The robot under the ray: a hit on its meshes, else the one whose body axis passes closest
+   *  (within PICK_RADIUS: a click just beside a thin limb still picks it). */
+  _pickAt(ray) {
+    const meshes = this.robots.geoms.map((g) => g.mesh).filter((m) => m.count > 0);
+    // InstancedMesh.raycast tests a cached bounding sphere first, computed once: the robots move
+    for (const m of meshes) m.computeBoundingSphere();
+    const hit = ray.intersectObjects(meshes, false)[0];
+    if (hit && hit.instanceId !== undefined) return hit.instanceId;
+    let best = null;
+    let bestD = PICK_RADIUS;
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const onRay = new THREE.Vector3();
+    const onAxis = new THREE.Vector3();
+    for (let i = 0; i < this._roots.length; i++) {
+      const r = this._roots[i];
+      a.set(r[0], r[1], 0);
+      b.set(r[0], r[1], r[2] + 0.5);
+      const d = Math.sqrt(ray.ray.distanceSqToSegment(a, b, onRay, onAxis));
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
   }
 }
