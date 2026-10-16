@@ -24,6 +24,7 @@ import torch
 
 from wbc_mjlab.studio import jobs as jobmod
 from wbc_mjlab.studio.core import CONTROL_FPS
+from wbc_mjlab.studio.plots import PlayRecorder
 from wbc_mjlab.studio.scene import Overlay, error_colors, grid_offsets
 from wbc_mjlab.studio.terrain import TerrainMap
 
@@ -142,6 +143,7 @@ class PlayService:
     self.session: Session | None = None
     self._tmap: TerrainMap | None = None  # terrain of the session (-Terrain-Scan tasks)
     self._patches: dict | None = None
+    self.recorder: PlayRecorder | None = None  # the envs' records (Plots window)
     self.run_label = ""
     self.checkpoint = ""
     self.motion = ""  # motion library (dataset folder or bundle) of the session
@@ -162,6 +164,7 @@ class PlayService:
     self._returns = np.zeros(1)
     self._last: dict | None = None
     self._grid_cache: tuple | None = None
+    core.on("focus", self._on_focus)
 
   # ------------------------------------------------------------------ choices
   def runs(self) -> list[dict]:
@@ -313,8 +316,10 @@ class PlayService:
         self._tmap = None
         self.c.log(f"terrain view unavailable: {exc}", "warn")
       self._patches = None
+      recorder = PlayRecorder(session, self.c.model, fps=CONTROL_FPS)
       with self._lock:
         self.session = session
+        self.recorder = recorder
         self.robot, self.run_label, self.checkpoint = robot, run, checkpoint or ZERO
         self.motion, self.num_envs, self.terminations = motion, num_envs, terminations
         names = session.clip_names()
@@ -336,6 +341,7 @@ class PlayService:
   def _close(self) -> None:
     self.__dict__.pop("_reward_defaults", None)
     self._tmap, self._patches = None, None
+    self.recorder = None
     self.c.scene.set_terrain(None)
     if self.session is not None:
       self.session.close()
@@ -363,6 +369,8 @@ class PlayService:
       s.obs = s.wrapped.get_observations()
       self._repin(list(self.pinned))
       self._last = None
+      if self.recorder is not None:
+        self.recorder.clear()
       self.c.take_scene(OWNER)
       self._render()
     self.c.emit("play", **self.state())
@@ -475,6 +483,25 @@ class PlayService:
       )
     self.c.log(f"pushed env {e} at {speed:.1f} m/s")
 
+  def _on_focus(self, focus: int) -> None:
+    """Another env focused: its HUD (and the Plots window's record) now, even while paused."""
+    if self.session is None or self.c.owner != OWNER:
+      return
+    if self.recorder is not None:
+      self.recorder.follow(focus)
+    with self._lock:
+      self._render()
+
+  def plot_data(
+    self, since: int = 0, epoch: int | None = None, env: int | None = None
+  ) -> dict:
+    """``env``'s record (default: the focused env) since row ``since`` (Plots window).
+    The recorder has its own lock: a fetch never waits for a whole tick of steps."""
+    rec = self.recorder
+    if rec is None:
+      raise RuntimeError("start a Play session first")
+    return rec.fetch(self.c.scene.focus if env is None else env, since, epoch)
+
   # ------------------------------------------------------------------ stepping
   def _advance(self, steps: int) -> None:
     s = self.session
@@ -493,6 +520,9 @@ class PlayService:
           if done[e] or int(ts[e]) != self._expect[e]:
             redo.append(e)
         self._repin(redo)
+      if self.recorder is not None:
+        self.recorder.follow(self.c.scene.focus)
+        self.recorder.record()
 
   def _reset_blown_up(self, done: np.ndarray) -> None:
     """Envs whose state went non-finite (a pile-up with terminations off) restart; ``done`` is

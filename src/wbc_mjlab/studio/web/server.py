@@ -38,6 +38,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 
 from wbc_mjlab.studio.core import StudioCore
+from wbc_mjlab.studio.plots import encode_rows
 
 STATIC = Path(__file__).parent / "static"
 FRAME_HZ = 60.0  # poll rate; a frame is only sent when the scene changed
@@ -584,9 +585,23 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     core.data.set_options(**opts)
     return ok()
 
-  @app.get("/api/data/series")
-  def data_series(keys: str = "root_z,speed,feet"):
-    return core.data.clip_series([k for k in keys.split(",") if k])
+  @app.get("/api/plots/clip")
+  def plots_clip():
+    """Plot channels of the clip open in Data (Plots window)."""
+    try:
+      return core.data.plot_data()
+    except RuntimeError as exc:
+      raise HTTPException(409, str(exc)) from exc
+
+  @app.get("/api/plots/play")
+  def plots_play(since: int = 0, epoch: int | None = None, env: int | None = None):
+    """A Play env's record (default: the focused one) since row ``since`` (all of it for
+    another ``epoch``), binary: see :func:`wbc_mjlab.studio.plots.encode_rows`."""
+    try:
+      out = core.play.plot_data(since, epoch, env)
+    except RuntimeError as exc:
+      raise HTTPException(409, str(exc)) from exc
+    return Response(encode_rows(out), media_type="application/octet-stream")
 
   @app.get("/api/data/joints")
   def data_joints():

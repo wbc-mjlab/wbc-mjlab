@@ -49,9 +49,9 @@ joint flips, limit violations) are much cheaper to catch here.
 
       Click a clip in *Data*: it plays **straight from the source file**, before
       conversion. The *Clip* tab lists quality issues — joint-limit violations, joint-speed
-      spikes, feet below or above the ground, time airborne — and plots root height and
-      speed, foot heights and any joint against its limits. *Grid* plays up to 49 clips of a
-      search side by side.
+      spikes, feet below or above the ground, time airborne; clicking one opens its curves
+      in the Plots window (root, every joint against its limits, foot heights). *Grid* plays
+      up to 49 clips of a search side by side.
 
    .. tab-item:: Command line
 

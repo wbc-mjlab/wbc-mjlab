@@ -6,9 +6,9 @@
 * **Browser** — paged, ``*``-wildcard search over thousands of clips; per-row frames / fps /
   conversion state read from file headers only.
 * **Preview** — one clip on the robot (converted NPZ, or the raw source *before* conversion),
-  with QA (joint limits, speed spikes, foot penetration …), curves, the root path, and the raw
-  source as a ghost over the converted clip to see what conversion changed. **Grid** plays the
-  first N clips of the current search side by side.
+  with QA (joint limits, speed spikes, foot penetration …), plot channels, the root path,
+  and the raw source as a ghost over the converted clip to see what conversion changed.
+  **Grid** plays the first N clips of the current search side by side.
 * **Conversion / import** — ``wbc-mjlab-data-to-npz`` as a detached job on all, missing or
   selected clips (via a folder of symlinks), and source clips imported from a folder (copied
   or linked) or uploaded from the browser.
@@ -400,11 +400,22 @@ class DataService:
       "qa": self.qa,
     }
 
-  def clip_series(self, keys: list[str]) -> dict:
-    if not self.clips or self.mode != "single":
-      return {"t": [], "series": {}}
-    feet, sole = self._robot_feet()
-    return clipmod.series(self.clips[0], self.c.model, keys, feet=feet, sole_z=sole)
+  def plot_data(self) -> dict:
+    """Plot channels of the open clip (Plots window), with its raw source as reference."""
+    from wbc_mjlab.studio.plots import clip_channels
+
+    with self._lock:
+      if not self.clips or self.mode != "single":
+        raise RuntimeError("open one clip in Data first")
+      clip, compare = self.clips[0], self.compare
+    key = (str(clip.path), clip.kind, str(compare.path) if compare else "")
+    cached = getattr(self, "_plot_cache", None)
+    if cached is None or cached[0] != key:
+      feet, sole = self._robot_feet()
+      out = clip_channels(clip, self.c.model, feet=feet, sole_z=sole, compare=compare)
+      out["key"] = "|".join(key)
+      self._plot_cache = cached = (key, out)
+    return cached[1]
 
   def joint_names(self) -> list[str]:
     from wbc_mjlab.studio.clips import _hinges

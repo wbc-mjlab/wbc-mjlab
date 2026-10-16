@@ -176,7 +176,9 @@ def foot_heights(
 def analyze(
   clip: Clip, model: mujoco.MjModel, *, feet: list[str], sole_z: float
 ) -> dict:
-  """Summary numbers + warnings (``issues``: ``{level, text}``) of one clip."""
+  """Summary numbers + warnings of one clip. ``issues``: ``{level, text}``, plus ``plot``
+  (``{channels, frame, quantity}``: the Plots window channels that show it and the first frame
+  where it happens) when there is a curve to look at."""
   q, dt = clip.qpos, 1.0 / clip.fps
   t = clip.frames
   root_z = q[:, 2]
@@ -197,10 +199,18 @@ def analyze(
       frac = float(np.mean(over > 1e-3))
       if frac > 0:
         limits.append(
-          {"joint": name, "fraction": frac, "max_deg": float(np.degrees(over.max()))}
+          {
+            "joint": name,
+            "fraction": frac,
+            "max_deg": float(np.degrees(over.max())),
+            "frame": int(np.argmax(over > 1e-3)),
+          }
         )
     if t > 2:
-      speeds.append({"joint": name, "max": float(np.max(np.abs(np.diff(col))) / dt)})
+      jumps = np.abs(np.diff(col))
+      speeds.append(
+        {"joint": name, "max": float(jumps.max()) / dt, "frame": int(jumps.argmax())}
+      )
   limits.sort(key=lambda x: -x["max_deg"])
   speeds.sort(key=lambda x: -x["max"])
 
@@ -211,6 +221,7 @@ def analyze(
         "level": level,
         "text": f"{lim['joint']} outside its range on {100 * lim['fraction']:.0f}% of frames "
         f"(max {lim['max_deg']:.1f}°)",
+        "plot": {"channels": [lim["joint"]], "frame": lim["frame"]},
       }
     )
   if speeds and speeds[0]["max"] > 25.0:
@@ -219,6 +230,11 @@ def analyze(
         "level": "warn",
         "text": f"joint speed spike: {speeds[0]['joint']} reaches {speeds[0]['max']:.0f} rad/s "
         "(a glitch in the source?)",
+        "plot": {
+          "channels": [speeds[0]["joint"]],
+          "frame": speeds[0]["frame"],
+          "quantity": "vel",
+        },
       }
     )
 
@@ -228,6 +244,7 @@ def analyze(
     stacked = np.stack(list(feet_h.values()))
     lowest = stacked.min(axis=0)
     pen = float(lowest.min())
+    foot_ids = [f"foot_{n}" for n in feet_h]
     airborne = float(np.mean(lowest > 0.05))
     feet_out = {"min": pen, "airborne": airborne}
     if pen < -0.02:
@@ -235,6 +252,7 @@ def analyze(
         {
           "level": "warn",
           "text": f"feet go {-100 * pen:.1f} cm below the ground (try --debias-z)",
+          "plot": {"channels": foot_ids, "frame": int(lowest.argmin())},
         }
       )
     elif float(np.median(lowest)) > 0.05 and airborne > 0.8:
@@ -243,6 +261,7 @@ def analyze(
           "level": "warn",
           "text": f"feet float {100 * float(np.median(lowest)):.0f} cm above the ground most of "
           "the clip (try --debias-z)",
+          "plot": {"channels": foot_ids},
         }
       )
   if clip.kind == "raw" and abs(clip.fps - 50.0) > 1e-3:
@@ -257,6 +276,7 @@ def analyze(
       {
         "level": "info",
         "text": f"root goes down to {root_z.min():.2f} m (lying / crawling)",
+        "plot": {"channels": ["root_z"], "frame": int(root_z.argmin())},
       }
     )
   if not issues:
@@ -277,71 +297,6 @@ def analyze(
   }
 
 
-def series(
-  clip: Clip,
-  model: mujoco.MjModel,
-  keys: list[str],
-  *,
-  feet: list[str],
-  sole_z: float,
-  points: int = 600,
-) -> dict:
-  """Time series of a clip for the charts, decimated to about ``points`` samples.
-
-  Keys: ``root_z``, ``speed``, ``feet`` (sole height of each foot), ``joint:<name>``
-  (position, with its limits) and ``jvel:<name>`` (speed)."""
-  t = clip.frames
-  step = max(1, int(np.ceil(t / points)))
-  idx = np.arange(0, t, step)
-  time = (idx / clip.fps).tolist()
-  q, dt = clip.qpos, 1.0 / clip.fps
-  out: dict = {"t": time, "series": {}}
-  hinges = {
-    name: (qadr, limited, lo, hi) for name, qadr, _, limited, lo, hi in _hinges(model)
-  }
-  for key in keys:
-    if key == "root_z":
-      out["series"][key] = {
-        "values": [q[idx, 2].tolist()],
-        "labels": ["root z"],
-        "unit": "m",
-      }
-    elif key == "speed":
-      v = (
-        np.linalg.norm(np.gradient(q[:, 0:2], dt, axis=0), axis=1)
-        if t > 1
-        else np.zeros(t)
-      )
-      out["series"][key] = {
-        "values": [v[idx].tolist()],
-        "labels": ["root speed"],
-        "unit": "m/s",
-      }
-    elif key == "feet":
-      fh = foot_heights(clip, model, feet, sole_z)
-      out["series"][key] = {
-        "values": [v[idx].tolist() for v in fh.values()],
-        "labels": list(fh),
-        "unit": "m",
-        "zero": True,
-      }
-    elif key.startswith("joint:") and key[6:] in hinges:
-      qadr, limited, lo, hi = hinges[key[6:]]
-      entry = {"values": [q[idx, qadr].tolist()], "labels": [key[6:]], "unit": "rad"}
-      if limited:
-        entry["limits"] = [lo, hi]
-      out["series"][key] = entry
-    elif key.startswith("jvel:") and key[5:] in hinges:
-      qadr = hinges[key[5:]][0]
-      v = np.gradient(q[:, qadr], dt) if t > 1 else np.zeros(t)
-      out["series"][key] = {
-        "values": [v[idx].tolist()],
-        "labels": [key[5:]],
-        "unit": "rad/s",
-      }
-  return out
-
-
 __all__ = [
   "RAW_EXTENSIONS",
   "Clip",
@@ -349,5 +304,4 @@ __all__ = [
   "load_clip",
   "npz_header",
   "raw_header",
-  "series",
 ]
