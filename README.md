@@ -1,5 +1,3 @@
-<p align="center"><img src="assets/wbc_mjlab_logo.png" width="96" alt="WBC-MJLab logo"></p>
-
 # WBC-Mjlab: Whole Body Control in MuJoCo Lab
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/wbc-mjlab/wbc-mjlab/blob/main/notebooks/demo.ipynb)
