@@ -9,8 +9,9 @@ on the reference — the open-loop baseline the policy improves on.
 
 Changes apply in place where they can: another checkpoint of the same run is loaded into the
 running policy, and the env count changes instantly up to the session's capacity (envs are
-built in powers of two, at least ``MIN_CAPACITY``). Another run or library, the terminations
-switch or more envs than the capacity rebuild the session in the background.
+built in powers of two, at least ``MIN_CAPACITY``); the terminations switch flips live (the
+task's terminations are always built, and gated off). Another run or library or more envs
+than the capacity rebuild the session in the background.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ OWNER = "play"
 ZERO = "zero action (PD on reference)"
 MAX_STEPS_PER_TICK = 4
 MIN_CAPACITY = 16
+MAX_ENVS = 4096  # an env count typed by hand: no more than this
 GRID_SPACING = 2.0
 TERRAIN_SPACING = 5.0  # envs on terrain: room for each env's terrain patch
 
@@ -69,8 +71,6 @@ class Session:
     motion = env_cfg.commands["motion"]
     motion.motion_file = motion_file
     motion.rsi.sampling_mode = "uniform"
-    if not terminations:
-      env_cfg.terminations = {}
     env_cfg.scene.num_envs = num_envs
     self.task = task_id
     self.env = ManagerBasedRlEnv(cfg=env_cfg, device=device)
@@ -78,11 +78,32 @@ class Session:
     self.cmd = self.env.command_manager.get_term("motion")
     self.robot = self.env.scene["robot"]
     self.device = device
+    self.terminations = terminations
+    self._gate_terminations()
     runner_cls = load_runner_cls(task_id) or MjlabOnPolicyRunner
     self.runner = runner_cls(self.wrapped, asdict(agent_cfg), device=device)
     self.policy = None
     self.load_policy(checkpoint)
     self.obs = self.wrapped.get_observations()
+
+  def _gate_terminations(self) -> None:
+    """Terminations on / off without a rebuild: the terms are always computed, and while
+    ``self.terminations`` is off their done flags are cleared, as with no terminations at all
+    (no episode ends, time-outs included)."""
+    tm = self.env.termination_manager
+    compute = tm.compute
+
+    def gated() -> torch.Tensor:
+      dones = compute()
+      if self.terminations:
+        return dones
+      tm._truncated_buf[:] = False  # noqa: SLF001
+      tm._terminated_buf[:] = False  # noqa: SLF001
+      for flags in tm._term_dones.values():  # noqa: SLF001
+        flags[:] = False
+      return tm.dones
+
+    tm.compute = gated
 
   def load_policy(self, checkpoint: Path | None) -> None:
     if checkpoint is None:
@@ -233,8 +254,11 @@ class PlayService:
     """Apply a run / checkpoint / library / env count / terminations choice.
 
     Returns ``"swapped"`` (checkpoint loaded into the running policy), ``"resized"``,
-    ``"unchanged"``, ``"rebuilding"`` (a new session loads in the background) or ``"busy"``."""
-    num_envs = max(1, int(num_envs))
+    ``"terminations"``, ``"unchanged"``, ``"rebuilding"`` (a new session loads in the
+    background) or ``"busy"``."""
+    num_envs = int(num_envs)
+    if not 1 <= num_envs <= MAX_ENVS:
+      raise ValueError(f"environments: 1 to {MAX_ENVS}, not {num_envs}")
     s = self.session
     r = jobmod.find_run(run)
     if r is None:
@@ -244,7 +268,6 @@ class PlayService:
       s is None
       or run != self.run_label
       or motion != self.motion
-      or bool(terminations) != self.terminations
       or num_envs > s.num_envs
     ):
       ok = self._rebuild(run, checkpoint, motion, num_envs, bool(terminations))
@@ -262,9 +285,14 @@ class PlayService:
         if self.c.scene.focus >= num_envs:
           self.c.set_focus(0)
         changed.append("resized")
+      if bool(terminations) != self.terminations:
+        self.terminations = s.terminations = bool(terminations)
+        changed.append("terminations")
       self._render()
     if "swapped" in changed:
       self.c.log(f"play: switched to {self.checkpoint} (same envs, no reload)", "ok")
+    if "terminations" in changed:
+      self.c.log(f"play: terminations {'on' if self.terminations else 'off'}", "ok")
     self.c.emit("play", **self.state())
     return changed[0] if changed else "unchanged"
 
