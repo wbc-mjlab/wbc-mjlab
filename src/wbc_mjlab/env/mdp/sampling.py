@@ -4,6 +4,9 @@
 
 - ``binary_failure`` — failure on early termination (BeyondMimic RSI).
 - ``similarity_ema`` — failure from mean per-step tracking similarity (Zest RSI).
+- ``success_target`` — success-guided sampling (SGS, arXiv:2610.12465): per-bin
+  success rate (episode not terminated before its clip ends), bins weighted by a
+  Beta-shaped kernel peaking at ``target_success`` instead of hardest-first.
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ AdaptiveSimilarityTerm = Literal[
   "body_ang_vel",
 ]
 
-AdaptiveSamplingStrategy = Literal["binary_failure", "similarity_ema"]
+AdaptiveSamplingStrategy = Literal["binary_failure", "similarity_ema", "success_target"]
 
 DEFAULT_SIMILARITY_STDS: dict[AdaptiveSimilarityTerm, float] = {
   "joint_pos": 1.0,
@@ -92,6 +95,32 @@ class RsiCfg:
   # (same kernels and weights as training) instead of ``similarity_terms``.
   similarity_from_rewards: bool = False
   tracking_reward_prefix: str = "motion_"
+  # ``success_target`` (SGS) kernel: w = (p+ε)^(κt) · (1−p+ε)^(κ(1−t)) over bin
+  # success rate p, sampled with softmax(log w / T). Unvisited bins start at t.
+  target_success: float = 0.66
+  target_concentration: float = 5.0
+  target_temperature: float = 2.0
+  target_epsilon: float = 1.0e-4
+
+  def success_kernel(self) -> SuccessTargetKernel | None:
+    if self.strategy != "success_target":
+      return None
+    return SuccessTargetKernel(
+      target=self.target_success,
+      concentration=self.target_concentration,
+      temperature=self.target_temperature,
+      epsilon=self.target_epsilon,
+    )
+
+
+@dataclass(frozen=True)
+class SuccessTargetKernel:
+  """SGS bin weighting: favours bins whose success rate is near ``target``."""
+
+  target: float = 0.66
+  concentration: float = 5.0
+  temperature: float = 2.0
+  epsilon: float = 1.0e-4
 
 
 def keybody_similarity_preset() -> tuple[AdaptiveSimilarityTermCfg, ...]:
@@ -245,13 +274,11 @@ def update_failure_ema(
   norm_by_remaining_clip: bool = False,
 ) -> None:
   """EMA update of per-(trajectory, bin) failure level."""
-  if strategy == "binary_failure":
+  if strategy in ("binary_failure", "success_target"):
+    # Every episode counts: 1 if it terminated before its clip ended, else 0, so a
+    # bin's level is its recent failure rate and drops again once the policy learns it.
     assert episode_terminated is not None
-    if not torch.any(episode_terminated):
-      return
-    traj_ids = traj_ids[episode_terminated]
-    start_bins = start_bins[episode_terminated]
-    episode_failure = torch.ones(traj_ids.shape[0], device=bin_failure_levels.device)
+    episode_failure = episode_terminated.float()
   else:
     assert episode_similarity_sum is not None and episode_step_count is not None
     if norm_by_remaining_clip:
@@ -281,6 +308,31 @@ def update_failure_ema(
   )
 
 
+def bin_sampling_probs(
+  failure_levels: torch.Tensor,
+  *,
+  temperature_base: float,
+  uniform_ratio: float,
+  success_target: SuccessTargetKernel | None = None,
+) -> torch.Tensor:
+  """Sampling distribution over valid bins from their failure levels (1-D)."""
+  num_valid = max(1, failure_levels.shape[0])
+  if success_target is None:
+    # Hardest first: softmax over failure, sharper as the library grows.
+    temperature = temperature_base / math.log(1.0 + num_valid)
+    logits = failure_levels / temperature
+  else:
+    k = success_target
+    success = 1.0 - failure_levels
+    log_w = k.concentration * (
+      k.target * torch.log(success + k.epsilon)
+      + (1.0 - k.target) * torch.log(1.0 - success + k.epsilon)
+    )
+    logits = log_w / max(k.temperature, 1.0e-6)
+  probs = torch.softmax(logits, dim=0)
+  return (1.0 - uniform_ratio) * probs + uniform_ratio / float(num_valid)
+
+
 def sample_adaptive_bins(
   bin_failure_levels: torch.Tensor,
   valid_bin_indices: torch.Tensor,
@@ -292,14 +344,16 @@ def sample_adaptive_bins(
   uniform_ratio: float,
   num_samples: int,
   device: torch.device | str,
+  success_target: SuccessTargetKernel | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
   """Draw (trajectory, bin, frame) from failure-weighted bin distribution."""
   valid = valid_bin_indices
-  temperature = temperature_base / math.log(1.0 + max(1, valid.shape[0]))
-  logits = bin_failure_levels[valid[:, 0], valid[:, 1]] / temperature
-  probs_valid = torch.softmax(logits, dim=0)
-  num_valid = max(1, valid.shape[0])
-  probs_valid = (1.0 - uniform_ratio) * probs_valid + uniform_ratio / float(num_valid)
+  probs_valid = bin_sampling_probs(
+    bin_failure_levels[valid[:, 0], valid[:, 1]],
+    temperature_base=temperature_base,
+    uniform_ratio=uniform_ratio,
+    success_target=success_target,
+  )
 
   sampled_valid = torch.multinomial(probs_valid, num_samples, replacement=True)
   traj_ids = valid[sampled_valid, 0]
@@ -326,6 +380,7 @@ def compute_sampling_prob_matrix(
   *,
   temperature_base: float,
   uniform_ratio: float,
+  success_target: SuccessTargetKernel | None = None,
 ) -> torch.Tensor:
   """Per-(trajectory, bin) sampling probability (same policy as ``sample_adaptive_bins``)."""
   valid = bin_valid_mask.nonzero(as_tuple=False)
@@ -333,12 +388,12 @@ def compute_sampling_prob_matrix(
   if valid.numel() == 0:
     return probs
 
-  num_valid = max(1, int(valid.shape[0]))
-  temperature = temperature_base / math.log(1.0 + num_valid)
-  logits = bin_failure_levels[valid[:, 0], valid[:, 1]] / temperature
-  probs_valid = torch.softmax(logits, dim=0)
-  probs_valid = (1.0 - uniform_ratio) * probs_valid + uniform_ratio / float(num_valid)
-  probs[valid[:, 0], valid[:, 1]] = probs_valid
+  probs[valid[:, 0], valid[:, 1]] = bin_sampling_probs(
+    bin_failure_levels[valid[:, 0], valid[:, 1]],
+    temperature_base=temperature_base,
+    uniform_ratio=uniform_ratio,
+    success_target=success_target,
+  )
   return probs
 
 
@@ -379,6 +434,8 @@ def rsi_failure_signal_label(
 ) -> str:
   if strategy == "binary_failure":
     return "EMA(1 if early terminated)"
+  if strategy == "success_target":
+    return "EMA(1 if terminated before clip end) — sampled near target success"
   if similarity_from_rewards:
     return "EMA(1 − mean motion-reward similarity)"
   return "EMA(1 − mean tracking similarity)"
@@ -447,7 +504,10 @@ def load_rsi_bin_stats(
       torch.as_tensor(valid, dtype=torch.bool, device=command.device)
     )
     command._valid_bin_indices = command.bin_valid_mask.nonzero(as_tuple=False)
-  if "visit_counts" in data and data["visit_counts"].shape == command.bin_visit_counts.shape:
+  if (
+    "visit_counts" in data
+    and data["visit_counts"].shape == command.bin_visit_counts.shape
+  ):
     command.bin_visit_counts.copy_(
       torch.as_tensor(data["visit_counts"], dtype=torch.float32, device=command.device)
     )

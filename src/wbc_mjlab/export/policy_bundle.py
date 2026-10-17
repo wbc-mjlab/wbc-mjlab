@@ -83,11 +83,17 @@ def export_deploy_params(
   *,
   robot_id: str,
   write_motion_library: bool = False,
+  write_rsi_stats: bool = True,
 ) -> tuple[Path, Path | None, Path | None]:
-  """Write deploy params next to ``policy.onnx`` (config, RSI stats, optional manifest)."""
+  """Write deploy params next to ``policy.onnx`` (config, RSI stats, optional manifest).
+
+  ``write_rsi_stats`` is for training only: the bin stats are training state that
+  ``--agent.resume`` restores, and a play env's copy is either what it just loaded or,
+  when that failed (another dataset), all zeros.
+  """
   params_dir = log_dir / PLAY_PARAMS_SUBDIR
   yaml_path = export_tracking_params_yaml(params_dir, cfg, robot_id=robot_id)
-  rsi_path = export_rsi_bin_stats(params_dir, env)
+  rsi_path = export_rsi_bin_stats(params_dir, env) if write_rsi_stats else None
   manifest_path = (
     export_motion_library_manifest_from_env(params_dir, env)
     if write_motion_library

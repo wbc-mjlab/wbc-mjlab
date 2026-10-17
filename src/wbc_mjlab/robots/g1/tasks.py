@@ -8,6 +8,7 @@ from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.presets.binary_failure import apply_binary_failure
 from wbc_mjlab.presets.end_effector import apply_end_effector
 from wbc_mjlab.presets.se_actor import apply_se_actor
+from wbc_mjlab.presets.sgs import apply_sgs
 from wbc_mjlab.presets.terrain import apply_terrain_scan
 from wbc_mjlab.presets.wbc import apply_wbc
 from wbc_mjlab.presets.zest import apply_zest
@@ -49,6 +50,12 @@ def g1_wbc_se_env_cfg() -> ManagerBasedRlEnvCfg:
   cfg = g1_wbc_env_cfg()
   apply_se_actor(cfg)
   wire_g1_imu_sensors(cfg)
+  return cfg
+
+
+def g1_wbc_sgs_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_wbc_env_cfg()
+  apply_sgs(cfg)
   return cfg
 
 
@@ -113,6 +120,13 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
     description="Wbc-G1 + SE obs (anchor pose tracking error, base lin vel).",
     experiment_name="wbc_g1_se",
     build_env_cfg=g1_wbc_se_env_cfg,
+  ),
+  WbcTaskConfig(
+    task_id="Wbc-G1-SGS",
+    robot_id="g1",
+    description="Wbc-G1 with success-guided sampling (SGS): starts near a target success rate.",
+    experiment_name="wbc_g1_sgs",
+    build_env_cfg=g1_wbc_sgs_env_cfg,
   ),
   WbcTaskConfig(
     task_id="Wbc-G1-Zest",
@@ -206,6 +220,7 @@ __all__ = [
   "g1_wbc_ee_se_env_cfg",
   "g1_wbc_env_cfg",
   "g1_wbc_se_env_cfg",
+  "g1_wbc_sgs_env_cfg",
   "g1_wbc_terrain_scan_env_cfg",
   "g1_wbc_zest_env_cfg",
   "g1_wbc_zest_se_env_cfg",

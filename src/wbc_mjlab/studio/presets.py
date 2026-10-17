@@ -57,6 +57,14 @@ BUILTIN_MODULES = {
     "error and IMU base velocity",
   ),
 }
+# Built-in modules that are fixed settings rather than a task diff.
+FIXED_MODULES = {
+  "sgs": (
+    "Success-guided sampling: start episodes on clip bins near a target success rate "
+    "instead of the hardest ones",
+    "Wbc-G1-SGS (apply_sgs)",
+  ),
+}
 
 # Motion-command fields that are wiring, not tuning knobs.
 _COMMAND_SKIP = {
@@ -95,11 +103,15 @@ _AGENT_SKIP = {
 
 HELP = {
   "rsi.sampling_mode": "where episodes start: clip start, uniform, or adaptive (failure-weighted bins)",
-  "rsi.strategy": "failure signal for adaptive sampling",
+  "rsi.strategy": "adaptive sampling: hardest-first by failure signal, or success_target (SGS)",
   "rsi.bin_width_s": "length of one RSI bin",
   "rsi.uniform_ratio": "share of starts drawn uniformly",
   "rsi.alpha": "EMA rate of the failure levels",
-  "rsi.temperature_base": "softmax temperature over bin failure levels",
+  "rsi.temperature_base": "softmax temperature over bin failure levels (hardest-first)",
+  "rsi.target_success": "success_target: bin success rate the sampler aims for",
+  "rsi.target_concentration": "success_target: how sharply it focuses on that rate",
+  "rsi.target_temperature": "success_target: softmax temperature of the kernel",
+  "rsi.target_epsilon": "success_target: floor that keeps every bin sampleable",
   "assistive_wrench_enabled": "virtual wrench that helps on hard bins (curriculum)",
   "assistive_beta_max": "max assist gain on the hardest bins",
   "joint_position_range": "noise added to the reference joints at reset",
@@ -799,7 +811,7 @@ def delete(name: str) -> None:
 # ---------------------------------------------------------------------- modules
 @functools.lru_cache(maxsize=8)
 def _builtin_modules(robot_id: str) -> dict[str, dict]:
-  """Modules read off the built-in tasks: ``se`` = ``<task>-SE`` minus ``<task>``."""
+  """Built-in modules: ``se`` = ``<task>-SE`` minus ``<task>``; fixed ones (``sgs``)."""
   from wbc_mjlab.robots.env import make_wbc_env_cfg
   from wbc_mjlab.tasks import all_wbc_tasks, register_all_wbc_tasks
 
@@ -824,6 +836,17 @@ def _builtin_modules(robot_id: str) -> dict[str, dict]:
       "description": text,
       "source": f"{pair[1]} vs {pair[0]}",
       "overrides": {"observations": observation_diff(a, b)},
+    }
+  from wbc_mjlab.presets.sgs import SGS_RSI_FIELDS
+
+  fixed = {"sgs": {"command": {f"rsi.{k}": v for k, v in SGS_RSI_FIELDS.items()}}}
+  for name, (text, source) in FIXED_MODULES.items():
+    out[name] = {
+      "name": name,
+      "builtin": True,
+      "description": text,
+      "source": source,
+      "overrides": fixed[name],
     }
   return out
 
@@ -858,7 +881,7 @@ def load_module(name: str, robot: str | None = None) -> dict:
 def save_module(
   name: str, overrides: dict, description: str = "", robot: str = ""
 ) -> dict:
-  if name in BUILTIN_MODULES:
+  if name in BUILTIN_MODULES or name in FIXED_MODULES:
     raise ValueError(f"{name!r} is a built-in module: pick another name")
   data = {
     "description": description,
@@ -873,7 +896,7 @@ def save_module(
 
 
 def delete_module(name: str) -> None:
-  if name in BUILTIN_MODULES:
+  if name in BUILTIN_MODULES or name in FIXED_MODULES:
     raise ValueError("built-in modules can't be deleted")
   _module_path(name).unlink(missing_ok=True)
 
