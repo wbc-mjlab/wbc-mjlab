@@ -1,9 +1,30 @@
 // Step 5 · Play: a run's checkpoint (or the zero action = PD on the reference) on N envs over a
 // motion library. Clip / env / push live on the stage; this pane picks the policy and shows the
 // focused env's reward terms.
-import { PaneFrame, api, bars, button, empty, field, group, h, help, listRow, post, seg, select, switchEl, tag, toast } from "../ui.js";
+import { PaneFrame, api, bars, button, empty, field, group, h, help, input, listRow, post, seg, select, switchEl, tag, toast } from "../ui.js";
 
 const ENVS = ["1", "4", "16", "64"];
+const MAX_ENVS = 4096; // play.MAX_ENVS
+
+/** The env count: presets, or any number typed in the box (applied on Enter / leaving it). */
+function envPicker(value, onChange) {
+  const box = input(value, { type: "number", min: 1, max: MAX_ENVS, step: 1, title: `Any number of envs, 1 to ${MAX_ENVS}` });
+  const presets = seg(ENVS.map((n) => ({ value: n, label: n })), String(value), (v) => { box.value = v; onChange(Number(v)); }, { block: true });
+  presets.style.flex = "1";
+  box.style.width = "84px";
+  box.addEventListener("change", () => {
+    const n = Math.round(Number(box.value));
+    if (!Number.isFinite(n) || n < 1 || n > MAX_ENVS) {
+      toast(`Environments: 1 to ${MAX_ENVS}`, "warn");
+      box.value = value;
+      return;
+    }
+    box.value = n;
+    for (const b of presets.querySelectorAll("button")) b.classList.toggle("is-active", b.textContent === String(n));
+    onChange(n);
+  });
+  return h("div.row", { style: { gap: "8px", alignItems: "stretch" } }, presets, box);
+}
 const ZERO = "__zero__";
 
 export class PlayPane {
@@ -122,7 +143,7 @@ export class PlayPane {
         h("div.stack",
           field("Checkpoint", select([...ckpts.map((x) => ({ value: x, label: x })), { value: ZERO, label: "Zero action · PD on the reference" }], c.checkpoint, (v) => (c.checkpoint = v))),
           field("Motion library", select(this.libs.length ? this.libs : [{ value: "", label: "convert a dataset first" }], c.motion, (v) => (c.motion = v))),
-          field("Environments", seg(ENVS.map((n) => ({ value: n, label: n })), String(c.num_envs), (v) => (c.num_envs = Number(v)), { block: true })),
+          field("Environments", envPicker(c.num_envs, (n) => (c.num_envs = n))),
           switchEl("Terminations — falls end episodes", c.terminations, (v) => (c.terminations = v)))),
     );
     this.frame.setFooter(
@@ -141,6 +162,17 @@ export class PlayPane {
     }
   }
 
+  /** Change the running session's env count or terminations (the rest stays as it is). */
+  async reconfigure(patch) {
+    const s = this.state;
+    const c = Object.assign(this.choice, {
+      run: s.run, checkpoint: s.checkpoint === s.zero ? ZERO : s.checkpoint, motion: s.motion,
+      num_envs: s.num_envs, terminations: s.terminations, ...patch,
+    });
+    const r = await post("/api/play/configure", { ...c, checkpoint: c.checkpoint === ZERO ? "" : c.checkpoint });
+    if (r.result === "rebuilding") toast(`Rebuilding the session for ${c.num_envs} envs…`, "info");
+  }
+
   renderSession() {
     const s = this.state;
     if (!s?.active || this.picking) return;
@@ -156,6 +188,11 @@ export class PlayPane {
           trail: tag(s.playing ? "live" : "paused", s.playing ? "accent" : "amber"),
           active: true,
         }))),
+      group("Session", {},
+        h("div.stack",
+          field("Environments", envPicker(s.num_envs, (n) => this.reconfigure({ num_envs: n })),
+            `up to ${s.capacity}: instant; more rebuilds the session`),
+          switchEl("Terminations — falls end episodes", s.terminations, (v) => this.reconfigure({ terminations: v })))),
       group("View", {},
         h("div.stack",
           field("Reference ghost", seg([

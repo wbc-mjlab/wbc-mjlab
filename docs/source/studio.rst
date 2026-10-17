@@ -226,13 +226,20 @@ and **Play** for its run.
 --------
 
 Pick a run (or the bundled demo checkpoint) and a checkpoint — or the **zero action** (the PD
-holds the reference: judge a dataset without a policy) — a motion library and 1–64 envs, then
+holds the reference: judge a dataset without a policy) — a motion library and the number of
+envs (1, 4, 16, 64, or any count up to 4096 typed in the box), then
 **Load policy**. Every env shows its **reference ghost** (*aligned* to the robot's xy + yaw,
 as the body rewards compare, or in *world* frame to see drift) and keybody targets coloured by
 error. The focused env's **reward terms** and a HUD (return, body / joint error, anchor drift,
 episode time) update live; *Tune* jumps to the rewards. The bar over the 3D view picks the
-focused env's clip (it loops), shuffles the others and **pushes** the robot. Another
-checkpoint swaps in place; envs that blow up are reset automatically.
+focused env's clip (it loops), shuffles the others and **pushes** the robot. Click a robot
+(or its label) to focus it. Another checkpoint swaps in place; envs that blow up are reset
+automatically.
+
+*Session* changes the running session without reloading the policy: **Environments** resizes
+it at once up to the envs already built (a power of two, at least 16; more rebuilds it in the
+background), and **Terminations** switches on or off live (off: no episode ends, time-outs
+included).
 
 On **terrain tasks** (``-Terrain-Scan``) each env stands on a tile of its own terrain, sampled
 from the simulation and following the robot — grey flat, rising towards teal; envs are spread

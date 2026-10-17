@@ -212,7 +212,9 @@ Play
    * - ``GET /api/play`` · ``/api/play/runs`` · ``/api/play/libraries?run=`` · ``/api/play/clips``
      - Playback state · runs · motion libraries for a run · clips of the session
    * - ``POST /api/play/configure`` ``{run, checkpoint, motion, num_envs, terminations}``
-     - Load a policy (``checkpoint: ""`` = zero action) — rebuilds in the background
+     - Load a policy (``checkpoint: ""`` = zero action), rebuilt in the background; on a
+       running session another checkpoint of its run, the env count up to its capacity and
+       ``terminations`` change in place
    * - ``POST /api/play/stop`` · ``/playing`` · ``/step`` · ``/restart``
      - Stop · pause / resume · single step · reset every env
    * - ``POST /api/play/clip`` ``{clip, env}`` · ``/api/focus`` ``{index}``

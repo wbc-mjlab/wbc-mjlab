@@ -162,7 +162,34 @@ def test_play_session_pins_and_loops() -> None:
   assert c.scene.snapshot()["ghost_pos"].shape[0] == 2
   c.play.push(speed=1.0)
   c.play.step_once()
+  # terminations flip live, in the same session: a term that always fires (an anchor height
+  # threshold below zero) ends no episode while off, every episode once on
+  s = c.play.session
+  tm = s.env.termination_manager
+  tm.get_term_cfg("anchor_pos").params["threshold"] = -1.0
+  c.play.step_once()
+  assert not tm.dones.any() and not tm.get_term("anchor_pos").any()
+  args = (jobmod.DEMO_LABEL, "model.pt")
+  live = {"motion": str(SAMPLES), "num_envs": 2}
+  assert c.play.configure(*args, **live, terminations=True) == "terminations"
+  assert c.play.session is s and c.play.state()["terminations"]
+  c.play.step_once()
+  assert tm.terminated[:2].all()
+  assert c.play.configure(*args, **live, terminations=False) == "terminations"
+  c.play.step_once()
+  assert not tm.dones.any()
+  # the env count changes in place up to the session's capacity
+  assert c.play.configure(*args, **{**live, "num_envs": 4}) == "resized"
+  assert c.play.session is s and c.play.state()["num_envs"] == 4
   c.play.stop()
+
+
+def test_play_env_count_bounds(core) -> None:
+  from wbc_mjlab.studio.play import MAX_ENVS
+
+  for n in (0, MAX_ENVS + 1):
+    with pytest.raises(ValueError, match="environments"):
+      core.play.configure(jobmod.DEMO_LABEL, "model.pt", num_envs=n)
 
 
 def test_token_auth(core) -> None:
