@@ -1,17 +1,15 @@
 # G1 sample motions
 
 A small, **version-controlled** subset of public retargeted G1 clips for smoke-testing
-convert, train, play, and `wbc-mjlab-data-vis` without downloading full datasets.
+train and play without downloading full datasets.
 
 **10 clips** ship as source CSV in this folder (7 from LAFAN1 retargeting, 3 retargeted
-from video). Run conversion once to populate `npz/`, then train or visualize:
+from video). Training reads them as they are:
 
 ```bash
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 4   # parallel FK workers
-uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+uv run wbc-mjlab-train --task Wbc-G1 --dataset samples --mirror
 uv run wbc-mjlab-play --task Wbc-G1 --dataset samples
-uv run wbc-mjlab-data-vis --robot g1 --dataset samples
+uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples   # optional: npz/ for other tools
 ```
 
 ## Layout
@@ -20,7 +18,8 @@ uv run wbc-mjlab-data-vis --robot g1 --dataset samples
 data/g1/samples/
   README.md
   *.csv              # source clips (bundled)
-  npz/<clip>.npz     # local only — run wbc-mjlab-data-to-npz (never committed)
+  .cache/            # packed clips for training (local, rebuilt automatically)
+  npz/<clip>.npz     # optional export — wbc-mjlab-data-to-npz (never committed)
 ```
 
 ## Bundled clips

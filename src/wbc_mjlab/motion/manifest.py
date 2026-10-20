@@ -113,6 +113,29 @@ def build_motion_library_manifest_from_npz(
   }
 
 
+def build_motion_library_manifest_from_segments(
+  *,
+  dataset_root: Path,
+  robot: str,
+  clips: list[str],
+  total_frames: int,
+  fps: float,
+) -> dict[str, Any]:
+  """Manifest of a library played from source clips (online, no bundle file)."""
+  dataset_root = Path(dataset_root).resolve()
+  return {
+    "schema": MANIFEST_SCHEMA,
+    "dataset": dataset_root.name,
+    "robot": robot,
+    "bundle": None,
+    "bundle_path": str(dataset_root),
+    "num_clips": len(clips),
+    "total_frames": int(total_frames),
+    "fps": float(fps),
+    "clips": list(clips),
+  }
+
+
 def write_motion_library_manifest(path: Path, doc: dict[str, Any]) -> Path:
   path = path.resolve()
   path.parent.mkdir(parents=True, exist_ok=True)

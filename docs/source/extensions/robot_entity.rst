@@ -62,10 +62,10 @@ This keeps ``env/mdp/`` free of robot-specific strings.
 Symmetry config (optional, for ``--mirror``)
 --------------------------------------------
 
-If you want ``wbc-mjlab-data-to-npz --mirror`` for your robot, add
+If you want ``--mirror`` (mirrored clips in training) for your robot, add
 ``robots/<id>/symmetry.py`` with a :class:`~wbc_mjlab.robots.symmetry.RobotSymmetryConfig`.
 The config lists **joint pairs** (left name, right name, sign) used to mirror
-``joint_pos`` and ``joint_vel`` in exported NPZs.
+the joint coordinates (training mirrors them before forward kinematics).
 
 **Sign convention:** ``+1`` for pitch-like joints, ``-1`` for roll/yaw-like joints.
 Central joints (waist) use the same name for both sides and typically ``-1`` on

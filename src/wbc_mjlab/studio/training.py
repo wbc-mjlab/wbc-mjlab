@@ -102,6 +102,8 @@ class TrainingService:
     resume_run: str = "",
     resume_checkpoint: str = "",
     logger: str = "tensorboard",
+    mirror: bool = False,
+    debias_z: bool = False,
     extra: str = "",
   ) -> jobmod.Job:
     from wbc_mjlab.studio import presets
@@ -114,13 +116,19 @@ class TrainingService:
     if not dataset:
       raise ValueError("pick a dataset")
     from wbc_mjlab.data_paths import resolve_dataset_root
+    from wbc_mjlab.motion.library import has_sources
     from wbc_mjlab.motion.stack_bundle import list_clip_npz_files
 
     root = resolve_dataset_root(cfg.robot_id, dataset)
-    if not list_clip_npz_files(root):
-      raise ValueError(
-        f"{dataset} has no converted clips yet: convert it in Data first"
-      )
+    if not has_sources(root) and not list_clip_npz_files(root):
+      raise ValueError(f"{dataset} has no clips (source CSV / PKL or converted NPZ)")
+    if mirror:
+      from wbc_mjlab.robots.symmetry import get_robot_symmetry_config
+
+      if get_robot_symmetry_config(cfg.robot_id) is None:
+        raise ValueError(
+          f"mirroring needs a left/right symmetry config for {cfg.robot_id}"
+        )
     entry = (
       ["wbc_mjlab.studio.train_preset", "--preset", preset[1]]
       if preset
@@ -135,6 +143,10 @@ class TrainingService:
       "--agent.max-iterations",
       str(int(max_iterations)),
     ]
+    if mirror:
+      args += ["--env.commands.motion.mirror", "True"]
+    if debias_z:
+      args += ["--env.commands.motion.debias-z", "True"]
     if run_name:
       args += ["--agent.run-name", re.sub(r"[^\w.-]+", "-", run_name)]
     if logger == "wandb":
@@ -162,6 +174,8 @@ class TrainingService:
         "dataset": dataset,
         "num_envs": int(num_envs),
         "max_iterations": int(max_iterations),
+        "mirror": bool(mirror),
+        "debias_z": bool(debias_z),
         "resume": f"{resume_run}/{resume_checkpoint}" if resume_run else "",
         "experiment": cfg.experiment_name,
       },

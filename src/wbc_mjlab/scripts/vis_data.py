@@ -48,7 +48,17 @@ def _robot_xml_path(robot_id: RobotId) -> Path:
   return get_robot_mjcf_path(robot_id)
 
 
-def _resolve_motion_dir_and_npz(
+def _resolve_motion_dir_and_npz(**kwargs) -> tuple[Path | None, Path]:
+  clip_dir, npz_path = _resolve_motion_dir_and_npz_any(**kwargs)
+  if npz_path.is_dir():
+    raise FileNotFoundError(
+      f"{npz_path} has source clips only. This viewer plays converted clips: preview "
+      "source clips in the Studio (Data), or export them with wbc-mjlab-data-to-npz."
+    )
+  return clip_dir, npz_path
+
+
+def _resolve_motion_dir_and_npz_any(
   *,
   robot_id: RobotId,
   dataset: str | None,

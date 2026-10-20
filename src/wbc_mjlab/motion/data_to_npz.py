@@ -1,4 +1,10 @@
-"""Convert motion source files (CSV, PKL, …) to training NPZ clips.
+"""Export motion source files (CSV, PKL, …) as converted NPZ clips.
+
+Training does not need this: it plays a dataset's source clips directly (resampled,
+mirrored and debiased on the GPU — :mod:`wbc_mjlab.motion.library`). The NPZ clips are for
+tools that want precomputed body poses and velocities. The export bakes them with the same
+code path as training (batched GPU FK); ``--render`` keeps the old frame-by-frame sim pool
+to record a video.
 
 Source layout is defined in ``motion_formats.py`` (canonical fields:
 ``base_pos``, ``base_rot_xyzw``, ``dof_pos``, ``fps``). Format is inferred from
@@ -131,7 +137,9 @@ def _append_env_log(robot: Entity, env_idx: int, log: dict[str, Any]) -> None:
   log["joint_pos"].append(robot.data.joint_pos[env_idx, :].cpu().numpy().copy())
   log["joint_vel"].append(robot.data.joint_vel[env_idx, :].cpu().numpy().copy())
   log["body_pos_w"].append(robot.data.body_link_pos_w[env_idx, :].cpu().numpy().copy())
-  log["body_quat_w"].append(robot.data.body_link_quat_w[env_idx, :].cpu().numpy().copy())
+  log["body_quat_w"].append(
+    robot.data.body_link_quat_w[env_idx, :].cpu().numpy().copy()
+  )
   log["body_lin_vel_w"].append(
     robot.data.body_link_lin_vel_w[env_idx, :].cpu().numpy().copy()
   )
@@ -215,8 +223,7 @@ def run_sim_pool(
 
   scene.reset()
   print(
-    f"\nStarting FK pool: {num_envs} env(s), "
-    f"{total_clips} clip(s) @ {output_fps} Hz"
+    f"\nStarting FK pool: {num_envs} env(s), {total_clips} clip(s) @ {output_fps} Hz"
   )
   if render:
     print("Rendering enabled - generating video frames...")
@@ -361,6 +368,25 @@ def main(
     print("[WARNING] CUDA is not available. Falling back to CPU.")
     device = "cpu"
 
+  if not render:
+    _export_baked(
+      input_path=input_path,
+      output_dir=output_dir,
+      dataset=dataset,
+      dataset_path=dataset_path,
+      robot=robot,
+      format_name=format,
+      input_fps=input_fps,
+      output_fps=output_fps,
+      batch_size=batch_size,
+      device=device,
+      line_range=line_range,
+      debias_z=debias_z,
+      debias_foot_sole_z=debias_foot_sole_z,
+      mirror=mirror,
+    )
+    return
+
   robot_id = resolve_robot_id(robot)
   _, motion_spec = get_robot_motion_spec(robot)
   symmetry_config = get_robot_symmetry_config(robot_id) if mirror else None
@@ -384,7 +410,9 @@ def main(
     input_path=input_path,
     output_dir=output_dir,
   )
-  print(f"[INFO] dataset={dataset or '(custom)'} input={input_path} output={output_dir}")
+  print(
+    f"[INFO] dataset={dataset or '(custom)'} input={input_path} output={output_dir}"
+  )
 
   input_paths = resolve_input_motion_paths(input_path, format_name=format)
   pending_paths: deque[Path] = deque(input_paths)
@@ -519,6 +547,75 @@ def main(
         clips.append(mirrored_clip)
 
   print(f"[INFO] Finished {len(clips)} clip(s) in {npz_output_dir(output_dir)}")
+
+
+def _export_baked(
+  *,
+  input_path: str | None,
+  output_dir: str | None,
+  dataset: str | None,
+  dataset_path: str | None,
+  robot: str,
+  format_name: str | None,
+  input_fps: float | None,
+  output_fps: float,
+  batch_size: int,
+  device: str,
+  line_range: tuple[int, int] | None,
+  debias_z: bool,
+  debias_foot_sole_z: float | None,
+  mirror: bool,
+) -> None:
+  """Bake every source clip (and its mirror) with the online library and write the NPZs."""
+  from wbc_mjlab.data_paths import resolve_conversion_paths
+  from wbc_mjlab.motion.library import Baker
+
+  robot_id = resolve_robot_id(robot)
+  input_path, output_dir = resolve_conversion_paths(
+    robot_id=robot_id,
+    dataset=dataset,
+    dataset_path=dataset_path,
+    input_path=input_path,
+    output_dir=output_dir,
+  )
+  print(
+    f"[INFO] dataset={dataset or '(custom)'} input={input_path} output={output_dir}"
+  )
+  inputs = resolve_input_motion_paths(input_path, format_name=format_name)
+  # Batched FK runs thousands of frames at once: the pool size only sets the lower bound.
+  batch = max(4096, int(batch_size))
+  source = inputs[0] if len(inputs) == 1 and Path(input_path).is_file() else input_path
+  baker = Baker(
+    source,
+    robot_id=robot_id,
+    fps=output_fps,
+    mirror=mirror,
+    debias_z=debias_z,
+    debias_foot_sole_z=debias_foot_sole_z,
+    device=device,
+    batch=batch,
+    format_name=format_name,
+    input_fps=input_fps,
+    line_range=line_range,
+    cache=False,
+  )
+  print(
+    f"\nStarting FK pool: {batch} env(s), {len(inputs)} clip(s) @ {output_fps} Hz "
+    "(batched GPU FK)"
+  )
+  npz_output_dir(output_dir).mkdir(parents=True, exist_ok=True)
+  segments = baker.segments()
+  for i in tqdm(segments, desc="Clips", unit="clip", ncols=100):
+    clip = MotionClipExport(
+      log=baker.bake(i), source_path=baker.source_of(i), joint_names=baker.joint_names
+    )
+    export_motion_clip_npz(
+      output_dir=output_dir,
+      clip=clip,
+      robot_id=robot_id,
+      robot_body_names=baker.body_names,
+    )
+  print(f"[INFO] Finished {len(segments)} clip(s) in {npz_output_dir(output_dir)}")
 
 
 def cli() -> None:

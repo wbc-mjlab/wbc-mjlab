@@ -5,7 +5,7 @@ Motion libraries for WBC tracking live under **`data/<robot>/<dataset_name>/`**.
 A small **`samples/`** folder is version-controlled under each robot (e.g.
 [`g1/samples/`](g1/samples/)) with a few clips from public datasets for smoke
 tests. All other dataset folders stay local — download full libraries from
-Hugging Face (see robot guides) or convert your own clips.
+Hugging Face (see robot guides) or add your own retargeted clips.
 
 Only READMEs, `samples/`, and `.gitkeep` placeholders are version-controlled;
 other clip and bundle files stay gitignored.
@@ -20,27 +20,28 @@ other clip and bundle files stay gitignored.
 
 ```
 data/<robot>/<dataset>/
-  *.csv / *.pkl          # source clips (or under raw/)
-  npz/<clip>.npz         # per-clip exports (source of truth for training)
-  <dataset>.npz          # optional cached stack (--cache-motion-bundle)
+  *.csv / *.pkl          # source clips (or under raw/) — what training reads
+  .cache/motion_<key>.npz  # packed source clips, rebuilt when a clip changes
+  npz/<clip>.npz         # optional per-clip exports (wbc-mjlab-data-to-npz)
+  <dataset>.npz          # optional stacked npz/ (--cache-motion-bundle)
 ```
 
-- Put source clips in the dataset folder or in **`raw/`** — converters prefer `raw/` when it contains `.csv` or `.pkl` files.
-- **`npz/`** and **`*.npz`** are **never committed** — run `wbc-mjlab-data-to-npz` after adding source clips.
-- **`<dataset>.npz`** is optional: written only when you pass **`--cache-motion-bundle`** on train/play.
-- **`params/motion_library.yaml`** is written automatically on **play** from the loaded motion bundle — no sidecar manifest in the dataset folder.
+- Put source clips in the dataset folder or in **`raw/`** — `raw/` is preferred when it contains `.csv` or `.pkl` files.
+- Training reads the source clips directly: resampling, velocities, mirroring (`--mirror`), height debias (`--debias-z`) and body kinematics are computed on the GPU. No conversion step.
+- **`.cache/`**, **`npz/`** and **`*.npz`** are **never committed**. `npz/` is only for tools that want precomputed body poses (`wbc-mjlab-data-to-npz`); a dataset with only `npz/` still trains from it.
+- **`params/motion_library.yaml`** is written automatically on **play** from the loaded motion library — no sidecar manifest in the dataset folder.
 
 ## Supported formats
 
 Source layouts are defined in `wbc_mjlab.motion.motion_formats` (canonical fields:
-`base_pos`, `base_rot_xyzw`, `dof_pos`, `fps`). The converter infers format from
-the file extension; pass `--format` to pick a registered name explicitly.
+`base_pos`, `base_rot_xyzw`, `dof_pos`, `fps`). The format is inferred from
+the file extension; `--env.commands.motion.source-format` (train) or `--format` (export) picks a registered name explicitly.
 
 | Format key | Extension | Role |
 |------------|-----------|------|
 | `default` | `.csv` | LAFAN / retarget CSV (no header, m + quat xyzw + rad) |
 | `gmr_pkl` | `.pkl` | GMR / `bvh_to_robot` pickle dict |
-| **NPZ** | train / play | Per-clip exports or a pre-stacked training bundle |
+| **NPZ** | train / play | Optional per-clip exports or a pre-stacked bundle |
 
 ### CSV `default` (LAFAN / retarget)
 

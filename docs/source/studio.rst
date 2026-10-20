@@ -129,23 +129,24 @@ package. Details and the file format: :doc:`extensions/custom_robots`.
 
 Three tabs.
 
-**Library** — datasets under ``data/<robot>/`` with a ring for how much is converted.
-*Import* creates a dataset from a folder of CSV / PKL clips (copy, or link without copying)
-or from uploaded files. Pick a dataset to browse its clips: search with ``*`` wildcards,
-filter converted / missing, page through tens of thousands of clips, tick clips for
-conversion, *Grid* plays up to 49 clips of a search side by side. *Scan* computes durations
-(hours, length histogram).
+Training reads a dataset's source clips directly — nothing to convert (:ref:`data-online`).
 
-**Clip** — click a clip to play it, **raw sources included, before conversion**. Quality
+**Library** — datasets under ``data/<robot>/``. *Import* creates a dataset from a folder of
+CSV / PKL clips (copy, or link without copying) or from uploaded files. Pick a dataset to
+browse its clips: search with ``*`` wildcards, filter exported / not exported, page through
+tens of thousands of clips, tick clips for export, *Grid* plays up to 49 clips of a search
+side by side. *Scan* computes durations (hours, length histogram).
+
+**Clip** — click a clip to play it, straight from its source file. Quality
 issues: joint-limit violations, joint-speed spikes, feet below or above the ground, time
 airborne. Click an issue to open it in **Plots** (:ref:`studio-plots`): its joints or feet
 plotted against their limits, the clip paused at the first frame where it happens. The
-*Plots* button (or :kbd:`j`) opens the clip's curves. For converted clips, *source* overlays
-the raw clip as a ghost to check the conversion. ``[`` ``]`` step through clips.
+*Plots* button (or :kbd:`j`) opens the clip's curves. For exported clips, *source* overlays
+the raw clip as a ghost. ``[`` ``]`` step through clips.
 
-**Convert** — *missing*, *all* or *selected* clips, output fps, batch size (parallel FK on
-the GPU), mirror (needs the robot's symmetry config), debias height, input fps. **Convert N**
-runs ``wbc-mjlab-data-to-npz`` as a job with progress and log.
+**Export** — optional: writes ``npz/<clip>.npz`` (body poses and velocities) for tools that
+want them — *not exported*, *all* or *selected* clips, output fps, mirror, debias height,
+input fps. **Export N** runs ``wbc-mjlab-data-to-npz`` as a job with progress and log.
 
 3 · Preset
 ----------
@@ -213,12 +214,14 @@ Files and run snapshots: :ref:`studio-files`.
 
 The preset and dataset come from the previous steps (each with a shortcut back). Set the
 budget (envs, iterations — or the *1k / 5k / 30k / 100k* chips), a run name, the logger
-(TensorBoard / W&B), fresh or continue from a run's checkpoint; *Advanced* takes extra
+(TensorBoard / W&B), fresh or continue from a run's checkpoint. *Motion* adds left/right
+mirrored clips (needs the robot's symmetry config) and the height debias; Play applies the
+options a run was trained with. *Advanced* takes extra
 arguments and shows the exact command line. **Launch** starts a detached job
 (``wbc-mjlab-train``, or ``python -m wbc_mjlab.studio.train_preset`` for your presets — single
 GPU).
 
-*Jobs* lists training and conversion jobs. A job shows progress and ETA, curves (reward,
+*Jobs* lists training and export jobs. A job shows progress and ETA, curves (reward,
 tracking errors, per-term rewards, sampling, losses), the log, **TensorBoard**, Stop / Forget,
 and **Play** for its run.
 

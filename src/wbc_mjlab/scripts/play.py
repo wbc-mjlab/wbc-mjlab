@@ -256,6 +256,10 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
         f"[INFO]: Loading checkpoint: {checkpoint_name} (run: {run_id}, {cached_str})"
       )
     log_dir = resume_path.parent
+    if is_tracking_task:
+      from wbc_mjlab.motion.library import apply_run_motion_options
+
+      apply_run_motion_options(env_cfg.commands["motion"], log_dir)  # as trained
 
   env_cfg.scene.num_envs = cfg.num_envs if cfg.num_envs is not None else 1
   if cfg.video_height is not None:

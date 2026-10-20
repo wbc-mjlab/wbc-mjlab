@@ -1,4 +1,5 @@
-// Step 2 · Data: datasets → clips → inspect (QA, raw vs converted; curves in the Plots window) → convert.
+// Step 2 · Data: datasets → clips → inspect (QA, raw vs converted; curves in the Plots window).
+// Training plays the source clips directly; Export writes npz/<clip>.npz for tools that want them.
 import {
   PaneFrame, api, button, chips, debounce, dot, empty, field, fmtDuration, group, h, help, iconButton, input,
   listRow, modal, plural, post, progressBar, qs, ring, searchBox, seg, select, strip, svgIcon, switchEl, tabs, tag, toast,
@@ -12,7 +13,7 @@ export class DataPane {
     this.topics = ["data", "jobs", "robot"];
     this.live = ["jobs"];
     this.width = 440;
-    this.frame = new PaneFrame("Data", "Retargeted clips, checked and converted for training.", {
+    this.frame = new PaneFrame("Data", "Retargeted clips, checked and played straight into training.", {
       actions: [iconButton("plus", () => this.importDialog(), "New dataset / import")],
     });
     this.tab = "library";
@@ -33,7 +34,8 @@ export class DataPane {
 
   summary() {
     const d = this.ds();
-    return { value: d ? `${d.name} · ${d.npz} npz` : "", done: !!d?.npz, busy: this.jobs.some((j) => j.status === "running") };
+    const n = d ? d.raw || d.npz : 0;
+    return { value: d ? `${d.name} · ${plural(n, "clip")}` : "", done: !!n, busy: this.jobs.some((j) => j.status === "running") };
   }
 
   ds() {
@@ -89,7 +91,7 @@ export class DataPane {
     this.frame.setTabs(tabs([
       { value: "library", label: "Library", count: d ? d.clips : null },
       { value: "clip", label: "Clip", count: p.active ? (p.mode === "grid" ? p.count : null) : null },
-      { value: "convert", label: "Convert", count: d?.missing || null, mod: !!d?.missing },
+      { value: "convert", label: "Export" },
     ], this.tab, (t) => this.setTab(t)));
     if (this.tab === "library") this.renderLibrary(d);
     else if (this.tab === "clip") this.renderClip(p);
@@ -101,10 +103,10 @@ export class DataPane {
   renderLibrary(d) {
     const rows = this.datasets.map((x) =>
       listRow({
-        lead: ring(x.raw ? x.npz / Math.max(1, x.raw) : x.npz ? 1 : 0),
+        lead: ring(x.raw || x.npz ? 1 : 0),
         title: x.name,
         sub: `${plural(x.clips, "clip")}${x.stats ? ` · ${x.stats.hours.toFixed(2)} h` : ""}${x.linked ? " · linked" : ""}`,
-        trail: x.missing ? tag(`${x.missing} to convert`, "amber") : x.npz ? null : tag("not converted", "amber"),
+        trail: x.raw ? null : x.npz ? tag("converted only", "amber") : tag("empty", "amber"),
         active: x.name === this.dataset,
         onClick: () => this.selectDataset(x.name),
       }),
@@ -115,8 +117,8 @@ export class DataPane {
       d ? this.clipsGroup(d) : null,
     );
     this.frame.setFooter(
-      d ? h("div.note", h("b", d.name), ` · ${d.npz} converted`) : h("div.note"),
-      button("Preset", () => this.app.select("preset"), { cls: "primary", icon: "arrow", disabled: !d?.npz }),
+      d ? h("div.note", h("b", d.name), ` · ${plural(d.raw || d.npz, "clip")}`) : h("div.note"),
+      button("Preset", () => this.app.select("preset"), { cls: "primary", icon: "arrow", disabled: !(d?.raw || d?.npz) }),
     );
     const input = this.frame.body.querySelector("[data-role=clip-search] input");
     if (this._searchFocus && input) {
@@ -138,18 +140,18 @@ export class DataPane {
     search.querySelector("input").addEventListener("blur", () => (this._searchFocus = false));
     const filter = chips([
       { value: "all", label: "All" },
-      { value: "converted", label: "Converted" },
-      { value: "missing", label: "To convert" },
+      { value: "converted", label: "Exported" },
+      { value: "missing", label: "Not exported" },
     ], this.status, (v) => { this.status = v; this.page = 0; this.loadListing().then(() => this.render()); });
     const activeClip = this.preview?.mode === "single" && this.preview?.dataset === this.dataset ? this.preview.clip : "";
     const rows = (L?.rows || []).map((r) => {
-      const box = h("input", { type: "checkbox", title: "select for conversion" });
+      const box = h("input", { type: "checkbox", title: "select for export" });
       box.checked = this.selected.has(r.name);
       box.addEventListener("click", (e) => e.stopPropagation());
       box.addEventListener("change", () => (box.checked ? this.selected.add(r.name) : this.selected.delete(r.name)));
-      const tr = h(`tr${r.name === activeClip ? ".is-active" : ""}`, { on: { click: () => this.loadClip(r.name) }, title: r.error || (r.npz ? "converted" : "source only — opens the raw clip") },
+      const tr = h(`tr${r.name === activeClip ? ".is-active" : ""}`, { on: { click: () => this.loadClip(r.name) }, title: r.error || (r.raw ? "source clip" + (r.npz ? " (npz exported)" : "") : "converted clip only") },
         h("td", box),
-        h("td.name", dot(r.error ? "bad" : r.npz ? "ok" : ""), r.name),
+        h("td.name", dot(r.error ? "bad" : "ok"), r.name),
         h("td.n", r.duration ? fmtDuration(r.duration) : "—"),
         h("td.n", r.fps ? `${r.fps}` : "—"));
       tr.dataset.name = r.name;
@@ -293,11 +295,11 @@ export class DataPane {
     this.frame.setBody(
       group("Clips", {},
         seg([
-          { value: "missing", label: `Not converted · ${d.missing}` },
+          { value: "missing", label: `Not exported · ${d.missing}` },
           { value: "all", label: `All · ${d.raw}` },
           { value: "selected", label: `Selected · ${this.selected.size}` },
         ], o.which, set("which"), { block: true }),
-        h("p.help", { style: { marginTop: "8px" } }, "Runs wbc-mjlab-data-to-npz on the GPU: forward kinematics, body poses and velocities → npz/<clip>.npz. Tick clips in Library for “Selected”.")),
+        h("p.help", { style: { marginTop: "8px" } }, "Optional: training reads the source clips directly (resampled, mirrored and debiased on the GPU, set in Train). Export writes npz/<clip>.npz — body poses and velocities — for tools that want converted clips. Tick clips in Library for “Selected”.")),
       group("Options", {},
         h("div.stack",
           h("div.grid2",
@@ -311,13 +313,13 @@ export class DataPane {
     const n = counts[o.which];
     this.frame.setFooter(
       h("div.note", h("b", d.name), ` · ${plural(n, "clip")}`),
-      button(`Convert ${n}`, () => this.convert(), { cls: "primary", icon: "bolt", disabled: !n }),
+      button(`Export ${n}`, () => this.convert(), { cls: "primary", icon: "bolt", disabled: !n }),
     );
   }
 
   async convert() {
     const o = this.opts;
-    if (o.which === "all" && !confirm(`Reconvert all source clips of ${this.dataset}? Existing npz files are overwritten.`)) return;
+    if (o.which === "all" && !confirm(`Export all source clips of ${this.dataset}? Existing npz files are overwritten.`)) return;
     const r = await post("/api/data/convert", { dataset: this.dataset, clips: [...this.selected], ...o });
     this.openJob = r.job;
     await this.loadJobs();

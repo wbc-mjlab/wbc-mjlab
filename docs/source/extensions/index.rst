@@ -52,12 +52,10 @@ The extension path end to end, for a robot ``my_robot`` with clips ``my_data``.
 2. **Retarget clips** to the robot (e.g. with `GMR <https://github.com/YanjieZe/GMR>`_) and put
    them in the extension's data tree: ``<project_root>/data/my_robot/my_data/*.csv``.
 
-3. **Convert, check, train:**
+3. **Check and train** (the clips are read as they are — check them in the Studio's *Data*):
 
    .. code-block:: bash
 
-      uv run wbc-mjlab-data-to-npz --robot my_robot --dataset my_data --batch-size 8
-      uv run wbc-mjlab-data-vis --robot my_robot --dataset my_data
       uv run wbc-mjlab-train --task Wbc-MyRobot --dataset my_data
 
 Checklist
@@ -69,7 +67,8 @@ Before publishing an extension or opening a PR:
 2. **Registered** — ``register_wbc_extension`` runs at import, from a ``mjlab.tasks`` entry
    point
 3. **Names explicit** — anchor, keybodies and end-effectors as constants
-4. **Conversion wired** — a ``RobotMotionSpec`` so ``wbc-mjlab-data-to-npz --robot <id>`` works
+4. **Motion wired** — a ``RobotMotionSpec`` (feet for ``--debias-z``, the scene for
+   ``wbc-mjlab-data-to-npz --robot <id>``)
 5. **Tasks** — ``WbcTaskConfig`` entries with the matching ``robot_id``
 
 .. toctree::

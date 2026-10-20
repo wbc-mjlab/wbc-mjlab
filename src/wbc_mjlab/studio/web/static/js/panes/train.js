@@ -3,7 +3,7 @@
 import { lineChart } from "../chart.js";
 import {
   PaneFrame, api, button, del, empty, field, fmtDuration, group, h, help, iconButton, input, linkButton, post,
-  progressBar, seg, select, tabs, tag, toast,
+  progressBar, seg, select, switchEl, tabs, tag, toast,
 } from "../ui.js";
 
 const CURVE_TITLES = {
@@ -34,7 +34,7 @@ export class TrainPane {
     this.datasets = [];
     this.runs = [];
     this.jobs = [];
-    this.form = { task: "", dataset: "", num_envs: 4096, max_iterations: 30000, run_name: "", logger: "tensorboard", resume_run: "", resume_checkpoint: "", extra: "" };
+    this.form = { task: "", dataset: "", num_envs: 4096, max_iterations: 30000, run_name: "", logger: "tensorboard", mirror: false, debias_z: false, resume_run: "", resume_checkpoint: "", extra: "" };
     this.openJob = "";
     this.curveGroup = "train";
   }
@@ -52,7 +52,7 @@ export class TrainPane {
   async refresh() {
     const [presets, ds, runs] = await Promise.all([api("/api/presets"), api("/api/data/datasets"), api("/api/runs")]);
     this.tasks = presets.tasks;
-    this.datasets = ds.datasets.filter((d) => d.npz > 0);
+    this.datasets = ds.datasets.filter((d) => d.raw > 0 || d.npz > 0);
     this.runs = runs;
     const preset = this.app.panes.preset?.taskId?.();
     if (!this.tasks.some((t) => t.id === this.form.task)) this.form.task = preset || this.tasks[0]?.id || "";
@@ -124,7 +124,8 @@ export class TrainPane {
       { group: "Built-in", items: this.tasks.filter((x) => !x.custom).map((x) => ({ value: x.id, label: x.id })) },
       ...(this.tasks.some((x) => x.custom) ? [{ group: "Your presets", items: this.tasks.filter((x) => x.custom).map((x) => ({ value: x.id, label: x.preset })) }] : []),
     ], f.task, (v) => { f.task = v; f.resume_run = ""; this.render(); });
-    const dsSel = select(this.datasets.length ? this.datasets.map((d) => ({ value: d.name, label: `${d.name} · ${d.npz} clips` })) : [{ value: "", label: "convert a dataset first" }], f.dataset, set("dataset"));
+    const dsSel = select(this.datasets.length ? this.datasets.map((d) => ({ value: d.name, label: `${d.name} · ${d.raw || d.npz} clips` })) : [{ value: "", label: "add a dataset first" }], f.dataset, set("dataset"));
+    const ds = this.datasets.find((d) => d.name === f.dataset);
     const sameTask = this.runs.filter((r) => r.task === f.task && !r.demo);
     const resume = select([{ value: "", label: "Fresh policy" }, ...sameTask.map((r) => ({ value: r.label, label: `Continue ${r.name}` }))], f.resume_run, (v) => { f.resume_run = v; f.resume_checkpoint = ""; this.render(); });
     const run = sameTask.find((r) => r.label === f.resume_run);
@@ -147,6 +148,13 @@ export class TrainPane {
             b.addEventListener("click", () => { f.max_iterations = n; this.render(); });
             return b;
           })))),
+      group("Motion", {},
+        h("div.stack",
+          switchEl("Mirror — add a left/right mirrored copy of every clip", f.mirror, set("mirror")),
+          switchEl("Height debias — lowest foot on the ground in each clip", f.debias_z, set("debias_z")),
+          h("p.help", ds && !ds.raw
+            ? "This dataset has converted clips only: mirror and debias were set when it was converted."
+            : "Clips are resampled, differentiated and mirrored on the GPU while training: nothing to convert."))),
       group("Run", {},
         h("div.grid2",
           field("Name", input(f.run_name, { placeholder: "optional suffix", onInput: set("run_name") })),
@@ -171,6 +179,8 @@ export class TrainPane {
       ? ["python -m wbc_mjlab.studio.train_preset", `--preset ${t.preset}`]
       : ["uv run wbc-mjlab-train", `--task ${f.task}`];
     parts.push(`--dataset ${f.dataset}`, `--env.scene.num-envs ${f.num_envs}`, `--agent.max-iterations ${f.max_iterations}`);
+    if (f.mirror) parts.push("--mirror");
+    if (f.debias_z) parts.push("--debias-z");
     if (f.run_name) parts.push(`--agent.run-name ${f.run_name}`);
     if (f.logger === "wandb") parts.push("--use_wandb");
     if (run) parts.push(`--agent.resume True --agent.load-run ${run.name}`, f.resume_checkpoint ? `--agent.load-checkpoint ${f.resume_checkpoint}` : "");

@@ -24,7 +24,7 @@ Motion data
 .. list-table::
    :widths: 46 54
 
-   * - Convert LAFAN / GMR / my own clips
+   * - Train on LAFAN / GMR / my own clips
      - :doc:`data`
    * - Spot bad clips before training
      - :doc:`data` (*Check the clips*) — Studio *Data → Clip*

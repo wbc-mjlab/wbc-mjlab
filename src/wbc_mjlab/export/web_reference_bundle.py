@@ -34,6 +34,7 @@ import shutil
 import struct
 import sys
 import zlib
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -55,9 +56,11 @@ from wbc_mjlab.export.web_reference import (
   write_reference_bin,
   write_reference_index,
 )
+from wbc_mjlab.motion.library import Baker, has_sources
 from wbc_mjlab.motion.manifest import (
   MANIFEST_SCHEMA,
   build_motion_library_manifest,
+  build_motion_library_manifest_from_segments,
   write_motion_library_manifest,
 )
 from wbc_mjlab.motion.stack_bundle import list_clip_npz_files
@@ -168,20 +171,25 @@ def _find_artifact(run_dir: Path | None, name: str) -> Path | None:
   return None
 
 
-def _resolve_dataset_clips(
+def _resolve_dataset_root(
   *,
   robot_id: RobotId,
   dataset: str | None,
   dataset_path: str | None,
   motion_file: str | None,
-) -> tuple[list[Path], Path, str]:
-  """Resolve per-clip NPZs, the dataset root, and the dataset name."""
+) -> tuple[Path, bool]:
+  """The dataset root, and whether its clips come from converted NPZ (``--motion-file``
+  pointing into ``npz/``, or a dataset without source clips)."""
   from wbc_mjlab.data_paths import resolve_dataset_root
 
   root: Path
   if motion_file is not None:
     src = Path(motion_file).expanduser().resolve()
-    root = src.parent.parent if src.parent.name == "npz" else src.parent
+    if src.is_dir():
+      root = src
+    else:
+      root = src.parent.parent if src.parent.name == "npz" else src.parent
+      return root, True
   elif dataset_path is not None:
     p = Path(dataset_path).expanduser().resolve()
     root = p.parent if p.is_file() else p
@@ -189,14 +197,44 @@ def _resolve_dataset_clips(
     root = resolve_dataset_root(robot_id, dataset)
   else:
     raise ValueError("Provide --dataset, --dataset-path, or --motion-file")
+  return root, not has_sources(root)
+
+
+def _iter_clip_arrays(
+  root: Path,
+  *,
+  from_npz: bool,
+  robot_id: RobotId,
+  fps: float,
+  mirror: bool,
+  debias_z: bool,
+) -> tuple[list[str], Iterator[tuple[str, Mapping[str, Any]]]]:
+  """Clip ids and a lazy ``(clip id, converted-clip arrays)`` stream: baked from the source
+  clips, or read from ``npz/*.npz``."""
+  if not from_npz:
+    baker = Baker(root, robot_id=robot_id, fps=fps, mirror=mirror, debias_z=debias_z)
+    names = list(baker.segment_names)
+
+    def baked() -> Iterator[tuple[str, Mapping[str, Any]]]:
+      for i, name in enumerate(names):
+        log = baker.bake(i)
+        log["joint_names"] = np.array(baker.joint_names)
+        yield name, log
+
+    return names, baked()
 
   clips = list_clip_npz_files(root)
   if not clips:
     raise FileNotFoundError(
-      f"No per-clip NPZs under {root / 'npz'}. Convert first: "
-      f"wbc-mjlab-data-to-npz --robot {robot_id} --dataset <name>"
+      f"No source clips (CSV / PKL) or per-clip NPZs under {root}"
     )
-  return clips, root, root.name
+
+  def loaded() -> Iterator[tuple[str, Mapping[str, Any]]]:
+    for path in clips:
+      with np.load(path, allow_pickle=True) as data:
+        yield path.stem, {k: data[k] for k in data.files}
+
+  return [p.stem for p in clips], loaded()
 
 
 def _export_config_yaml(out_path: Path, *, task_id: str, robot_id: RobotId) -> None:
@@ -308,13 +346,29 @@ def export_web_reference(
   run: str | None = None,
   checkpoint_file: str | None = None,
   policy_id: str | None = None,
+  fps: float = 50.0,
+  mirror: bool = False,
+  debias_z: bool = False,
 ) -> Path:
-  """Assemble a wbc-demo live-policy folder; returns the policy folder path."""
-  clip_paths, dataset_root, dataset_name = _resolve_dataset_clips(
+  """Assemble a wbc-demo live-policy folder; returns the policy folder path.
+
+  Reference streams are baked from the dataset's source clips at ``fps`` (with ``mirror`` /
+  ``debias_z`` as in training); a dataset without source clips uses its ``npz/*.npz``.
+  """
+  dataset_root, from_npz = _resolve_dataset_root(
     robot_id=robot_id,
     dataset=dataset,
     dataset_path=dataset_path,
     motion_file=motion_file,
+  )
+  dataset_name = dataset_root.name
+  clip_ids, clip_arrays = _iter_clip_arrays(
+    dataset_root,
+    from_npz=from_npz,
+    robot_id=robot_id,
+    fps=fps,
+    mirror=mirror,
+    debias_z=debias_z,
   )
 
   pid = slugify(policy_id) if policy_id else slugify(f"{robot_id}-{dataset_name}")
@@ -351,24 +405,24 @@ def export_web_reference(
   dim = command_dim(config_joint_names)
   print(
     f"[INFO] robot={robot_id} anchor={anchor_body_name!r} "
-    f"joints={len(config_joint_names)} commandDim={dim}; clips={len(clip_paths)}"
+    f"joints={len(config_joint_names)} commandDim={dim}; clips={len(clip_ids)}"
   )
 
   # ---- reference/<clip>.bin + reference/index.json (wbc_reference_stream_v1) ----
   ref_clips: list[ReferenceClip] = []
-  fps_value = 50.0
+  fps_value = fps
   total_bytes = 0
-  for clip_path in clip_paths:
-    clip_id = clip_path.stem
-    with np.load(clip_path, allow_pickle=True) as data:
-      fps_value = float(np.asarray(data["fps"], dtype=np.float64).reshape(-1)[0])
-      command = reference_command_from_npz(
-        data,
-        robot_body_names=robot_body_names,
-        anchor_body_name=anchor_body_name,
-        config_joint_names=config_joint_names,
-      )
+  total_frames = 0
+  for clip_id, data in clip_arrays:
+    fps_value = float(np.asarray(data["fps"], dtype=np.float64).reshape(-1)[0])
+    command = reference_command_from_npz(
+      data,
+      robot_body_names=robot_body_names,
+      anchor_body_name=anchor_body_name,
+      config_joint_names=config_joint_names,
+    )
     frames = int(command.shape[0])
+    total_frames += frames
     bin_name = f"{clip_id}.bin"
     written = write_reference_bin(reference_dir / bin_name, command)
     expected = expected_bin_bytes(frames, dim)
@@ -399,7 +453,17 @@ def export_web_reference(
   )
 
   # ---- motion_library.yaml (provenance; clip form B) ----
-  manifest_doc = build_motion_library_manifest(dataset_root)
+  manifest_doc = (
+    build_motion_library_manifest(dataset_root)
+    if from_npz
+    else build_motion_library_manifest_from_segments(
+      dataset_root=dataset_root,
+      robot=robot_id,
+      clips=clip_ids,
+      total_frames=total_frames,
+      fps=fps_value,
+    )
+  )
   write_motion_library_manifest(policy_dir / PLAY_MOTION_LIBRARY_MANIFEST, manifest_doc)
   assert manifest_doc["schema"] == MANIFEST_SCHEMA
 
@@ -441,6 +505,15 @@ def main() -> None:
   parser.add_argument("--dataset-path", default=None, help="dataset dir or .npz path")
   parser.add_argument("--motion-file", default=None, help="explicit clip NPZ or dir")
   parser.add_argument(
+    "--fps", type=float, default=50.0, help="reference rate baked from source clips"
+  )
+  parser.add_argument(
+    "--mirror", action="store_true", help="add mirrored clips (source clips only)"
+  )
+  parser.add_argument(
+    "--debias-z", action="store_true", help="height debias (source clips only)"
+  )
+  parser.add_argument(
     "--run",
     default=None,
     help="run dir (or checkpoint) holding params/ (onnx + config)",
@@ -471,6 +544,9 @@ def main() -> None:
     run=args.run,
     checkpoint_file=args.checkpoint_file,
     policy_id=args.policy_id,
+    fps=args.fps,
+    mirror=args.mirror,
+    debias_z=args.debias_z,
   )
   print(f"Exported web reference policy -> {policy_dir}")
 

@@ -20,7 +20,7 @@ Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://ar
 - **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache.
 - **Building blocks** — paper presets in `presets/` and G1 task builders in `robots/g1/tasks.py`; add a paper setup or tune your own WBC without forking the core MDP.
 - **Plug-in robots** — add a humanoid from its MJCF / URDF [without code](https://wbc-mjlab.github.io/wbc-mjlab/source/extensions/custom_robots.html), or ship an extension package via `register_wbc_extension` ([H2 example](https://github.com/wbc-mjlab/wbc-mjlab-extension-h2)).
-- **[WBC Studio](https://wbc-mjlab.github.io/wbc-mjlab/source/studio.html)** — the whole pipeline in a browser: robots, clip QA and conversion, presets, training jobs, playback on many envs.
+- **[WBC Studio](https://wbc-mjlab.github.io/wbc-mjlab/source/studio.html)** — the whole pipeline in a browser: robots, clip QA, presets, training jobs, playback on many envs.
 - **One policy, many skills** — one policy for walk, jog, run, crawl, fight, get-up, lie-down, flips, and more.
 - **Sim → real** — train/play export `policy.onnx` + `config.yaml` aligned with the deploy runtime.
 
@@ -43,16 +43,14 @@ uv run wbc-mjlab-list-envs
 uv run wbc-mjlab-studio      # open the printed link (also from other machines on the network)
 ```
 
-Five steps — **Robot → Data → Preset → Train → Play**: pick or [add a robot](https://wbc-mjlab.github.io/wbc-mjlab/source/extensions/custom_robots.html) from its MJCF / URDF, import, check and convert clips, tune observations / rewards / sampling / terrain / PPO as presets with reusable modules, launch and follow training jobs, play policies on many envs with reference ghosts. Options, files and the HTTP API: [Studio guide](https://wbc-mjlab.github.io/wbc-mjlab/source/studio.html).
+Five steps — **Robot → Data → Preset → Train → Play**: pick or [add a robot](https://wbc-mjlab.github.io/wbc-mjlab/source/extensions/custom_robots.html) from its MJCF / URDF, import and check clips (training reads them as they are), tune observations / rewards / sampling / terrain / PPO as presets with reusable modules, launch and follow training jobs, play policies on many envs with reference ghosts. Options, files and the HTTP API: [Studio guide](https://wbc-mjlab.github.io/wbc-mjlab/source/studio.html).
 
 ### From the command line
 
 ```bash
-# convert source clips (CSV / PKL) to NPZ — 10 bundled samples, see data/g1/samples/README.md
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
-
-# train a task (Wbc-G1, Wbc-G1-Zest, Wbc-G1-Terrain-Scan, …)
-uv run wbc-mjlab-train --task Wbc-G1 --dataset samples
+# train a task (Wbc-G1, Wbc-G1-Zest, Wbc-G1-Terrain-Scan, …) on source clips (CSV / PKL):
+# resampled, mirrored and run through FK on the GPU while training — nothing to convert
+uv run wbc-mjlab-train --task Wbc-G1 --dataset samples --mirror
 
 # play / evaluate the last run (exports policy.onnx + config.yaml)
 uv run wbc-mjlab-play --task Wbc-G1 --dataset samples --viewer viser

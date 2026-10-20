@@ -207,9 +207,18 @@ def resolve_training_motion_source(
   robot_id: str,
   cache_motion_bundle: bool = False,
 ) -> Path:
-  """Return a dataset directory (load ``npz/*.npz`` in memory) or a bundled ``.npz`` path."""
+  """Training motion source of a dataset folder.
+
+  The folder itself when it has source clips (CSV / PKL: played online, nothing to
+  convert) or converted ``npz/*.npz`` clips (stacked in memory); else its bundled
+  ``<name>.npz``. ``cache_motion_bundle`` writes / uses that bundle from the NPZ clips.
+  """
+  from wbc_mjlab.motion.library import has_sources
+
   root = dataset_root.resolve()
   bundle = dataset_bundle_path(root)
+  if has_sources(root) and not cache_motion_bundle:
+    return root
   clips = list_clip_npz_files(root)
 
   if cache_motion_bundle:
@@ -228,8 +237,8 @@ def resolve_training_motion_source(
     if bundle.is_file():
       return bundle
     raise FileNotFoundError(
-      f"No training motion in {root}. Expected npz/*.npz or {bundle.name} "
-      f"(convert clips with wbc-mjlab-data-to-npz)."
+      f"No training motion in {root}. Expected source clips (CSV / PKL), npz/*.npz "
+      f"or {bundle.name}."
     )
 
   if clips:

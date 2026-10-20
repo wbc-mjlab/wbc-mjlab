@@ -39,11 +39,12 @@ follow.
 
       Everything below runs from the repository root.
 
-2. Convert the sample clips
+2. Look at the sample clips
 ---------------------------
 
-The 10 bundled G1 clips (walk, run, dance, fall and get up, flips …) are CSV files; training
-needs them as NPZ with body poses and velocities.
+The 10 bundled G1 clips (walk, run, dance, fall and get up, flips …) are CSV files. Training
+reads them as they are — resampling, velocities and body poses are computed on the GPU while
+it runs — so there is nothing to convert.
 
 .. tab-set::
    :sync-group: ui
@@ -51,17 +52,13 @@ needs them as NPZ with body poses and velocities.
    .. tab-item:: Studio
       :sync: studio
 
-      *Data* → pick **samples** → click a clip to watch it → *Convert* → **Convert 10**.
+      *Data* → pick **samples** → click a clip to watch it; the *Clip* tab lists anything
+      suspicious (feet in the floor, joint limits).
 
    .. tab-item:: Command line
       :sync: cli
 
-      .. code-block:: bash
-
-         uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
-         uv run wbc-mjlab-data-vis --robot g1 --dataset samples     # optional: watch them
-
-**Check:** ``data/g1/samples/npz/`` holds one ``.npz`` per clip.
+      Nothing to do: ``data/g1/samples/`` holds the CSVs training reads.
 
 3. Train
 --------
@@ -133,7 +130,7 @@ Next steps
       :link: ../data
       :link-type: doc
 
-      Import, check and convert a motion library.
+      Import and check a motion library.
 
    .. grid-item-card:: :octicon:`rocket` A full training run
       :link: training

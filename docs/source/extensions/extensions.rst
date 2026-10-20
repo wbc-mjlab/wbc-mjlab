@@ -12,7 +12,8 @@ API overview
 
 1. ``register_robot_id`` — ``--robot`` resolution and ``data/<id>/`` paths
 2. ``register_robot_builders`` — ``make_env_cfg`` / ``make_rl_cfg`` for train/play
-3. ``register_robot_motion_spec`` — FK scene for ``wbc-mjlab-data-to-npz``
+3. ``register_robot_motion_spec`` — feet for the height debias, FK scene for
+   ``wbc-mjlab-data-to-npz``
 4. ``register_project_root`` — extension-owned ``data/<robot>/`` tree
 5. ``register_wbc_tasks`` — ``--task`` ids
 6. ``register_robot_symmetry_config`` (optional) — when ``symmetry_config`` is set on the spec
@@ -41,7 +42,7 @@ API overview
    * - ``mjcf_path``
      - Optional shortcut when motion_spec omits mjcf_path
    * - ``symmetry_config``
-     - Optional :class:`~wbc_mjlab.robots.symmetry.RobotSymmetryConfig` for ``--mirror`` on ``wbc-mjlab-data-to-npz``
+     - Optional :class:`~wbc_mjlab.robots.symmetry.RobotSymmetryConfig` for ``--mirror`` (training and ``wbc-mjlab-data-to-npz``)
 
 Minimal registration
 --------------------

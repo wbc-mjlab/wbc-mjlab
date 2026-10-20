@@ -41,26 +41,31 @@ Training needs an NVIDIA GPU; without one, use the
 Motion data
 -----------
 
-``No clip NPZs`` / empty motion library
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``No training motion`` / empty motion library
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Training looks for ``data/<robot>/<dataset>/npz/*.npz`` — convert first:
+Training reads the source clips (``*.csv`` / ``*.pkl``) at ``data/<robot>/<dataset>/`` or in
+its ``raw/`` subfolder (or, without any, converted ``npz/*.npz``). Check the folder name and
+that the files have a known extension; ``--env.commands.motion.source-format`` names the
+format when the extension doesn't.
 
-.. code-block:: bash
-
-   uv run wbc-mjlab-data-to-npz --robot g1 --dataset samples --batch-size 8
-
-``expected N joint DOFs … got M``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``N joint columns, the robot has M``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The clips weren't retargeted to this robot: the joint count must match the model. Check
-``--robot``, the joint order (``data/g1/README.md`` for G1) and ``--format``.
+``--robot`` / ``--task``, the joint order (``data/g1/README.md`` for G1) and the format.
 
-``mirroring needs a left/right symmetry config``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``mirror needs a left/right symmetry config``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Convert without ``--mirror``. Mirroring needs a ``RobotSymmetryConfig`` — G1 and extensions
+Train without ``--mirror``. Mirroring needs a ``RobotSymmetryConfig`` — G1 and extensions
 that register one have it; robots added in the Studio don't.
+
+A clip edit doesn't show up
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The packed library (``<dataset>/.cache/``) is rebuilt when a clip's size or modification
+time changes. A tool that rewrites files in place keeping both: delete ``.cache/``.
 
 Training and play
 -----------------
