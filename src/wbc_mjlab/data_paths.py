@@ -6,9 +6,10 @@ Per-robot dataset folders live under ``data/<robot>/<dataset_name>/`` at the
 Typical layout::
 
   data/g1/lafan/
-    *.csv              # retargeted clips (or under ``raw/``)
-    npz/<clip>.npz     # per-clip exports (source of truth)
-    lafan.npz          # optional on-disk cache (``--cache-motion-bundle`` only)
+    *.csv              # retargeted clips (or under ``raw/``): trained on directly
+    .cache/            # packed source clips (rebuilt when a clip changes)
+    npz/<clip>.npz     # optional converted clips (exports, older runs)
+    lafan.npz          # optional stacked NPZ (``--cache-motion-bundle`` only)
 """
 
 from __future__ import annotations
@@ -174,7 +175,8 @@ def resolve_motion_path(
   robot_id: str | RobotId = "g1",
   cache_motion_bundle: bool = False,
 ) -> Path:
-  """Resolve a training motion NPZ from an explicit file or dataset directory."""
+  """Resolve a training motion source: a dataset folder with source clips (online), a
+  folder of converted clips, a ``.npz`` bundle, or one source clip file."""
   p = Path(path).expanduser()
   if not p.is_absolute():
     p = (Path.cwd() / p).resolve()
@@ -182,11 +184,18 @@ def resolve_motion_path(
     p = p.resolve()
 
   if p.is_file():
-    if p.suffix.lower() != ".npz":
-      raise ValueError(f"Expected a .npz motion file, got: {p}")
+    from wbc_mjlab.motion.motion_formats import _extensions_for_format
+
+    suffix = p.suffix.lower()
+    if suffix != ".npz" and suffix not in _extensions_for_format(None):
+      raise ValueError(f"Expected a .npz or a source clip (CSV / PKL), got: {p}")
     return p
 
   if p.is_dir():
+    from wbc_mjlab.motion.library import has_sources
+
+    if has_sources(p) and not cache_motion_bundle:
+      return p
     from wbc_mjlab.motion.stack_bundle import (
       list_clip_npz_files,
       resolve_training_motion_source,
@@ -213,8 +222,8 @@ def resolve_motion_path(
         f"Multiple .npz files in {p}; pass --motion-file explicitly. Found: {names}"
       )
     raise FileNotFoundError(
-      f"No training motion in {p}. Expected npz/*.npz, {p.name}.npz, "
-      f"or a single *.npz in the folder."
+      f"No training motion in {p}. Expected source clips (CSV / PKL), npz/*.npz, "
+      f"{p.name}.npz, or a single *.npz in the folder."
     )
 
   raise FileNotFoundError(f"Motion path does not exist: {p}")
@@ -227,7 +236,7 @@ def resolve_training_motion_file(
   dataset_path: str | None = None,
   cache_motion_bundle: bool = False,
 ) -> Path:
-  """Resolve bundled motion NPZ for train/play from dataset name or explicit path."""
+  """Resolve the train/play motion source from a dataset name or an explicit path."""
   if dataset_path is not None and dataset is not None:
     raise ValueError("Use only one of --dataset or --dataset-path")
   if dataset_path is not None:

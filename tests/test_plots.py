@@ -119,8 +119,8 @@ def test_play_recorder_robot_vs_reference(monkeypatch) -> None:
   from wbc_mjlab.studio.core import StudioCore
 
   c = StudioCore(robot="g1", device="cuda:0")
-  if jobmod.find_run(jobmod.DEMO_LABEL) is None or not any(SAMPLES.glob("npz/*.npz")):
-    pytest.skip("needs the demo checkpoint and converted samples")
+  if jobmod.find_run(jobmod.DEMO_LABEL) is None:
+    pytest.skip("needs the demo checkpoint")
   c.play.configure(jobmod.DEMO_LABEL, "model.pt", motion=str(SAMPLES), num_envs=2)
   while c.busy:
     time.sleep(0.2)

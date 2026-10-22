@@ -691,6 +691,8 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     resume_run: str = Body(""),
     resume_checkpoint: str = Body(""),
     logger: str = Body("tensorboard"),
+    mirror: bool = Body(False),
+    debias_z: bool = Body(False),
     extra: str = Body(""),
   ):
     job = guard(
@@ -703,6 +705,8 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
       resume_run=resume_run,
       resume_checkpoint=resume_checkpoint,
       logger=logger,
+      mirror=mirror,
+      debias_z=debias_z,
       extra=extra,
     )
     return ok(job=job.name)

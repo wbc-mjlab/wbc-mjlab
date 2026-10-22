@@ -45,11 +45,9 @@ Example: the whole pipeline
    S=http://127.0.0.1:8765
    J='content-type: application/json'
 
-   # data: import a folder of clips and convert them
+   # data: import a folder of clips (training reads them as they are)
    curl -s -X POST $S/api/data/import -H "$J" \
      -d '{"source": "/path/to/csvs", "name": "my_clips", "link": true}'
-   curl -s -X POST $S/api/data/convert -H "$J" \
-     -d '{"dataset": "my_clips", "which": "missing", "batch_size": 8}'
 
    # preset: Wbc-G1 + the se module, twice the joint-velocity noise
    curl -s -X PUT $S/api/presets/se_noisy -H "$J" -d '{
@@ -135,7 +133,7 @@ Data
    * - Endpoint
      - Description
    * - ``GET /api/data/datasets``
-     - Datasets of the robot with source / converted / missing counts
+     - Datasets of the robot with source / exported / not-exported counts
    * - ``GET /api/data/clips?dataset=&q=&status=&page=&size=``
      - Clip listing; ``q`` supports ``*`` wildcards, ``status`` ∈ ``all``, ``converted``,
        ``missing``, ``raw``
@@ -150,7 +148,7 @@ Data
      - Duration scan (hours, length histogram)
    * - ``POST /api/data/convert``
        ``{dataset, which, clips, batch_size, output_fps, mirror, debias_z, input_fps}``
-     - Conversion job (``which`` ∈ ``missing``, ``all``, ``selected``) → ``{job}``
+     - Optional NPZ export job (``which`` ∈ ``missing``, ``all``, ``selected``) → ``{job}``
    * - ``POST /api/data/new`` ``{name}`` · ``/import`` ``{source, name, link}``
      - New empty dataset · import a folder (copy, or link without copying)
    * - ``PUT /api/data/upload/{dataset}/{file}`` · ``POST /api/data/uploaded``
@@ -188,8 +186,8 @@ Training and jobs
    * - ``GET /api/tasks`` · ``GET /api/runs``
      - Tasks of the robot (built-in and presets) · runs on disk
    * - ``POST /api/train/launch`` ``{task, dataset, num_envs, max_iterations, run_name,
-       resume_run, resume_checkpoint, logger, extra}``
-     - Launch a detached training job → ``{job}``
+       resume_run, resume_checkpoint, logger, mirror, debias_z, extra}``
+     - Launch a detached training job → ``{job}`` (``mirror`` / ``debias_z``: motion options)
    * - ``GET /api/jobs`` · ``GET /api/jobs/{name}?tail=``
      - Jobs with status, progress and ETA · one job with its log tail
    * - ``POST /api/jobs/{name}/stop`` · ``DELETE /api/jobs/{name}``

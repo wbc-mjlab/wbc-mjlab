@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,11 +36,12 @@ from wbc_mjlab.env.mdp.sampling import (
   resolve_tracking_reward_indices,
   rsi_failure_signal_label,
   sample_adaptive_bins,
-  trajectory_conditional_prob_row,
   step_tracking_reward_similarity,
   step_tracking_similarity,
+  trajectory_conditional_prob_row,
   update_failure_ema,
 )
+from wbc_mjlab.motion.library import MotionFrame, OnlineMotion
 from wbc_mjlab.viewer.motion_vis import (
   clip_name_for_trajectory,
   error_to_rgba,
@@ -59,7 +61,11 @@ _DESIRED_FRAME_COLORS = ((1.0, 0.5, 0.5), (0.5, 1.0, 0.5), (0.5, 0.5, 1.0))
 
 
 class MotionLoader:
-  """Load a motion library from a bundled NPZ or a dataset directory (``npz/*.npz``)."""
+  """Converted motion library: a bundled NPZ or a dataset directory of ``npz/*.npz`` clips.
+
+  The NPZ path of the command, kept for converted datasets and bundles; a dataset with source
+  clips is played online (:class:`wbc_mjlab.motion.library.OnlineMotion`).
+  """
 
   def __init__(
     self,
@@ -191,6 +197,42 @@ class MotionLoader:
     self.anchor_lin_acc_w = torch.gradient(anchor_lin_vel, spacing=step_dt, dim=0)[0]
     self.anchor_ang_acc_w = torch.gradient(anchor_ang_vel, spacing=step_dt, dim=0)[0]
 
+  def frame(self, steps: torch.Tensor) -> MotionFrame:
+    return MotionFrame(
+      joint_pos=self.joint_pos[steps],
+      joint_vel=self.joint_vel[steps],
+      body_pos_w=self.body_pos_w[steps],
+      body_quat_w=self.body_quat_w[steps],
+      body_lin_vel_w=self.body_lin_vel_w[steps],
+      body_ang_vel_w=self.body_ang_vel_w[steps],
+      anchor_lin_acc_w=self.anchor_lin_acc_w[steps],
+      anchor_ang_acc_w=self.anchor_ang_acc_w[steps],
+    )
+
+
+def _uses_online_motion(cfg: MotionCommandCfg) -> bool:
+  from wbc_mjlab.motion.library import has_sources
+
+  source = Path(cfg.motion_file).expanduser()
+  if cfg.motion_source == "npz":
+    return False
+  online = source.suffix.lower() != ".npz" and (
+    has_sources(source) or (source.is_file() and source.suffix.lower() != ".npz")
+  )
+  if cfg.motion_source == "online" and not online:
+    raise FileNotFoundError(
+      f"motion_source='online' needs source clips (CSV / PKL), none in {source}"
+    )
+  return online
+
+
+def _robot_id(cfg: MotionCommandCfg) -> str:
+  if cfg.robot_id:
+    return cfg.robot_id
+  from wbc_mjlab.tasks import last_registered_robot_id
+
+  return last_registered_robot_id()
+
 
 class MotionCommand(CommandTerm):
   """Multi-clip motion playback with RSI resampling and assistive-wrench state.
@@ -227,15 +269,46 @@ class MotionCommand(CommandTerm):
       device=self.device,
     )
 
-    self.motion = MotionLoader(
-      self.cfg.motion_file,
-      self.body_indexes,
-      anchor_body_index=self.motion_anchor_body_index,
-      step_dt=env.step_dt,
-      device=self.device,
-    )
+    self.motion: MotionLoader | OnlineMotion
+    if _uses_online_motion(cfg):
+      self.motion = OnlineMotion(
+        cfg.motion_file,
+        mj_model=env.sim.mj_model,
+        joint_names=self.robot.joint_names,
+        body_names=cfg.body_names,
+        anchor_body=cfg.anchor_body_name,
+        root_body=self.robot.body_names[0],
+        step_dt=env.step_dt,
+        nworld=self.num_envs,
+        device=self.device,
+        robot_id=_robot_id(cfg),
+        entity_name=cfg.entity_name,
+        mirror=cfg.mirror,
+        debias_z=cfg.debias_z,
+        storage=cfg.motion_storage,
+        format_name=cfg.source_format,
+        input_fps=cfg.source_fps,
+      )
+    else:
+      if cfg.mirror or cfg.debias_z:
+        print(
+          "[WARN] mirror / debias_z apply to source clips only; "
+          f"{cfg.motion_file} is converted NPZ (set at conversion)"
+        )
+      self.motion = MotionLoader(
+        self.cfg.motion_file,
+        self.body_indexes,
+        anchor_body_index=self.motion_anchor_body_index,
+        step_dt=env.step_dt,
+        device=self.device,
+      )
+    # Reference at ``time_steps``, recomputed when they change (tensor version counter).
+    self._ref_key: tuple[torch.Tensor, int] | None = None
+    self._ref_frame: MotionFrame | None = None
     self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-    self.trajectory_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+    self.trajectory_ids = torch.zeros(
+      self.num_envs, dtype=torch.long, device=self.device
+    )
     # Per-episode world offset added to reference positions (``ground_reference``).
     self.reference_offset_w = torch.zeros(self.num_envs, 3, device=self.device)
     self.body_pos_relative_w = torch.zeros(
@@ -381,14 +454,10 @@ class MotionCommand(CommandTerm):
         else None
       ),
       episode_similarity_sum=(
-        self._episode_similarity_sum[env_ids]
-        if strategy == "similarity_ema"
-        else None
+        self._episode_similarity_sum[env_ids] if strategy == "similarity_ema" else None
       ),
       episode_step_count=(
-        self._episode_step_count[env_ids]
-        if strategy == "similarity_ema"
-        else None
+        self._episode_step_count[env_ids] if strategy == "similarity_ema" else None
       ),
       similarity_denom=(
         self._episode_similarity_denom[env_ids]
@@ -597,13 +666,39 @@ class MotionCommand(CommandTerm):
   def wbc_command_dim(self) -> int:
     return int(self.command.shape[-1])
 
+  def reference(self) -> MotionFrame:
+    """Reference at the current ``time_steps``: computed once per change of the frame
+    indices (any write to ``time_steps`` bumps its version), then shared by every term."""
+    ts = self.time_steps
+    if (
+      self._ref_frame is None
+      or self._ref_key is None
+      or self._ref_key[0] is not ts
+      or self._ref_key[1] != ts._version
+    ):
+      self._ref_frame = self.motion.frame(ts)
+      self._ref_key = (ts, ts._version)
+    return self._ref_frame
+
+  def _patch_reference(self, env_ids: torch.Tensor) -> None:
+    """Recompute only ``env_ids`` after their frame indices were just written, when that one
+    write is the only change since the reference was computed (else the next
+    :meth:`reference` recomputes every env)."""
+    ts, key, ref = self.time_steps, self._ref_key, self._ref_frame
+    if ref is None or key is None or key[0] is not ts or ts._version != key[1] + 1:
+      return
+    part = self.motion.frame(ts[env_ids])
+    for f in dataclasses.fields(MotionFrame):
+      getattr(ref, f.name)[env_ids] = getattr(part, f.name)
+    self._ref_key = (ts, ts._version)
+
   @property
   def joint_pos(self) -> torch.Tensor:
-    return self.motion.joint_pos[self.time_steps]
+    return self.reference().joint_pos
 
   @property
   def joint_vel(self) -> torch.Tensor:
-    return self.motion.joint_vel[self.time_steps]
+    return self.reference().joint_vel
 
   def _tracked_joint_pos_error(self) -> torch.Tensor:
     error = self.joint_pos - self.robot_joint_pos
@@ -620,50 +715,50 @@ class MotionCommand(CommandTerm):
   @property
   def body_pos_w(self) -> torch.Tensor:
     return (
-      self.motion.body_pos_w[self.time_steps]
+      self.reference().body_pos_w
       + self._env.scene.env_origins[:, None, :]
       + self.reference_offset_w[:, None, :]
     )
 
   @property
   def body_quat_w(self) -> torch.Tensor:
-    return self.motion.body_quat_w[self.time_steps]
+    return self.reference().body_quat_w
 
   @property
   def body_lin_vel_w(self) -> torch.Tensor:
-    return self.motion.body_lin_vel_w[self.time_steps]
+    return self.reference().body_lin_vel_w
 
   @property
   def body_ang_vel_w(self) -> torch.Tensor:
-    return self.motion.body_ang_vel_w[self.time_steps]
+    return self.reference().body_ang_vel_w
 
   @property
   def anchor_pos_w(self) -> torch.Tensor:
     return (
-      self.motion.body_pos_w[self.time_steps][:, self.motion_anchor_body_index]
+      self.reference().body_pos_w[:, self.motion_anchor_body_index]
       + self._env.scene.env_origins
       + self.reference_offset_w
     )
 
   @property
   def anchor_quat_w(self) -> torch.Tensor:
-    return self.motion.body_quat_w[self.time_steps][:, self.motion_anchor_body_index]
+    return self.reference().body_quat_w[:, self.motion_anchor_body_index]
 
   @property
   def anchor_lin_vel_w(self) -> torch.Tensor:
-    return self.motion.body_lin_vel_w[self.time_steps][:, self.motion_anchor_body_index]
+    return self.reference().body_lin_vel_w[:, self.motion_anchor_body_index]
 
   @property
   def anchor_ang_vel_w(self) -> torch.Tensor:
-    return self.motion.body_ang_vel_w[self.time_steps][:, self.motion_anchor_body_index]
+    return self.reference().body_ang_vel_w[:, self.motion_anchor_body_index]
 
   @property
   def anchor_lin_acc_w(self) -> torch.Tensor:
-    return self.motion.anchor_lin_acc_w[self.time_steps]
+    return self.reference().anchor_lin_acc_w
 
   @property
   def anchor_ang_acc_w(self) -> torch.Tensor:
-    return self.motion.anchor_ang_acc_w[self.time_steps]
+    return self.reference().anchor_ang_acc_w
 
   @property
   def robot_joint_pos(self) -> torch.Tensor:
@@ -776,6 +871,7 @@ class MotionCommand(CommandTerm):
       assert rsi.sampling_mode == "adaptive"
       self._adaptive_sampling(env_ids)
 
+    self._patch_reference(env_ids)
     self._update_reference_offset(env_ids)
     root_pos = self.body_pos_w[env_ids, 0].clone()
     root_ori = self.body_quat_w[env_ids, 0].clone()
@@ -840,9 +936,7 @@ class MotionCommand(CommandTerm):
     """
     if not self.cfg.ground_reference:
       return
-    start_xy = self.motion.body_pos_w[
-      self.time_steps[env_ids], self.motion_anchor_body_index, :2
-    ]
+    start_xy = self.reference().body_pos_w[env_ids, self.motion_anchor_body_index, :2]
     self.reference_offset_w[env_ids] = 0.0
     self.reference_offset_w[env_ids, :2] = -start_xy
 
@@ -1091,8 +1185,12 @@ class MotionCommand(CommandTerm):
             )
 
         if self._viewer_align_xy_yaw:
-          desired_anchor_pos = self.body_pos_relative_w[batch, self.motion_anchor_body_index]
-          desired_anchor_quat = self.body_quat_relative_w[batch, self.motion_anchor_body_index]
+          desired_anchor_pos = self.body_pos_relative_w[
+            batch, self.motion_anchor_body_index
+          ]
+          desired_anchor_quat = self.body_quat_relative_w[
+            batch, self.motion_anchor_body_index
+          ]
         else:
           desired_anchor_pos = self.anchor_pos_w[batch]
           desired_anchor_quat = self.anchor_quat_w[batch]
@@ -1115,9 +1213,7 @@ class MotionCommand(CommandTerm):
           label=f"current_anchor_{batch}",
         )
 
-  def _add_body_error_markers(
-    self, visualizer: DebugVisualizer, env_idx: int
-  ) -> None:
+  def _add_body_error_markers(self, visualizer: DebugVisualizer, env_idx: int) -> None:
     pos_err, rot_err = self._body_tracking_errors(env_idx)
     body_pos = self.robot_body_pos_w[env_idx].cpu().numpy()
     for i, body_name in enumerate(self.cfg.body_names):
@@ -1215,6 +1311,7 @@ class MotionCommand(CommandTerm):
 
   def reset_to_frame(self, env_ids: torch.Tensor, frame: int) -> None:
     self.time_steps[env_ids] = frame
+    self._patch_reference(env_ids)
     traj_ids = torch.searchsorted(
       self.motion.segment_end_idx,
       torch.full((len(env_ids),), frame, device=self.device),
@@ -1239,7 +1336,22 @@ class MotionCommandCfg(MjlabMotionCommandCfg):
   """Config for :class:`MotionCommand` (set per robot in ``<robot>_base_cfg``)."""
 
   motion_file: str
-  """Path to converted NPZ library (from ``wbc-mjlab-data-to-npz``)."""
+  """Motion library: a dataset folder of source clips (CSV / PKL, at its root or in
+  ``raw/``) played online, or converted NPZ (a ``.npz`` bundle or a folder of ``npz/*.npz``)."""
+  motion_source: Literal["auto", "online", "npz"] = "auto"
+  """``auto``: online when the folder has source clips, else its converted NPZ."""
+  mirror: bool = False
+  """Online: add a left/right mirrored copy of every clip (virtual segments, no storage)."""
+  debias_z: bool = False
+  """Online: shift each clip vertically so its lowest foot sits at the robot's sole height."""
+  motion_storage: Literal["device", "host"] = "device"
+  """Online: source frames on the env device, or in pinned host memory (huge datasets)."""
+  source_format: str | None = None
+  """Online: source format name (``motion_formats``); inferred from the extension if unset."""
+  source_fps: float | None = None
+  """Online: override the source frame rate (default: the format's / file's)."""
+  robot_id: str = ""
+  """Robot of the motion (symmetry for ``mirror``, feet for ``debias_z``); set per robot."""
   anchor_body_name: str
   """Body used for anchor-frame errors and assistive wrench."""
   body_names: tuple[str, ...]

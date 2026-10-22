@@ -17,7 +17,19 @@ Configuration
    * - Field
      - Meaning
    * - ``motion_file``
-     - Path to converted NPZ (from ``wbc-mjlab-data-to-npz``)
+     - Dataset folder of source clips (played online, :ref:`data-online`), a source clip, or
+       converted NPZ (a ``.npz`` bundle or a folder of ``npz/*.npz``)
+   * - ``motion_source``
+     - ``auto`` (online when there are source clips) · ``online`` · ``npz``
+   * - ``mirror`` · ``debias_z``
+     - Online: add mirrored clips (virtual, needs the robot's symmetry config) · shift each
+       clip so its lowest foot is on the ground
+   * - ``source_format`` · ``source_fps``
+     - Online: source format name and rate, when the extension / file doesn't tell
+   * - ``motion_storage``
+     - Online: source frames on the env ``device`` (default) or in pinned ``host`` memory
+   * - ``robot_id``
+     - Robot of the motion (symmetry, feet); set by the robot's env builder
    * - ``anchor_body_name``
      - Body used for anchor-frame errors and assistive wrench (set in robot entity)
    * - ``body_names``

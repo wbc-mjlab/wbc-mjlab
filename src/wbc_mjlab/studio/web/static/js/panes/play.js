@@ -142,7 +142,7 @@ export class PlayPane {
       group("Setup", {},
         h("div.stack",
           field("Checkpoint", select([...ckpts.map((x) => ({ value: x, label: x })), { value: ZERO, label: "Zero action · PD on the reference" }], c.checkpoint, (v) => (c.checkpoint = v))),
-          field("Motion library", select(this.libs.length ? this.libs : [{ value: "", label: "convert a dataset first" }], c.motion, (v) => (c.motion = v))),
+          field("Motion library", select(this.libs.length ? this.libs : [{ value: "", label: "add a dataset in Data first" }], c.motion, (v) => (c.motion = v))),
           field("Environments", envPicker(c.num_envs, (n) => (c.num_envs = n))),
           switchEl("Terminations — falls end episodes", c.terminations, (v) => (c.terminations = v)))),
     );

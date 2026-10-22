@@ -42,7 +42,7 @@ Call once from your package entry point (``mjlab.tasks``):
 
 Then install the extension editable alongside wbc-mjlab (see :doc:`../installation`)
 and confirm ``wbc-mjlab-list-envs`` lists ``Wbc-MyRobot``. Optional
-``symmetry_config`` on ``WbcRobotSpec`` enables ``wbc-mjlab-data-to-npz --mirror``
+``symmetry_config`` on ``WbcRobotSpec`` enables ``--mirror``
 (see :doc:`../data` and :doc:`../extensions/robot_entity`). Full walkthrough:
 :doc:`../extensions/example_extension`.
 
@@ -64,8 +64,8 @@ Task config
 Motion conversion metadata
 --------------------------
 
-Used by ``wbc-mjlab-data-to-npz --robot <id>`` when the extension provides FK /
-debias metadata.
+Feet for the height debias (``--debias-z``) and the FK scene of
+``wbc-mjlab-data-to-npz --robot <id>``.
 
 .. autoclass:: wbc_mjlab.motion.robot_assets.RobotMotionSpec
    :members:

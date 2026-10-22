@@ -42,6 +42,9 @@ def _filter_argv_for_wandb_flag(argv: list[str]) -> tuple[list[str], bool]:
   return out, use
 
 
+_MOTION_SWITCHES = {"--mirror": "mirror", "--debias-z": "debias-z"}
+
+
 def _apply_motion_file_shortcut(argv: list[str]) -> list[str]:
   out: list[str] = []
   i = 0
@@ -54,6 +57,10 @@ def _apply_motion_file_shortcut(argv: list[str]) -> list[str]:
     if arg == "--motion-file":
       out.extend(["--env.commands.motion.motion-file", argv[i + 1]])
       i += 2
+      continue
+    if arg in _MOTION_SWITCHES:  # online motion options: --mirror, --debias-z
+      out.extend([f"--env.commands.motion.{_MOTION_SWITCHES[arg]}", "True"])
+      i += 1
       continue
     out.append(arg)
     i += 1

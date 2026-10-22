@@ -3,7 +3,7 @@ Robots and extensions
 
 A **robot** in wbc-mjlab is a **registered entity** — not a folder you drop into
 ``env/``. The core ships one built-in id (``g1``) as a reference; every other
-platform must **register** before train, play, or ``wbc-mjlab-data-to-npz`` will work.
+platform must **register** before train or play will work.
 
 Why registration
 ----------------
@@ -62,7 +62,7 @@ Build your own
 
 Fastest: upload the model in the Studio — :doc:`../extensions/custom_robots`.
 
-End-to-end first run (retarget → convert → train): :ref:`first-run-extension`.
+End-to-end first run (retarget → check → train): :ref:`first-run-extension`.
 
 Layout, ``WbcRobotSpec``, and H2 reference walkthrough:
 

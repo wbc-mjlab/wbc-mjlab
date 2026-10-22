@@ -35,10 +35,7 @@ mkdir -p data/g1/lafan/raw
 cp /tmp/lafan1_retarget/g1/*.csv data/g1/lafan/raw/
 # HF layout may vary — copy all G1 *.csv
 
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset lafan
-# or parallel conversion for the full library:
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset lafan --batch-size 8
-uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan
+uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan   # reads the CSVs, nothing to convert
 ```
 
 LAFAN1 content: [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/) (see dataset card).
@@ -49,7 +46,7 @@ LAFAN1 content: [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/
 
 Everyday human motion with **Unitree G1 CSV** at `g1/csv/{date}/{motion_name}.csv`. Accept the [BONES-SEED license](https://huggingface.co/datasets/bones-studio/seed) on Hugging Face before download. This repository does not redistribute those files or retargets derived from them.
 
-The official CSV uses a BONE SEED header layout (cm, euler degrees, joint degrees). Convert to LAFAN-style CSV first (no header, meters, quat xyzw, radians), then run `wbc-mjlab-data-to-npz`. Write the result under a local dataset folder such as `data/g1/seed/` (gitignored), not under `samples/`.
+The official CSV uses a BONE SEED header layout (cm, euler degrees, joint degrees). Convert to LAFAN-style CSV first (no header, meters, quat xyzw, radians), then train on it. Write the result under a local dataset folder such as `data/g1/seed/` (gitignored), not under `samples/`.
 
 ```bash
 huggingface-cli download bones-studio/seed \
@@ -67,7 +64,6 @@ python path/to/bone_seed_to_lafan_csv.py \
   --input_dir /tmp/bones-seed-raw \
   --output_dir data/g1/seed/raw
 
-uv run wbc-mjlab-data-to-npz --robot g1 --dataset seed
 uv run wbc-mjlab-train --task Wbc-G1 --dataset seed
 ```
 
@@ -106,5 +102,5 @@ uv run wbc-mjlab-play --task Wbc-G1 --motion-file /path/to/lafan_dance1_subject1
 data/g1/samples/
   README.md
   walk1_subject1.csv
-  npz/walk1_subject1.npz    # after wbc-mjlab-data-to-npz
+  .cache/                   # packed clips, written by the first training run
 ```

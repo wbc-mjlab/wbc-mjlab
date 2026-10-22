@@ -55,11 +55,13 @@ class Session:
     device: str,
     terminations: bool,
     preset: dict | None = None,
+    run_dir: Path | None = None,
   ):
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
     from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 
+    from wbc_mjlab.motion.library import apply_run_motion_options
     from wbc_mjlab.studio.presets import register, split_task_id
     from wbc_mjlab.tasks import prepare_wbc_run
 
@@ -70,6 +72,7 @@ class Session:
     agent_cfg = load_rl_cfg(task_id)
     motion = env_cfg.commands["motion"]
     motion.motion_file = motion_file
+    apply_run_motion_options(motion, run_dir)  # mirror / debias as trained
     motion.rsi.sampling_mode = "uniform"
     env_cfg.scene.num_envs = num_envs
     self.task = task_id
@@ -192,7 +195,8 @@ class PlayService:
     return self.c.training.runs(robot=self.c.robot_id)
 
   def libraries(self, run: str = "") -> list[dict]:
-    """Motion libraries to play on: the run's own (if still on disk) + converted datasets."""
+    """Motion libraries to play on: the run's own (if still on disk) + every dataset with
+    clips (source clips are played online, converted ones from npz/)."""
     out = []
     r = jobmod.find_run(run) if run else None
     if r is not None and r.motion_source():
@@ -203,10 +207,9 @@ class PlayService:
         }
       )
     for d in self.c.data.datasets():
-      if d["npz"]:
-        out.append(
-          {"value": str(Path(d["path"])), "label": f"{d['name']} · {d['npz']} clips"}
-        )
+      n = d["raw"] or d["npz"]
+      if n:
+        out.append({"value": str(Path(d["path"])), "label": f"{d['name']} · {n} clips"})
     return out
 
   def clips(self) -> list[str]:
@@ -299,9 +302,7 @@ class PlayService:
   def _default_library(self) -> str:
     libs = self.libraries()
     if not libs:
-      raise RuntimeError(
-        "no converted dataset for this robot: convert one in Data first"
-      )
+      raise RuntimeError("no dataset for this robot: import one in Data first")
     pref = next((x for x in libs if Path(x["value"]).name == "samples"), libs[0])
     return pref["value"]
 
@@ -337,6 +338,7 @@ class PlayService:
         device=self.c.device,
         terminations=terminations,
         preset=r.preset_snapshot(),
+        run_dir=r.path,
       )
       try:  # procedural terrain (-Terrain-Scan tasks): drawn under the robots
         self._tmap = TerrainMap.from_model(session.env.sim.mj_model)

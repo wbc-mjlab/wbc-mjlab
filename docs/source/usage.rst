@@ -15,9 +15,9 @@ pip, drop the ``uv run`` prefix.
    * - :ref:`wbc-mjlab-studio <cli-studio>`
      - The whole pipeline in a browser
    * - :ref:`wbc-mjlab-data-to-npz <cli-convert>`
-     - Convert source clips (CSV / PKL) to NPZ
+     - Export source clips (CSV / PKL) as NPZ — optional, training reads the sources
    * - :ref:`wbc-mjlab-data-vis <cli-data-vis>`
-     - Play converted clips (no policy)
+     - Play exported NPZ clips (no policy)
    * - :ref:`wbc-mjlab-list-envs <cli-list>`
      - List robots and tasks
    * - :ref:`wbc-mjlab-train <cli-train>`
@@ -67,7 +67,11 @@ wbc-mjlab-data-to-npz
 
 .. code-block:: bash
 
-   uv run wbc-mjlab-data-to-npz --robot g1 --dataset my_clips --batch-size 8
+   uv run wbc-mjlab-data-to-npz --robot g1 --dataset my_clips
+
+Training does not need it (:ref:`data-online`): it writes ``npz/<clip>.npz`` — body poses
+and velocities — for tools that want them, baked with the training code path (batched GPU
+forward kinematics).
 
 .. list-table::
    :widths: 30 70
@@ -83,13 +87,14 @@ wbc-mjlab-data-to-npz
    * - ``--input-fps`` · ``--output-fps``
      - Source rate (CSV default 30) · export rate (default 50)
    * - ``--batch-size``
-     - Parallel FK workers on the GPU (default 1)
+     - Frames per FK batch on the GPU (at least 4096)
    * - ``--debias-z`` · ``--debias-foot-sole-z``
      - Shift clips so the feet touch the floor · override the robot's sole height
    * - ``--mirror``
      - Also write left-right mirrored clips (needs a symmetry config)
    * - ``--device`` · ``--render`` · ``--line-range``
-     - Torch device · render while converting (batch size 1) · CSV row range
+     - Torch device · step the clips through the sim and render them (frame by frame, batch
+       size 1) · CSV row range
 
 Formats and output: :doc:`reference/data_formats`.
 
@@ -102,7 +107,7 @@ wbc-mjlab-data-vis
 
    uv run wbc-mjlab-data-vis --robot g1 --dataset samples
 
-Plays converted clips in viser with a timeline. Options: ``--robot``, ``--dataset``,
+Plays exported NPZ clips in viser with a timeline (source clips: the Studio). Options: ``--robot``, ``--dataset``,
 ``--dataset-path``, ``--motion-file``, ``--fps``, ``--cache-motion-bundle``.
 
 .. _cli-list:
@@ -131,11 +136,14 @@ wbc-mjlab options (parsed first):
    * - ``--task <id>``
      - Task to train / play (robot taken from it) — :doc:`tasks/index`
    * - ``--dataset <name>``
-     - Motion library ``data/<robot>/<name>/npz/``
+     - Motion library ``data/<robot>/<name>/`` (source clips, played online)
    * - ``--dataset-path`` · ``--motion-file``
-     - A dataset folder or an NPZ anywhere
+     - A dataset folder, a clip or an NPZ anywhere
+   * - ``--mirror`` · ``--debias-z`` *(train)*
+     - Add left-right mirrored clips · put each clip's lowest foot on the ground —
+       :doc:`data`
    * - ``--cache-motion-bundle``
-     - Write / reuse ``<dataset>/<dataset>.npz`` (faster restarts)
+     - Converted-NPZ datasets only: write / reuse ``<dataset>/<dataset>.npz``
    * - ``--robot <id>`` · ``--no-state-estimation``
      - Shorthand instead of ``--task``: the robot's default task · its non-SE variant
 
@@ -166,7 +174,7 @@ Everything else passes through to mjlab (`mjlab CLI <https://mujocolab.github.io
 wbc-mjlab-demo
 --------------
 
-Plays the bundled checkpoint (``demos/wbc_g1``) on the converted ``samples``. Options include
+Plays the bundled checkpoint (``demos/wbc_g1``) on the bundled ``samples`` clips. Options include
 ``--agent trained|zero|random``, ``--num-envs``, ``--viewer``, ``--video``.
 
 .. _cli-export:

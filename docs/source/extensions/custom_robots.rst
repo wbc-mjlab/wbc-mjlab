@@ -119,8 +119,7 @@ After that the robot is like any other:
 .. code-block:: bash
 
    uv run wbc-mjlab-list-envs                     # Robots: g1, h1 … Wbc-H1, Wbc-H1-SE, Wbc-H1-Terrain-Scan
-   uv run wbc-mjlab-data-to-npz --robot h1 --dataset my_clips --batch-size 8 --debias-z True
-   uv run wbc-mjlab-train --task Wbc-H1 --dataset my_clips
+   uv run wbc-mjlab-train --task Wbc-H1 --dataset my_clips --debias-z
 
 Clips must be retargeted to the robot (joint order of the model, see :doc:`../data`).
 

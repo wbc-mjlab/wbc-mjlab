@@ -11,8 +11,10 @@ from wbc_mjlab.deploy_paths import PLAY_CONFIG_NAME, PLAY_PARAMS_SUBDIR
 from wbc_mjlab.env.mdp.commands import MotionCommand
 from wbc_mjlab.env.mdp.sampling import save_rsi_bin_stats
 from wbc_mjlab.export.tracking_params_yaml import write_wbc_tracking_params_yaml
+from wbc_mjlab.motion.library import OnlineMotion
 from wbc_mjlab.motion.manifest import (
   build_motion_library_manifest,
+  build_motion_library_manifest_from_segments,
   export_motion_library_manifest,
 )
 
@@ -72,7 +74,17 @@ def export_motion_library_manifest_from_env(
     return None
 
   params_dir.mkdir(parents=True, exist_ok=True)
-  manifest = build_motion_library_manifest(motion_cmd.cfg.motion_file)
+  motion = motion_cmd.motion
+  if isinstance(motion, OnlineMotion):
+    manifest = build_motion_library_manifest_from_segments(
+      dataset_root=Path(motion.motion_source),
+      robot=motion_cmd.cfg.robot_id,
+      clips=list(motion.segment_names),
+      total_frames=motion.time_step_total,
+      fps=1.0 / motion.step_dt,
+    )
+  else:
+    manifest = build_motion_library_manifest(motion_cmd.cfg.motion_file)
   return export_motion_library_manifest(params_dir, manifest)
 
 

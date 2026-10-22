@@ -69,9 +69,14 @@ def make_wbc_env_cfg(
   _ensure_builders()
   rid = resolve_robot_id(robot_id) if isinstance(robot_id, str) else robot_id
   try:
-    return _ENV_BUILDERS[rid](play=play, task_id=task_id, **kwargs)
+    builder = _ENV_BUILDERS[rid]
   except KeyError as exc:
     raise KeyError(f"No WBC env builder for robot {rid!r}") from exc
+  cfg = builder(play=play, task_id=task_id, **kwargs)
+  motion = cfg.commands.get("motion")
+  if motion is not None and hasattr(motion, "robot_id") and not motion.robot_id:
+    motion.robot_id = rid
+  return cfg
 
 
 def make_wbc_rl_cfg(robot_id: str | RobotId = "g1") -> RslRlOnPolicyRunnerCfg:

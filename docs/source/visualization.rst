@@ -21,7 +21,7 @@ adaptive sampling starts episodes.
      - One task in viser: reference alignment, error colouring, the sampling panel, a frame
        scrubber with *Start here*
    * - ``wbc-mjlab-data-vis``
-     - Converted clips in viser, no policy
+     - Exported NPZ clips in viser, no policy (source clips: the Studio)
    * - ``wbc-mjlab-plot-rsi-bins``
      - Saved sampling state, offline
 
@@ -111,7 +111,8 @@ Motion NPZ preview
 ------------------
 
 ``wbc-mjlab-data-vis`` (``scripts/vis_data.py``) uses mjlab's ``MjlabViserScene`` with
-a timeline GUI to scrub converted clips before training — same Viser stack, no policy.
+a timeline GUI to scrub exported NPZ clips (``wbc-mjlab-data-to-npz``) — same Viser stack,
+no policy. Source clips play in the Studio's *Data*.
 
 Module map
 ----------

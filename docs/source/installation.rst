@@ -170,7 +170,7 @@ Next steps
       :link: workflows/quickstart
       :link-type: doc
 
-      Convert the samples, train and watch a first policy.
+      Train on the samples and watch a first policy.
 
    .. grid-item-card:: :octicon:`browser` WBC Studio
       :link: studio
