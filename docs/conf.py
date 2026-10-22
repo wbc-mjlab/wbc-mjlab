@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 # Sphinx viewcode imports mjlab, which loads mjlab.tasks entry points. Skip WBC
@@ -14,6 +15,11 @@ import sphinx_book_theme
 sys.path.insert(0, os.path.abspath("../src"))
 
 project = "WBC-MJLab"
+# Version from pyproject.toml, the single source of truth.
+# (regex, not tomllib: docs must build on Python 3.10 too)
+with open(os.path.join(os.path.dirname(__file__), "..", "pyproject.toml")) as _f:
+  release = re.search(r'^version = "([^"]+)"', _f.read(), re.M).group(1)
+version = release
 copyright = "2026, WBC-MJLab contributors"
 author = "WBC-MJLab contributors"
 

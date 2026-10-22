@@ -40,9 +40,37 @@ Failure signals (strategies)
      - Low **tracking similarity** over the episode (reward-aligned in WBC/Zest presets)
    * - ``binary_failure``
      - Episode **ended early** before timeout (BeyondMimic-style preset)
+   * - ``success_target``
+     - Episode terminated before its clip ended — but bins are weighted towards a
+       **target success rate**, not the highest failure (SGS, below)
 
 Presets choose the strategy and whether similarity follows **hand-tuned kernels** or
 the **same ``motion_*`` rewards** as training (``similarity_from_rewards=True``).
+
+Hardest-first or target success
+-------------------------------
+
+``similarity_ema`` and ``binary_failure`` sample **hardest first**: the weight grows with
+failure, so a bin the policy can't do at all — a retargeting glitch, a flip it isn't ready
+for — gets the most starts.
+
+``success_target`` is **success-guided sampling** (SGS, `arXiv:2610.12465
+<https://arxiv.org/abs/2610.12465>`_). It tracks each bin's success rate *p* and weights
+bins with a kernel that peaks at a target rate *t* (0.66 by default): bins the policy
+almost always survives *and* bins it almost never survives both get few starts, so
+training stays on the frontier of what it can learn. The paper reports gains over
+hardest-first and uniform sampling already at 4K–32K parallel envs, the scale wbc-mjlab
+trains at.
+
+.. code-block:: text
+
+   w(p) = (p + ε)^(κ·t) · (1 − p + ε)^(κ·(1 − t))       P(bin) ∝ exp(log w / T)
+
+   success rate p:   0.02    0.33    0.66    0.98
+   relative weight:  0.01    0.57    1.00    0.17      (t = 0.66, κ = 5, T = 2)
+
+Try it with ``--task Wbc-G1-SGS`` (:doc:`../tasks/wbc-g1-sgs`) or the ``sgs`` module in a
+Studio preset (any task, any robot).
 
 Connection to training
 ----------------------

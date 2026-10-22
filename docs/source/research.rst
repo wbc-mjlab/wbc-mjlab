@@ -85,6 +85,10 @@ in addition to wbc-mjlab and mjlab. See :doc:`tasks/index`.
      - `High-dynamic scalable tracking <https://arxiv.org/abs/2602.23843>`_
      - partial (G1 torque envelope)
      - 2026
+   * - **SGS**
+     - `A Balanced Data Diet (success-guided sampling) <https://arxiv.org/abs/2610.12465>`_
+     - ``Wbc-G1-SGS``; ``sgs`` Studio module
+     - 2026
 
 BibTeX entries for method papers
 --------------------------------
