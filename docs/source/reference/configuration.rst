@@ -84,6 +84,7 @@ Studio preset file
          enable_corruption: true
          terms:
            ref_body_pos: {add: true, bodies: [pelvis, left_wrist_yaw_link]}
+           ref_joint_pos: {frames: 5, stride: 2}   # now and 2, 4, 6, 8 steps ahead
            joint_vel: {noise_scale: 2.0}
            projected_gravity: {enabled: false}
      rewards:
@@ -99,9 +100,6 @@ Studio preset file
      terrain:
        curriculum.start_row: 2
        rough.noise_range: [0.0, 0.15]
-     agent:
-       algorithm.learning_rate: 5.0e-4
-       actor.hidden_dims: [512, 256, 128]
 
 .. list-table:: ``overrides`` sections
    :header-rows: 1
@@ -113,7 +111,8 @@ Studio preset file
      - Per group (``actor``, ``critic``): ``history_length`` (0 = none),
        ``enable_corruption``, and ``terms.<name>`` with ``enabled: false`` (drop),
        ``add: true`` (add from the robot's term library), ``noise_scale`` (multiplies the
-       term's noise; 0 = off), ``history_length``, ``bodies`` (keybody subset; ``[]`` = all)
+       term's noise; 0 = off), ``history_length``, ``frames`` / ``stride`` (reference terms:
+       frames ahead, :ref:`observations-ahead`), ``bodies`` (keybody subset; ``[]`` = all)
    * - ``rewards``
      - ``<term>: {enabled, weight, params: {<param>: value}}``; dict-valued parameters as
        ``<param>.<key>``
@@ -128,8 +127,9 @@ Studio preset file
        ``curriculum.difficulty_range``, ``<sub_terrain>.<field>``
        (``rough.noise_range``, ``perlin.proportion`` …)
    * - ``agent``
-     - Runner fields by dotted path (``algorithm.learning_rate``, ``num_steps_per_env``,
-       ``actor.hidden_dims``)
+     - Presets saved before recipes: PPO runner fields by dotted path
+       (``algorithm.learning_rate``, ``actor.hidden_dims``), still applied. Training
+       settings are recipes now (below).
 
 The Studio's *Preset* step lists every key a task accepts, with its default
 (``GET /api/presets/schema?base=<task>``).
@@ -152,6 +152,28 @@ preset (``modules: [<name>]``).
 
 The built-in module ``se`` is computed from the robot's ``<task>-SE`` / ``<task>`` pair and
 can't be edited (copy it with *Save as module…*).
+
+Studio recipe file
+------------------
+
+``recipes/<name>.yaml`` — how a preset trains: a method and the runner settings that differ
+from the task's, written by the Studio (*Train → How to train*, save) or by hand. Any preset
+trains with any recipe; a job passes it as ``--algo <algo> --agent.<key> <value>`` to
+``wbc-mjlab-train``.
+
+.. code-block:: yaml
+
+   algo: wm                      # ppo | wm
+   description: short horizon, smaller dynamics network
+   settings:
+     algorithm.horizon: 16
+     algorithm.imagined_rollouts: 2048
+     algorithm.model_hidden_dims: [1024, 1024, 1024]
+     actor.hidden_dims: [512, 256, 128]   # the policy network (both methods)
+
+Built-in recipes (not files): ``ppo``, ``wm`` (the paper's settings) and ``wm-24gb``
+(2048 imagined rollouts). The settings of each method:
+``GET /api/train/methods?task=<task>``.
 
 Run snapshot
 ------------

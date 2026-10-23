@@ -151,7 +151,10 @@ input fps. **Export N** runs ``wbc-mjlab-data-to-npz`` as a job with progress an
 3 · Preset
 ----------
 
-The MDP a policy learns. Start from a **built-in preset** (the paper setups ``Wbc-G1``,
+What a policy learns: what it sees, how it is rewarded, where episodes start and what is
+randomized. How it learns — the method and its settings — is a *recipe*, picked in
+:ref:`Train <studio-train>`, so any preset trains with PPO or the world model. Start from a
+**built-in preset** (the paper setups ``Wbc-G1``,
 ``Wbc-G1-Zest``, ``Wbc-G1-BinaryFailure``, ``Wbc-G1-EE``, ``Wbc-G1-Terrain-Scan`` …), switch on
 **modules**, then change anything on these tabs:
 
@@ -165,8 +168,10 @@ The MDP a policy learns. Start from a **built-in preset** (the paper setups ``Wb
      - **Actor** (policy input, also on the robot) and **critic** (privileged, training
        only), grouped into *reference* (what to track), *robot state* and *sim only*. Drop
        terms; **Add term** from every term the robot's tasks define; scale training noise
-       (``0`` = off); history per term or per group; the **keybodies** a term covers (e.g.
-       hands and feet only). Every term and group shows its width (``132 dims``; the
+       (``0`` = off); history per term or per group (steps back); for reference terms,
+       **frames ahead** and their **stride** (the reference now and later frames, e.g. 10
+       frames 2 steps apart: :ref:`observations-ahead`); the **keybodies** a term covers
+       (e.g. hands and feet only). Every term and group shows its width (``132 dims``; the
        ``height_scan`` of terrain tasks: one value per ray, 54). Actor terms the export can't
        rebuild on the robot are tagged *sim only*; terms that need a sensor the task lacks
        (``height_scan`` on a flat task) can't be added; changing the actor warns that the
@@ -185,11 +190,10 @@ The MDP a policy learns. Start from a **built-in preset** (the paper setups ``Wb
      - Only for tasks on procedural terrain (``-Terrain-Scan``): the curriculum (start row,
        number of difficulty rows, difficulty range) and each sub-terrain's share and ranges
        (flat, rough noise, Perlin hills, random grid)
-   * - **PPO**
-     - Optimiser, rollout, network sizes
 
 Each change gets an amber dot (click to reset that field); the footer counts the changes
-against base + modules.
+against base + modules. A preset saved before recipes may still hold PPO settings: they
+keep applying, and a note above the tabs offers **Move to a recipe**.
 
 **Modules** are reusable pieces of a preset with no base task, shown as toggles under the
 preset picker. The built-in ``se`` module is the state-estimation actor, read off the
@@ -209,21 +213,69 @@ the terms react; training is not affected. **Train** saves and moves to the next
 
 Files and run snapshots: :ref:`studio-files`.
 
+.. _studio-train:
+
 4 · Train
 ---------
 
-The preset and dataset come from the previous steps (each with a shortcut back). Set the
-budget (envs, iterations — or the *1k / 5k / 30k / 100k* chips), a run name, the logger
-(TensorBoard / W&B), fresh or continue from a run's checkpoint. *Motion* adds left/right
+The preset and dataset come from the previous steps (each with a shortcut back); *Start* is a
+fresh policy or a run of the same preset and method to continue.
+
+**How to train** picks the **method** — **PPO**, the default, which trains every preset, or
+the **World model** (experimental, :doc:`concepts/world_model`) — and a **recipe**: a method
+with its settings, saved by name and usable with any preset. The built-in recipes are *PPO*,
+*World model · paper* and *World model · 24 GB GPU* (2048 imagined rollouts, the default on
+a GPU under 40 GB). For the world model the Studio first checks that it can train the preset
+— a 2-env copy of the env is built in the background (~10 s) — and says which rewards it
+computes exactly, which it learns and which randomization the model is given; a preset it
+can't train (an actor that reads a height scan) is named with the reason and can't be
+launched.
+
+**Settings** (closed until opened) lists every setting of the method with the preset's
+values as defaults: the main ones first, then the method's own, the policy network (the same
+for both methods: the policy that is exported), the value network and rollouts. Changes
+apply to this run; the save button keeps them as a recipe (``recipes/<name>.yaml``), and
+switching methods keeps the policy network. Continuing a run keeps the networks its
+checkpoint was built with, shown locked.
+
+Then the budget: envs and iterations. The chips are typical budgets of the method — an
+iteration is 24 env steps for PPO, 5 for the world model — and the estimated training time
+comes from earlier runs of the method on this machine (of the same preset when there is
+one). A run name, the logger (TensorBoard / W&B). *Motion* adds left/right
 mirrored clips (needs the robot's symmetry config) and the height debias; Play applies the
 options a run was trained with. *Advanced* takes extra
 arguments and shows the exact command line. **Launch** starts a detached job
 (``wbc-mjlab-train``, or ``python -m wbc_mjlab.studio.train_preset`` for your presets — single
 GPU).
 
-*Jobs* lists training and export jobs. A job shows progress and ETA, curves (reward,
-tracking errors, per-term rewards, sampling, losses), the log, **TensorBoard**, Stop / Forget,
-and **Play** for its run.
+*Jobs* lists training and export jobs with their method and recipe. A job shows progress and ETA,
+curves (reward, tracking errors, per-term rewards, sampling, and the losses of its method),
+the log, **TensorBoard**, Stop, and **Play** for its run. A job that exits with an
+error (a wrong argument included) is marked *failed*. The log's expand button (or a double
+click) opens it full size: up to its last 5000 lines, following the end while the job runs,
+with a filter (text or ``/regex/``, Ctrl+F), wrap, errors in red and warnings in amber, copy
+and **Download** of the whole file. While a world model compiles its first update (minutes,
+cached for later runs) the job says so. The form warns when a job is already running: jobs
+share the GPU, and two world-model jobs don't fit in 24 GB.
+
+**Cleaning up.** A finished, failed or stopped job has a **×**, and **Clear finished** removes
+all of them. Removing a job deletes its record and log under ``logs/studio/jobs``. Tick
+*Also delete its run* to delete its run folder (checkpoints, curves) too; that's on by default
+when the run saved nothing past ``model_0.pt``. The Data pane's export jobs have the same
+buttons; their exported clips always stay.
+
+**Runs on disk** (in *Jobs*, or the disk icon in Play) lists every run folder under
+``logs/rsl_rl``: its task, method, the job that wrote it, checkpoint count, last iteration,
+size, and the total. Select runs by hand or with *No progress* (at most one checkpoint),
+*Failed / stopped* or *All*. Then:
+
+- **Delete** removes the run folders and their jobs.
+- **Prune** keeps each run's last checkpoint, and optionally every 1k / 5k / 10k iterations;
+  the older checkpoints are deleted.
+
+A world-model checkpoint is about 120 MB, so pruning a long run frees gigabytes. The run's
+curves stay in TensorBoard, and Play and resuming use the last checkpoint. You can't change a
+run while a job trains it or while it is loaded in Play.
 
 5 · Play
 --------
@@ -237,7 +289,12 @@ error. The focused env's **reward terms** and a HUD (return, body / joint error,
 episode time) update live; *Tune* jumps to the rewards. The bar over the 3D view picks the
 focused env's clip (it loops), shuffles the others and **pushes** the robot. Click a robot
 (or its label) to focus it. Another checkpoint swaps in place; envs that blow up are reset
-automatically.
+automatically. Runs trained with the world model are tagged *world model*; with runs of
+both methods on disk, *All / PPO / World model* filters the list. Play builds the policy
+the way its method trained it, and refuses a run whose task now builds a different policy
+input (other terms, frames ahead or history), naming what changed. **TensorBoard** opens the run's training curves, also for runs trained from the
+command line; *All in TensorBoard* over the run list (and *TensorBoard · all runs* under
+*Train* → *Jobs*) opens every run under ``logs/rsl_rl`` together.
 
 *Session* changes the running session without reloading the policy: **Environments** resizes
 it at once up to the envs already built (a power of two, at least 16; more rebuilds it in the
@@ -313,7 +370,7 @@ Files and scripting
 -------------------
 
 The Studio keeps its own files per user, outside the repo, in ``~/.config/wbc-mjlab/``
-(``presets/``, ``modules/``, ``robots/``); jobs live in ``logs/studio/jobs/``, runs in
+(``presets/``, ``modules/``, ``recipes/``, ``robots/``); jobs live in ``logs/studio/jobs/``, runs in
 ``logs/rsl_rl/`` as usual. Presets are short YAML diffs you can edit by hand or train
 without the Studio:
 

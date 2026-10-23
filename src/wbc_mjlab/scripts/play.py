@@ -256,6 +256,17 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
         f"[INFO]: Loading checkpoint: {checkpoint_name} (run: {run_id}, {cached_str})"
       )
     log_dir = resume_path.parent
+    from wbc_mjlab.rl.algos import env_cfg as algo_env_cfg
+    from wbc_mjlab.rl.algos import rl_cfg, run_algo
+
+    algo = run_algo(log_dir)  # the algorithm the run trained with, and its env
+    agent_cfg = rl_cfg(task_id, algo)
+    env_cfg = algo_env_cfg(env_cfg, algo)
+    from wbc_mjlab.run_params import actor_layout_change
+
+    change = actor_layout_change(log_dir, env_cfg)
+    if change:
+      raise SystemExit(f"{task_id} can't replay {log_dir.name}: {change}")
     if is_tracking_task:
       from wbc_mjlab.motion.library import apply_run_motion_options
 

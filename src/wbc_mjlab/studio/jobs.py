@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -56,6 +57,8 @@ class Job:
       return True
 
   def tail(self, n: int = 30, nbytes: int = 40000) -> str:
+    """The last ``n`` non-empty lines of the output (within its last ``nbytes``), as a
+    terminal shows them: progress bars redrawn in place, colour codes dropped."""
     p = Path(self.log)
     if not p.is_file():
       return ""
@@ -63,10 +66,28 @@ class Job:
       f.seek(0, os.SEEK_END)
       size = f.tell()
       f.seek(max(0, size - nbytes))
-      text = f.read().decode(errors="replace")
+      text = ANSI_RE.sub("", f.read().decode(errors="replace"))
     # tqdm redraws a line with \r: keep what is visible last on each line.
     lines = [ln.rstrip("\r").rsplit("\r", 1)[-1] for ln in text.split("\n")]
     return "\n".join([ln for ln in lines if ln.strip()][-n:])
+
+  def run_dir(self) -> str:
+    """The run folder a training job writes, as its log announces it near the start; ``""``
+    before that (or for other jobs)."""
+    p = Path(self.log)
+    if self.kind != "train" or not p.is_file():
+      return ""
+    with p.open("rb") as f:
+      head = ANSI_RE.sub("", f.read(1 << 16).decode(errors="replace"))
+    m = re.search(r"Logging experiment in directory: (\S+)", head)
+    if not m:
+      return ""
+    d = Path(m.group(1))
+    return str(d if d.is_absolute() else project_root() / d)
+
+  def log_size(self) -> int:
+    p = Path(self.log)
+    return p.stat().st_size if p.is_file() else 0
 
   def progress(self) -> dict:
     """Latest progress parsed from the job's console output."""
@@ -84,6 +105,10 @@ class Job:
         found = re.findall(pattern, text)
         if found:
           out[key] = found[-1]
+      # the world model's first update compiles for minutes without other output
+      compiling = text.rfind("[INFO] wm: first update: compiling")
+      if compiling >= 0 and "[INFO] wm: first update: compiled" not in text[compiling:]:
+        out["phase"] = "compiling the world model's update (first time: minutes)"
       if "iteration" in out:
         it, total = out["iteration"]
         out["iteration"], out["total"] = int(it), int(total)
@@ -108,9 +133,13 @@ class Job:
     if self.stopped:
       return "stopped"
     text = self.tail(40)
+    code = re.findall(EXIT_RE, text)
+    if code:  # the exit status the job's shell wrapper wrote (launch)
+      return "done" if code[-1] == "0" else "failed"
+    # jobs started before the wrapper: read the output
     if self.kind == "convert":
       return "done" if "[INFO] Finished" in text else "failed"
-    if re.search(r"Traceback|Error|CUDA out of memory", text):
+    if re.search(r"Traceback|Error|CUDA out of memory|Unrecognized options", text):
       return "failed"
     return "done"
 
@@ -124,8 +153,15 @@ def _jobs_dir() -> Path:
   return d
 
 
+EXIT_RE = r"\[job exit (\d+)\]"
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+"""Terminal colour / cursor codes (rich and rsl_rl print bold headers)."""
+
+
 def launch(kind: str, args: list[str], *, label: str, meta: dict | None = None) -> Job:
-  """Start ``python -m <args…>`` detached from the Studio (own session, own log)."""
+  """Start ``python -m <args…>`` detached from the Studio (own session, own log); a shell
+  around it writes its exit status to the log (``[job exit N]``), which :meth:`Job.status`
+  reads."""
   safe = re.sub(r"[^\w.-]+", "-", label)
   name = f"{time.strftime('%Y%m%d-%H%M%S')}_{kind}_{safe}"
   log = _jobs_dir() / f"{name}.log"
@@ -134,7 +170,7 @@ def launch(kind: str, args: list[str], *, label: str, meta: dict | None = None) 
     f.write(f"$ {' '.join(cmd)}\n")
     f.flush()
     proc = subprocess.Popen(
-      cmd,
+      ["/bin/sh", "-c", '"$@"; echo "[job exit $?]"', "sh", *cmd],
       cwd=str(project_root()),
       stdout=f,
       stderr=subprocess.STDOUT,
@@ -196,6 +232,18 @@ def delete_job(name: str) -> None:
     (_jobs_dir() / f"{name}{suffix}").unlink(missing_ok=True)
 
 
+def clear_jobs(kind: str | None = None, robot: str | None = None) -> list[str]:
+  """Forget every finished job (optionally of one kind / robot): its record and log. What it
+  produced (run folders, exported clips) stays. Returns the names removed."""
+  names = []
+  for job in list_jobs(kind):
+    if job.alive or (robot and job.meta.get("robot", robot) != robot):
+      continue
+    delete_job(job.name)
+    names.append(job.name)
+  return names
+
+
 # ---------------------------------------------------------------------- runs / checkpoints
 DEMO_LABEL = "demo/wbc_g1"
 
@@ -216,6 +264,9 @@ class Run:
 
   def checkpoints(self) -> list[Path]:
     return sorted(self.path.glob("*.pt"), key=checkpoint_iteration)
+
+  def size(self) -> int:
+    return sum(p.stat().st_size for p in self.path.rglob("*") if p.is_file())
 
   def preset_snapshot(self) -> dict | None:
     """The Studio preset the run trained with (``params/studio_preset.yaml``), if any."""
@@ -268,13 +319,14 @@ class Run:
     return ""
 
 
-def list_runs() -> list[Run]:
+def list_runs(*, empty: bool = False) -> list[Run]:
+  """Run folders with checkpoints (``empty``: also those a job left without one)."""
   runs = []
   root = logs_dir() / "rsl_rl"
   if root.is_dir():
     for exp in sorted(p for p in root.iterdir() if p.is_dir()):
       for d in sorted(exp.iterdir(), reverse=True):
-        if d.is_dir() and any(d.glob("model_*.pt")):
+        if d.is_dir() and (empty or any(d.glob("model_*.pt"))):
           runs.append(Run(exp.name, d.name, d))
   demo = project_root() / "demos" / "wbc_g1"
   if (demo / "model.pt").is_file():
@@ -282,8 +334,30 @@ def list_runs() -> list[Run]:
   return runs
 
 
-def find_run(label: str) -> Run | None:
-  return next((r for r in list_runs() if r.label == label), None)
+def find_run(label: str, *, empty: bool = False) -> Run | None:
+  return next((r for r in list_runs(empty=empty) if r.label == label), None)
+
+
+def delete_run(run: Run) -> int:
+  """Delete a run folder (checkpoints, curves, params); returns the bytes freed."""
+  freed = run.size()
+  shutil.rmtree(run.path)
+  if not any(run.path.parent.iterdir()):  # the experiment's last run
+    run.path.parent.rmdir()
+  return freed
+
+
+def prune_checkpoints(run: Run, every: int = 0) -> int:
+  """Delete every ``model_<it>.pt`` but the last (and, with ``every``, those at multiples of
+  ``every`` iterations); returns the bytes freed."""
+  freed = 0
+  for p in run.checkpoints()[:-1]:
+    it = checkpoint_iteration(p)
+    if it < 0 or (every and it % every == 0):
+      continue
+    freed += p.stat().st_size
+    p.unlink()
+  return freed
 
 
 def scalars(
@@ -312,13 +386,16 @@ __all__ = [
   "Job",
   "Run",
   "checkpoint_iteration",
+  "clear_jobs",
   "delete_job",
+  "delete_run",
   "find_job",
   "find_run",
   "launch",
   "list_jobs",
   "list_runs",
   "logs_dir",
+  "prune_checkpoints",
   "scalars",
   "stop",
 ]

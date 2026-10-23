@@ -4,6 +4,8 @@
 
 - ``binary_failure`` — failure on early termination (BeyondMimic RSI).
 - ``similarity_ema`` — failure from mean per-step tracking similarity (Zest RSI).
+- ``discounted_return`` — failure from the discounted return earned from the start bin,
+  relative to the most it could have earned (SuperMimic, arXiv:2610.28480, App. D.1).
 """
 
 from __future__ import annotations
@@ -30,7 +32,9 @@ AdaptiveSimilarityTerm = Literal[
   "body_ang_vel",
 ]
 
-AdaptiveSamplingStrategy = Literal["binary_failure", "similarity_ema"]
+AdaptiveSamplingStrategy = Literal[
+  "binary_failure", "similarity_ema", "discounted_return"
+]
 
 DEFAULT_SIMILARITY_STDS: dict[AdaptiveSimilarityTerm, float] = {
   "joint_pos": 1.0,
@@ -92,6 +96,15 @@ class RsiCfg:
   # (same kernels and weights as training) instead of ``similarity_terms``.
   similarity_from_rewards: bool = False
   tracking_reward_prefix: str = "motion_"
+  return_gamma: float = 0.99
+  """``discounted_return``: discount of the episode return."""
+  temperature_scale_by_bins: bool = True
+  """Softmax temperature ``temperature_base / log(1 + bins)``; False: ``temperature_base``."""
+  memory_ratio: float = 0.0
+  """Share of starts drawn in proportion to each bin's running-average softmax weight, so a
+  hard bin keeps some practice after it is learned (SuperMimic: 0.1)."""
+  memory_alpha: float = 0.001
+  """Rate of that running average, per sampling call."""
 
 
 def keybody_similarity_preset() -> tuple[AdaptiveSimilarityTermCfg, ...]:
@@ -243,6 +256,8 @@ def update_failure_ema(
   episode_step_count: torch.Tensor | None,
   similarity_denom: torch.Tensor | None = None,
   norm_by_remaining_clip: bool = False,
+  episode_return: torch.Tensor | None = None,
+  episode_return_max: torch.Tensor | None = None,
 ) -> None:
   """EMA update of per-(trajectory, bin) failure level."""
   if strategy == "binary_failure":
@@ -252,6 +267,10 @@ def update_failure_ema(
     traj_ids = traj_ids[episode_terminated]
     start_bins = start_bins[episode_terminated]
     episode_failure = torch.ones(traj_ids.shape[0], device=bin_failure_levels.device)
+  elif strategy == "discounted_return":
+    assert episode_return is not None and episode_return_max is not None
+    ratio = episode_return / episode_return_max.clamp(min=1.0e-6)
+    episode_failure = 1.0 - torch.clamp(ratio, 0.0, 1.0)
   else:
     assert episode_similarity_sum is not None and episode_step_count is not None
     if norm_by_remaining_clip:
@@ -281,26 +300,43 @@ def update_failure_ema(
   )
 
 
+def bin_probabilities(
+  levels: torch.Tensor,
+  *,
+  temperature_base: float,
+  uniform_ratio: float,
+  temperature_scale_by_bins: bool = True,
+  memory: torch.Tensor | None = None,
+  memory_ratio: float = 0.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+  """Start probability of each valid bin from its failure level, and the softmax part.
+
+  ``uniform_ratio`` uniform, ``memory_ratio`` in proportion to ``memory`` (running-average
+  softmax weights), the rest ``softmax(level / temperature)``.
+  """
+  num_valid = max(1, levels.shape[0])
+  temperature = temperature_base
+  if temperature_scale_by_bins:
+    temperature = temperature / math.log(1.0 + num_valid)
+  softmax = torch.softmax(levels / temperature, dim=0)
+  probs = (1.0 - uniform_ratio - memory_ratio) * softmax + uniform_ratio / num_valid
+  if memory is not None and memory_ratio > 0.0:
+    probs = probs + memory_ratio * memory / memory.sum().clamp(min=1.0e-12)
+  return probs, softmax
+
+
 def sample_adaptive_bins(
-  bin_failure_levels: torch.Tensor,
+  probs_valid: torch.Tensor,
   valid_bin_indices: torch.Tensor,
   *,
   segment_length: torch.Tensor,
   segment_start_idx: torch.Tensor,
   bin_width_frames: int,
-  temperature_base: float,
-  uniform_ratio: float,
   num_samples: int,
   device: torch.device | str,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-  """Draw (trajectory, bin, frame) from failure-weighted bin distribution."""
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+  """Draw (trajectory, bin, frame) from per-valid-bin probabilities (:func:`bin_probabilities`)."""
   valid = valid_bin_indices
-  temperature = temperature_base / math.log(1.0 + max(1, valid.shape[0]))
-  logits = bin_failure_levels[valid[:, 0], valid[:, 1]] / temperature
-  probs_valid = torch.softmax(logits, dim=0)
-  num_valid = max(1, valid.shape[0])
-  probs_valid = (1.0 - uniform_ratio) * probs_valid + uniform_ratio / float(num_valid)
-
   sampled_valid = torch.multinomial(probs_valid, num_samples, replacement=True)
   traj_ids = valid[sampled_valid, 0]
   bins = valid[sampled_valid, 1]
@@ -317,7 +353,7 @@ def sample_adaptive_bins(
   ).long()
   local_frames = torch.clamp(local_frames, max=(seg_lengths.long() - 1).clamp(min=0))
   time_steps = segment_start_idx[traj_ids] + local_frames
-  return traj_ids, bins, time_steps, probs_valid
+  return traj_ids, bins, time_steps
 
 
 def compute_sampling_prob_matrix(
@@ -326,18 +362,23 @@ def compute_sampling_prob_matrix(
   *,
   temperature_base: float,
   uniform_ratio: float,
+  temperature_scale_by_bins: bool = True,
+  memory: torch.Tensor | None = None,
+  memory_ratio: float = 0.0,
 ) -> torch.Tensor:
-  """Per-(trajectory, bin) sampling probability (same policy as ``sample_adaptive_bins``)."""
+  """Per-(trajectory, bin) sampling probability (same policy as the sampler)."""
   valid = bin_valid_mask.nonzero(as_tuple=False)
   probs = torch.zeros_like(bin_failure_levels)
   if valid.numel() == 0:
     return probs
-
-  num_valid = max(1, int(valid.shape[0]))
-  temperature = temperature_base / math.log(1.0 + num_valid)
-  logits = bin_failure_levels[valid[:, 0], valid[:, 1]] / temperature
-  probs_valid = torch.softmax(logits, dim=0)
-  probs_valid = (1.0 - uniform_ratio) * probs_valid + uniform_ratio / float(num_valid)
+  probs_valid, _ = bin_probabilities(
+    bin_failure_levels[valid[:, 0], valid[:, 1]],
+    temperature_base=temperature_base,
+    uniform_ratio=uniform_ratio,
+    temperature_scale_by_bins=temperature_scale_by_bins,
+    memory=memory,
+    memory_ratio=memory_ratio,
+  )
   probs[valid[:, 0], valid[:, 1]] = probs_valid
   return probs
 
@@ -379,6 +420,8 @@ def rsi_failure_signal_label(
 ) -> str:
   if strategy == "binary_failure":
     return "EMA(1 if early terminated)"
+  if strategy == "discounted_return":
+    return "EMA(1 − discounted return / attainable)"
   if similarity_from_rewards:
     return "EMA(1 − mean motion-reward similarity)"
   return "EMA(1 − mean tracking similarity)"

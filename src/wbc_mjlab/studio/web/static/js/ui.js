@@ -95,6 +95,8 @@ const ICONS = {
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
   search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   link: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   chart: '<path d="M4 20V4M4 20h16"/><path d="M7 15l4-5 3 3 5-7"/>',
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
@@ -313,6 +315,54 @@ export function progressBar(fraction, tone = "") {
   return h(`div.progress${tone ? `.${tone}` : ""}`, h("div", { style: { width: `${Math.round(100 * Math.max(0, Math.min(1, fraction || 0)))}%` } }));
 }
 
+export function stepFor(v) {
+  const a = Math.abs(v || 0);
+  if (!a) return 0.1;
+  return 10 ** Math.floor(Math.log10(a) - 1);
+}
+
+/** One editable setting ``{key, kind, value, help}`` (kinds: bool, int, number, choice, range,
+ *  ints); ``ov`` its current override (undefined: default), marked when it differs. */
+export function knob(f, ov, onChange, prefix = "", { pretty = (k) => k.replace(/_/g, " ") } = {}) {
+  const cur = ov === undefined ? f.value : ov;
+  const label = prefix && f.key.startsWith(prefix) ? f.key.slice(prefix.length) : f.key;
+  const el = h(`div.knob${ov !== undefined ? ".mod" : ""}${f.kind === "bool" ? ".bool" : ""}`, { title: `${f.key} · default ${JSON.stringify(f.value)}` });
+  const mark = (v) => el.classList.toggle("mod", JSON.stringify(v) !== JSON.stringify(f.value));
+  const emit = (v) => { mark(v); onChange(v); };
+  let control;
+  if (f.kind === "bool") {
+    control = switchEl(pretty(label), cur, (v) => emit(v));
+    el.append(control);
+  } else {
+    if (f.kind === "choice") {
+      control = select(f.choices, cur, (v) => emit(v));
+    } else if (f.kind === "range") {
+      const lo = input(cur[0], { type: "number", step: stepFor(f.value[1] - f.value[0]) });
+      const hi = input(cur[1], { type: "number", step: stepFor(f.value[1] - f.value[0]) });
+      const read = () => { const a = Number(lo.value); const b = Number(hi.value); if (Number.isFinite(a) && Number.isFinite(b)) emit([a, b]); };
+      lo.addEventListener("input", read);
+      hi.addEventListener("input", read);
+      control = h("div.range", lo, h("i", "to"), hi);
+    } else if (f.kind === "ints") {
+      control = input(cur.join(", "), {});
+      control.addEventListener("change", () => {
+        const v = control.value.split(/[\s,]+/).filter(Boolean).map(Number);
+        if (v.length && v.every(Number.isInteger)) emit(v);
+        else control.value = cur.join(", ");
+      });
+    } else {
+      control = input(cur, { type: "number", step: f.kind === "int" ? 1 : stepFor(f.value), min: f.kind === "int" && f.key.includes("history") ? 0 : undefined });
+      control.addEventListener("input", () => {
+        const v = Number(control.value);
+        if (control.value !== "" && Number.isFinite(v)) emit(f.kind === "int" ? Math.max(0, Math.round(v)) : v);
+      });
+    }
+    el.append(h("label", h("span", pretty(label))), control);
+  }
+  if (f.help) el.append(h("div.hint", f.help));
+  return el;
+}
+
 // ------------------------------------------------------------------ overlays
 let openPop = null;
 export function popover(anchor, content, { width = 380, align = "right" } = {}) {
@@ -339,14 +389,14 @@ export function closePopover() {
   openPop = null;
 }
 
-export function modal(title, body, footer = [], { width = 520, onClose } = {}) {
+export function modal(title, body, footer = [], { width = 520, onClose, cls } = {}) {
   const close = () => {
     back.remove();
     document.removeEventListener("keydown", esc);
     onClose?.();
   };
   const esc = (e) => e.key === "Escape" && close();
-  const box = h("div.modal", { role: "dialog", style: { width: `min(${width}px, calc(100vw - 32px))` } },
+  const box = h(`div.modal${cls ? `.${cls}` : ""}`, { role: "dialog", style: { width: `min(${width}px, calc(100vw - 32px))` } },
     h("div.modal-head", h("h3", title), iconButton("x", close, "Close")),
     h("div.modal-body", ...[body].flat()),
     footer.length ? h("div.modal-foot", ...footer) : null);

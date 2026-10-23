@@ -29,6 +29,7 @@ from wbc_mjlab.env.mdp.sampling import (
   RsiCfg,
   TrackingSimilarityState,
   bin_index_for_frame,
+  bin_probabilities,
   build_bin_valid_mask,
   compile_similarity_terms,
   compute_assist_gain_matrix,
@@ -234,7 +235,267 @@ def _robot_id(cfg: MotionCommandCfg) -> str:
   return last_registered_robot_id()
 
 
-class MotionCommand(CommandTerm):
+class TrackingView:
+  """Tracking quantities of a reference frame against a robot state.
+
+  Every reference / robot / error property that observation and reward terms read
+  (``anchor_pos_w``, ``robot_body_pos_w``, ``body_pos_relative_w``, …). Defined only by
+  :meth:`reference` (the reference frame) and ``robot.data`` (the robot state), so the
+  same terms run on the simulator (:class:`MotionCommand`) and on imagined states
+  (``wbc_mjlab.rl.wm``).
+
+  Subclasses set ``cfg`` (body / anchor names), ``robot``, ``_env`` (``scene.env_origins``),
+  ``reference_offset_w``, ``robot_anchor_body_index``, ``motion_anchor_body_index``,
+  ``body_indexes`` and ``_tracked_joint_ids``.
+  """
+
+  cfg: MotionCommandCfg
+  robot: Entity
+  _env: ManagerBasedRlEnv
+  reference_offset_w: torch.Tensor
+  robot_anchor_body_index: int
+  motion_anchor_body_index: int
+  body_indexes: torch.Tensor
+  _tracked_joint_ids: torch.Tensor | None
+  body_pos_relative_w: torch.Tensor
+  body_quat_relative_w: torch.Tensor
+
+  def reference(self) -> MotionFrame:
+    """Reference frame of every env."""
+    raise NotImplementedError
+
+  def reference_window(self, num_frames: int) -> MotionFrame:
+    """The reference frame and the next ``num_frames - 1`` of every env (fields shaped
+    ``(num_envs, num_frames, …)``; frames past a clip's end repeat its last one)."""
+    raise NotImplementedError
+
+  def ahead(self, frames: int, stride: int = 1) -> list[TrackingView]:
+    """This view, then views of the reference ``stride``, ``2·stride``, … control steps
+    ahead (``frames`` in all) against the same robot state: a reference term evaluated on
+    each looks ahead (the ``frames`` / ``stride`` parameters of the reference observations)."""
+    if frames <= 1:
+      return [self]
+    window = self.reference_window((frames - 1) * stride + 1)
+    return [self, *(_AheadView(self, window.at(k * stride)) for k in range(1, frames))]
+
+  # --- WBC reference features (Table S3); stacked in ``command`` for the actor. ---
+  # SE layouts use ``ref_anchor_pos_w`` / ``ref_anchor_ori_6d`` via ``presets/se_actor.py`` instead.
+
+  @property
+  def ref_base_height(self) -> torch.Tensor:
+    """Anchor height relative to env origin (z_I r̂_IB)."""
+    return self.anchor_pos_w[:, 2:3] - self._env.scene.env_origins[:, 2:3]
+
+  @property
+  def ref_base_lin_vel_b(self) -> torch.Tensor:
+    """Reference anchor linear velocity in anchor frame (B v̂_IB)."""
+    return quat_apply_inverse(self.anchor_quat_w, self.anchor_lin_vel_w)
+
+  @property
+  def ref_base_ang_vel_b(self) -> torch.Tensor:
+    """Reference anchor angular velocity in anchor frame (B ω̂_IB)."""
+    return quat_apply_inverse(self.anchor_quat_w, self.anchor_ang_vel_w)
+
+  @property
+  def ref_gravity_b(self) -> torch.Tensor:
+    """Reference gravity in anchor frame (B ĝ_I)."""
+    return quat_apply_inverse(self.anchor_quat_w, self.robot.data.gravity_vec_w)
+
+  @property
+  def ref_base_lin_acc_b(self) -> torch.Tensor:
+    return quat_apply_inverse(self.anchor_quat_w, self.anchor_lin_acc_w)
+
+  @property
+  def ref_base_ang_acc_b(self) -> torch.Tensor:
+    return quat_apply_inverse(self.anchor_quat_w, self.anchor_ang_acc_w)
+
+  @property
+  def tracked_joint_pos(self) -> torch.Tensor:
+    """Reference joint positions for actuated / tracked DoFs (absolute)."""
+    if self._tracked_joint_ids is not None:
+      return self.joint_pos[:, self._tracked_joint_ids]
+    return self.joint_pos
+
+  @property
+  def tracked_joint_vel(self) -> torch.Tensor:
+    """Reference joint velocities for actuated / tracked DoFs (absolute)."""
+    if self._tracked_joint_ids is not None:
+      return self.joint_vel[:, self._tracked_joint_ids]
+    return self.joint_vel
+
+  @property
+  def command(self) -> torch.Tensor:
+    """Legacy stacked WBC reference vector (same layout as default ref obs terms).
+
+    Prefer configuring individual reference observation terms in ``wbc_env_cfg``.
+    Kept for ONNX metadata, ``wbc_command_dim``, and legacy deploy bundles.
+    """
+    return torch.cat(
+      [
+        self.ref_base_height,
+        self.ref_base_lin_vel_b,
+        self.ref_base_ang_vel_b,
+        self.ref_gravity_b,
+        self.tracked_joint_pos,
+      ],
+      dim=-1,
+    )
+
+  @property
+  def wbc_command_dim(self) -> int:
+    return int(self.command.shape[-1])
+
+  @property
+  def joint_pos(self) -> torch.Tensor:
+    return self.reference().joint_pos
+
+  @property
+  def joint_vel(self) -> torch.Tensor:
+    return self.reference().joint_vel
+
+  def _tracked_joint_pos_error(self) -> torch.Tensor:
+    error = self.joint_pos - self.robot_joint_pos
+    if self._tracked_joint_ids is not None:
+      error = error[:, self._tracked_joint_ids]
+    return error
+
+  def _tracked_joint_vel_error(self) -> torch.Tensor:
+    error = self.joint_vel - self.robot_joint_vel
+    if self._tracked_joint_ids is not None:
+      error = error[:, self._tracked_joint_ids]
+    return error
+
+  @property
+  def body_pos_w(self) -> torch.Tensor:
+    return (
+      self.reference().body_pos_w
+      + self._env.scene.env_origins[:, None, :]
+      + self.reference_offset_w[:, None, :]
+    )
+
+  @property
+  def body_quat_w(self) -> torch.Tensor:
+    return self.reference().body_quat_w
+
+  @property
+  def body_lin_vel_w(self) -> torch.Tensor:
+    return self.reference().body_lin_vel_w
+
+  @property
+  def body_ang_vel_w(self) -> torch.Tensor:
+    return self.reference().body_ang_vel_w
+
+  @property
+  def anchor_pos_w(self) -> torch.Tensor:
+    return (
+      self.reference().body_pos_w[:, self.motion_anchor_body_index]
+      + self._env.scene.env_origins
+      + self.reference_offset_w
+    )
+
+  @property
+  def anchor_quat_w(self) -> torch.Tensor:
+    return self.reference().body_quat_w[:, self.motion_anchor_body_index]
+
+  @property
+  def anchor_lin_vel_w(self) -> torch.Tensor:
+    return self.reference().body_lin_vel_w[:, self.motion_anchor_body_index]
+
+  @property
+  def anchor_ang_vel_w(self) -> torch.Tensor:
+    return self.reference().body_ang_vel_w[:, self.motion_anchor_body_index]
+
+  @property
+  def anchor_lin_acc_w(self) -> torch.Tensor:
+    return self.reference().anchor_lin_acc_w
+
+  @property
+  def anchor_ang_acc_w(self) -> torch.Tensor:
+    return self.reference().anchor_ang_acc_w
+
+  @property
+  def robot_joint_pos(self) -> torch.Tensor:
+    return self.robot.data.joint_pos
+
+  @property
+  def robot_joint_vel(self) -> torch.Tensor:
+    return self.robot.data.joint_vel
+
+  @property
+  def robot_body_pos_w(self) -> torch.Tensor:
+    return self.robot.data.body_link_pos_w[:, self.body_indexes]
+
+  @property
+  def robot_body_quat_w(self) -> torch.Tensor:
+    return self.robot.data.body_link_quat_w[:, self.body_indexes]
+
+  @property
+  def robot_body_lin_vel_w(self) -> torch.Tensor:
+    return self.robot.data.body_link_lin_vel_w[:, self.body_indexes]
+
+  @property
+  def robot_body_ang_vel_w(self) -> torch.Tensor:
+    return self.robot.data.body_link_ang_vel_w[:, self.body_indexes]
+
+  @property
+  def robot_anchor_pos_w(self) -> torch.Tensor:
+    return self.robot.data.body_link_pos_w[:, self.robot_anchor_body_index]
+
+  @property
+  def robot_anchor_quat_w(self) -> torch.Tensor:
+    return self.robot.data.body_link_quat_w[:, self.robot_anchor_body_index]
+
+  @property
+  def robot_anchor_lin_vel_w(self) -> torch.Tensor:
+    return self.robot.data.body_link_lin_vel_w[:, self.robot_anchor_body_index]
+
+  @property
+  def robot_anchor_ang_vel_w(self) -> torch.Tensor:
+    return self.robot.data.body_link_ang_vel_w[:, self.robot_anchor_body_index]
+
+  def update_relative_body_poses(self) -> None:
+    anchor_pos_w_repeat = self.anchor_pos_w[:, None, :].repeat(
+      1, len(self.cfg.body_names), 1
+    )
+    anchor_quat_w_repeat = self.anchor_quat_w[:, None, :].repeat(
+      1, len(self.cfg.body_names), 1
+    )
+    robot_anchor_pos_w_repeat = self.robot_anchor_pos_w[:, None, :].repeat(
+      1, len(self.cfg.body_names), 1
+    )
+    robot_anchor_quat_w_repeat = self.robot_anchor_quat_w[:, None, :].repeat(
+      1, len(self.cfg.body_names), 1
+    )
+
+    delta_pos_w = robot_anchor_pos_w_repeat
+    delta_pos_w[..., 2] = anchor_pos_w_repeat[..., 2]
+    delta_ori_w = yaw_quat(
+      quat_mul(robot_anchor_quat_w_repeat, quat_inv(anchor_quat_w_repeat))
+    )
+
+    self.body_quat_relative_w = quat_mul(delta_ori_w, self.body_quat_w)
+    self.body_pos_relative_w = delta_pos_w + quat_apply(
+      delta_ori_w, self.body_pos_w - anchor_pos_w_repeat
+    )
+
+
+class _AheadView(TrackingView):
+  """``base``'s robot against a later reference frame (:meth:`TrackingView.ahead`)."""
+
+  def __init__(self, base: TrackingView, frame: MotionFrame):
+    self.cfg, self.robot, self._env = base.cfg, base.robot, base._env
+    self.reference_offset_w = base.reference_offset_w
+    self.robot_anchor_body_index = base.robot_anchor_body_index
+    self.motion_anchor_body_index = base.motion_anchor_body_index
+    self.body_indexes = base.body_indexes
+    self._tracked_joint_ids = base._tracked_joint_ids
+    self._frame = frame
+
+  def reference(self) -> MotionFrame:
+    return self._frame
+
+
+class MotionCommand(TrackingView, CommandTerm):
   """Multi-clip motion playback with RSI resampling and assistive-wrench state.
 
   Loads an NPZ motion library, streams reference kinematics each step, and
@@ -364,6 +625,16 @@ class MotionCommand(CommandTerm):
     self._episode_start_bin = torch.zeros(
       self.num_envs, dtype=torch.long, device=self.device
     )
+    # ``discounted_return``: return since the episode start, its discount, its maximum
+    self._episode_return = torch.zeros(self.num_envs, device=self.device)
+    self._episode_discount = torch.ones(self.num_envs, device=self.device)
+    self._episode_return_max = torch.ones(self.num_envs, device=self.device)
+    # running average of each valid bin's softmax weight (``rsi.memory_ratio``)
+    self._bin_memory = torch.full(
+      (self._valid_bin_indices.shape[0],),
+      1.0 / self._valid_bin_indices.shape[0],
+      device=self.device,
+    )
     self.episode_assist_gain = torch.zeros(self.num_envs, device=self.device)
     self.assist_force_w = torch.zeros(self.num_envs, 3, device=self.device)
     self.assist_torque_w = torch.zeros(self.num_envs, 3, device=self.device)
@@ -430,6 +701,21 @@ class MotionCommand(CommandTerm):
     )
     self._episode_similarity_denom[env_ids] = torch.clamp(norm, min=1.0)
 
+  def _reset_episode_return(self, env_ids: torch.Tensor) -> None:
+    """Start the discounted return of new episodes, and the most they can earn: every
+    positive reward term at its best (1) for the rest of the clip."""
+    if self.cfg.rsi.strategy != "discounted_return":
+      return
+    rm = self._env.reward_manager
+    best = sum(c.weight for c in rm._term_cfgs if c.weight > 0.0)
+    best *= self._env.step_dt if rm._scale_by_dt else 1.0
+    seg_end = self.motion.segment_end_idx[self.trajectory_ids[env_ids]]
+    remaining = (seg_end - self.time_steps[env_ids]).float().clamp(min=1.0)
+    gamma = self.cfg.rsi.return_gamma
+    self._episode_return[env_ids] = 0.0
+    self._episode_discount[env_ids] = 1.0
+    self._episode_return_max[env_ids] = best * (1.0 - gamma**remaining) / (1.0 - gamma)
+
   def _update_failure_levels(self, env_ids: torch.Tensor) -> None:
     if self.cfg.rsi.sampling_mode != "adaptive" or env_ids.numel() == 0:
       return
@@ -467,6 +753,8 @@ class MotionCommand(CommandTerm):
       norm_by_remaining_clip=(
         rsi.similarity_norm_by_remaining_clip and strategy == "similarity_ema"
       ),
+      episode_return=self._episode_return[env_ids],
+      episode_return_max=self._episode_return_max[env_ids],
     )
 
   def _set_episode_assist_gain(
@@ -486,14 +774,22 @@ class MotionCommand(CommandTerm):
     self._update_failure_levels(env_ids)
     rsi = self.cfg.rsi
 
-    traj_ids, bins, time_steps, probs_valid = sample_adaptive_bins(
-      self.bin_failure_levels,
-      self._valid_bin_indices,
+    valid = self._valid_bin_indices
+    probs_valid, softmax = bin_probabilities(
+      self.bin_failure_levels[valid[:, 0], valid[:, 1]],
+      temperature_base=rsi.temperature_base,
+      uniform_ratio=rsi.uniform_ratio,
+      temperature_scale_by_bins=rsi.temperature_scale_by_bins,
+      memory=self._bin_memory,
+      memory_ratio=rsi.memory_ratio,
+    )
+    self._bin_memory.lerp_(softmax, rsi.memory_alpha)
+    traj_ids, bins, time_steps = sample_adaptive_bins(
+      probs_valid,
+      valid,
       segment_length=self.motion.segment_length,
       segment_start_idx=self.motion.segment_start_idx,
       bin_width_frames=self.bin_width_frames,
-      temperature_base=rsi.temperature_base,
-      uniform_ratio=rsi.uniform_ratio,
       num_samples=len(env_ids),
       device=self.device,
     )
@@ -599,73 +895,6 @@ class MotionCommand(CommandTerm):
       bins_per_trajectory=self.bins_per_trajectory,
     )
 
-  # --- WBC reference features (Table S3); stacked in ``command`` for the actor. ---
-  # SE layouts use ``ref_anchor_pos_w`` / ``ref_anchor_ori_6d`` via ``presets/se_actor.py`` instead.
-
-  @property
-  def ref_base_height(self) -> torch.Tensor:
-    """Anchor height relative to env origin (z_I r̂_IB)."""
-    return self.anchor_pos_w[:, 2:3] - self._env.scene.env_origins[:, 2:3]
-
-  @property
-  def ref_base_lin_vel_b(self) -> torch.Tensor:
-    """Reference anchor linear velocity in anchor frame (B v̂_IB)."""
-    return quat_apply_inverse(self.anchor_quat_w, self.anchor_lin_vel_w)
-
-  @property
-  def ref_base_ang_vel_b(self) -> torch.Tensor:
-    """Reference anchor angular velocity in anchor frame (B ω̂_IB)."""
-    return quat_apply_inverse(self.anchor_quat_w, self.anchor_ang_vel_w)
-
-  @property
-  def ref_gravity_b(self) -> torch.Tensor:
-    """Reference gravity in anchor frame (B ĝ_I)."""
-    return quat_apply_inverse(self.anchor_quat_w, self.robot.data.gravity_vec_w)
-
-  @property
-  def ref_base_lin_acc_b(self) -> torch.Tensor:
-    return quat_apply_inverse(self.anchor_quat_w, self.anchor_lin_acc_w)
-
-  @property
-  def ref_base_ang_acc_b(self) -> torch.Tensor:
-    return quat_apply_inverse(self.anchor_quat_w, self.anchor_ang_acc_w)
-
-  @property
-  def tracked_joint_pos(self) -> torch.Tensor:
-    """Reference joint positions for actuated / tracked DoFs (absolute)."""
-    if self._tracked_joint_ids is not None:
-      return self.joint_pos[:, self._tracked_joint_ids]
-    return self.joint_pos
-
-  @property
-  def tracked_joint_vel(self) -> torch.Tensor:
-    """Reference joint velocities for actuated / tracked DoFs (absolute)."""
-    if self._tracked_joint_ids is not None:
-      return self.joint_vel[:, self._tracked_joint_ids]
-    return self.joint_vel
-
-  @property
-  def command(self) -> torch.Tensor:
-    """Legacy stacked WBC reference vector (same layout as default ref obs terms).
-
-    Prefer configuring individual reference observation terms in ``wbc_env_cfg``.
-    Kept for ONNX metadata, ``wbc_command_dim``, and legacy deploy bundles.
-    """
-    return torch.cat(
-      [
-        self.ref_base_height,
-        self.ref_base_lin_vel_b,
-        self.ref_base_ang_vel_b,
-        self.ref_gravity_b,
-        self.tracked_joint_pos,
-      ],
-      dim=-1,
-    )
-
-  @property
-  def wbc_command_dim(self) -> int:
-    return int(self.command.shape[-1])
-
   def reference(self) -> MotionFrame:
     """Reference at the current ``time_steps``: computed once per change of the frame
     indices (any write to ``time_steps`` bumps its version), then shared by every term."""
@@ -680,6 +909,33 @@ class MotionCommand(CommandTerm):
       self._ref_key = (ts, ts._version)
     return self._ref_frame
 
+  def reference_window(self, num_frames: int) -> MotionFrame:
+    """Computed once per change of the frame indices for the longest window asked (shorter
+    ones are its first frames)."""
+    ts = self.time_steps
+    cached = getattr(self, "_window", None)
+    if (
+      cached is None
+      or cached[0][0] is not ts
+      or cached[0][1] != ts._version
+      or cached[1].joint_pos.shape[1] < num_frames
+    ):
+      seg_end = self.motion.segment_end_idx[self.trajectory_ids]
+      offsets = torch.arange(num_frames, device=self.device)
+      steps = torch.minimum(ts[:, None] + offsets, (seg_end - 1)[:, None])
+      frame = self.motion.frame(steps.reshape(-1))
+      window = MotionFrame(
+        *(
+          getattr(frame, f.name).unflatten(0, (self.num_envs, num_frames))
+          for f in dataclasses.fields(MotionFrame)
+        )
+      )
+      self._window = ((ts, ts._version), window)
+    window = self._window[1]
+    return (
+      window if window.joint_pos.shape[1] == num_frames else window.head(num_frames)
+    )
+
   def _patch_reference(self, env_ids: torch.Tensor) -> None:
     """Recompute only ``env_ids`` after their frame indices were just written, when that one
     write is the only change since the reference was computed (else the next
@@ -691,114 +947,6 @@ class MotionCommand(CommandTerm):
     for f in dataclasses.fields(MotionFrame):
       getattr(ref, f.name)[env_ids] = getattr(part, f.name)
     self._ref_key = (ts, ts._version)
-
-  @property
-  def joint_pos(self) -> torch.Tensor:
-    return self.reference().joint_pos
-
-  @property
-  def joint_vel(self) -> torch.Tensor:
-    return self.reference().joint_vel
-
-  def _tracked_joint_pos_error(self) -> torch.Tensor:
-    error = self.joint_pos - self.robot_joint_pos
-    if self._tracked_joint_ids is not None:
-      error = error[:, self._tracked_joint_ids]
-    return error
-
-  def _tracked_joint_vel_error(self) -> torch.Tensor:
-    error = self.joint_vel - self.robot_joint_vel
-    if self._tracked_joint_ids is not None:
-      error = error[:, self._tracked_joint_ids]
-    return error
-
-  @property
-  def body_pos_w(self) -> torch.Tensor:
-    return (
-      self.reference().body_pos_w
-      + self._env.scene.env_origins[:, None, :]
-      + self.reference_offset_w[:, None, :]
-    )
-
-  @property
-  def body_quat_w(self) -> torch.Tensor:
-    return self.reference().body_quat_w
-
-  @property
-  def body_lin_vel_w(self) -> torch.Tensor:
-    return self.reference().body_lin_vel_w
-
-  @property
-  def body_ang_vel_w(self) -> torch.Tensor:
-    return self.reference().body_ang_vel_w
-
-  @property
-  def anchor_pos_w(self) -> torch.Tensor:
-    return (
-      self.reference().body_pos_w[:, self.motion_anchor_body_index]
-      + self._env.scene.env_origins
-      + self.reference_offset_w
-    )
-
-  @property
-  def anchor_quat_w(self) -> torch.Tensor:
-    return self.reference().body_quat_w[:, self.motion_anchor_body_index]
-
-  @property
-  def anchor_lin_vel_w(self) -> torch.Tensor:
-    return self.reference().body_lin_vel_w[:, self.motion_anchor_body_index]
-
-  @property
-  def anchor_ang_vel_w(self) -> torch.Tensor:
-    return self.reference().body_ang_vel_w[:, self.motion_anchor_body_index]
-
-  @property
-  def anchor_lin_acc_w(self) -> torch.Tensor:
-    return self.reference().anchor_lin_acc_w
-
-  @property
-  def anchor_ang_acc_w(self) -> torch.Tensor:
-    return self.reference().anchor_ang_acc_w
-
-  @property
-  def robot_joint_pos(self) -> torch.Tensor:
-    return self.robot.data.joint_pos
-
-  @property
-  def robot_joint_vel(self) -> torch.Tensor:
-    return self.robot.data.joint_vel
-
-  @property
-  def robot_body_pos_w(self) -> torch.Tensor:
-    return self.robot.data.body_link_pos_w[:, self.body_indexes]
-
-  @property
-  def robot_body_quat_w(self) -> torch.Tensor:
-    return self.robot.data.body_link_quat_w[:, self.body_indexes]
-
-  @property
-  def robot_body_lin_vel_w(self) -> torch.Tensor:
-    return self.robot.data.body_link_lin_vel_w[:, self.body_indexes]
-
-  @property
-  def robot_body_ang_vel_w(self) -> torch.Tensor:
-    return self.robot.data.body_link_ang_vel_w[:, self.body_indexes]
-
-  @property
-  def robot_anchor_pos_w(self) -> torch.Tensor:
-    return self.robot.data.body_link_pos_w[:, self.robot_anchor_body_index]
-
-  @property
-  def robot_anchor_quat_w(self) -> torch.Tensor:
-    return self.robot.data.body_link_quat_w[:, self.robot_anchor_body_index]
-
-  @property
-  def robot_anchor_lin_vel_w(self) -> torch.Tensor:
-    return self.robot.data.body_link_lin_vel_w[:, self.robot_anchor_body_index]
-
-  @property
-  def robot_anchor_ang_vel_w(self) -> torch.Tensor:
-    return self.robot.data.body_link_ang_vel_w[:, self.robot_anchor_body_index]
 
   def _update_metrics(self):
     self.metrics["error_anchor_pos"] = torch.norm(
@@ -924,6 +1072,7 @@ class MotionCommand(CommandTerm):
     self._episode_start_step[env_ids] = self.time_steps[env_ids]
     self._episode_similarity_sum[env_ids] = 0.0
     self._episode_step_count[env_ids] = 0
+    self._reset_episode_return(env_ids)
     self.update_relative_body_poses()
     self._seed_default_relative_action(env_ids)
 
@@ -950,31 +1099,6 @@ class MotionCommand(CommandTerm):
     )
     if seed is not None:
       seed(env_ids)
-
-  def update_relative_body_poses(self) -> None:
-    anchor_pos_w_repeat = self.anchor_pos_w[:, None, :].repeat(
-      1, len(self.cfg.body_names), 1
-    )
-    anchor_quat_w_repeat = self.anchor_quat_w[:, None, :].repeat(
-      1, len(self.cfg.body_names), 1
-    )
-    robot_anchor_pos_w_repeat = self.robot_anchor_pos_w[:, None, :].repeat(
-      1, len(self.cfg.body_names), 1
-    )
-    robot_anchor_quat_w_repeat = self.robot_anchor_quat_w[:, None, :].repeat(
-      1, len(self.cfg.body_names), 1
-    )
-
-    delta_pos_w = robot_anchor_pos_w_repeat
-    delta_pos_w[..., 2] = anchor_pos_w_repeat[..., 2]
-    delta_ori_w = yaw_quat(
-      quat_mul(robot_anchor_quat_w_repeat, quat_inv(anchor_quat_w_repeat))
-    )
-
-    self.body_quat_relative_w = quat_mul(delta_ori_w, self.body_quat_w)
-    self.body_pos_relative_w = delta_pos_w + quat_apply(
-      delta_ori_w, self.body_pos_w - anchor_pos_w_repeat
-    )
 
   def compute(
     self, dt: float | torch.Tensor, env_ids: torch.Tensor | None = None
@@ -1005,7 +1129,14 @@ class MotionCommand(CommandTerm):
       if self.cfg.rsi.strategy == "similarity_ema":
         sim = self._step_tracking_similarity()
         self._episode_similarity_sum[advance] += sim[advance]
-        self._episode_step_count[advance] += 1
+      elif self.cfg.rsi.strategy == "discounted_return":
+        reward = self._env.reward_buf
+        self._episode_return += torch.where(
+          advance, self._episode_discount * reward, 0.0
+        )
+        self._episode_discount *= torch.where(advance, self.cfg.rsi.return_gamma, 1.0)
+      # Every strategy needs it: episodes with no steps don't update the bins.
+      self._episode_step_count[advance] += 1
       self.time_steps[advance] += 1
       seg_end = self.motion.segment_end_idx[self.trajectory_ids]
       wrap_ids = torch.where(advance & (self.time_steps >= seg_end))[0]
@@ -1031,6 +1162,9 @@ class MotionCommand(CommandTerm):
       self.bin_valid_mask,
       temperature_base=rsi.temperature_base,
       uniform_ratio=rsi.uniform_ratio,
+      temperature_scale_by_bins=rsi.temperature_scale_by_bins,
+      memory=self._bin_memory,
+      memory_ratio=rsi.memory_ratio,
     )
     assist = compute_assist_gain_matrix(
       failure,

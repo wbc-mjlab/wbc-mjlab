@@ -39,6 +39,13 @@ By goal
 
       ``Wbc-G1-BinaryFailure`` — adaptive sampling driven by binary failures.
 
+   .. grid-item-card:: :octicon:`rocket` Lookahead
+      :link: wbc-g1-lookahead
+      :link-type: doc
+
+      ``Wbc-G1-Lookahead`` — BeyondMimic reward, 10-step history and 10 future
+      reference frames, return-based starts: the SuperMimic paper's task, with either method.
+
    .. grid-item-card:: :octicon:`location` End-effector command
       :link: wbc-g1-ee
       :link-type: doc
@@ -126,6 +133,9 @@ Papers
    * - BeyondMimic
      - `arXiv:2508.08241 <https://arxiv.org/abs/2508.08241>`_
      - ``Wbc-G1-BinaryFailure``
+   * - SuperMimic
+     - `arXiv:2610.28480 <https://arxiv.org/abs/2610.28480>`_
+     - ``Wbc-G1-Lookahead`` (its task); any task with ``--algo wm``
    * - SONIC
      - `arXiv:2511.07820 <https://arxiv.org/abs/2511.07820>`_
      - planned — :doc:`../roadmap`
@@ -146,6 +156,7 @@ To add a task in code: :doc:`adding`.
    wbc-g1-zest
    wbc-g1-zest-se
    wbc-g1-binary-failure
+   wbc-g1-lookahead
    wbc-g1-se
    wbc-g1-ee
    wbc-g1-ee-se

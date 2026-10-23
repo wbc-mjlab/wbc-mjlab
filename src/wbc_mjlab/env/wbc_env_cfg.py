@@ -88,7 +88,7 @@ def make_base_wbc_env_cfg(
       :class:`~wbc_mjlab.env.mdp.actions.ReferenceJointPositionActionCfg`;
       otherwise mjlab absolute joint-position actions.
   """
-  motion = {"command_name": _MOTION_COMMAND}
+  motion = {"command_name": _MOTION_COMMAND}  # copied per term: presets edit them apart
   # Non-SE actor: reference command + proprio only. SE measurements live in
   # ``apply_se_actor`` (``presets/se_actor.py``).
   # Task configs may drop terms per policy layout (e.g. ``ref_joint_vel`` in wbc/zest).
@@ -96,32 +96,32 @@ def make_base_wbc_env_cfg(
   actor_terms = {
     "ref_base_height": ObservationTermCfg(
       func=mdp.ref_base_height,
-      params=motion,
+      params=dict(motion),
       noise=Unoise(n_min=-0.01, n_max=0.01),
     ),
     "ref_base_lin_vel_b": ObservationTermCfg(
       func=mdp.ref_base_lin_vel_b,
-      params=motion,
+      params=dict(motion),
       noise=Unoise(n_min=(-0.1, -0.1, -0.05), n_max=(0.1, 0.1, 0.05)),
     ),
     "ref_base_ang_vel_b": ObservationTermCfg(
       func=mdp.ref_base_ang_vel_b,
-      params=motion,
+      params=dict(motion),
       noise=Unoise(n_min=(-0.2, -0.2, -0.3), n_max=(0.2, 0.2, 0.3)),
     ),
     "ref_gravity_b": ObservationTermCfg(
       func=mdp.ref_gravity_b,
-      params=motion,
+      params=dict(motion),
       noise=Unoise(n_min=-0.02, n_max=0.02),
     ),
     "ref_joint_pos": ObservationTermCfg(
       func=mdp.ref_joint_pos,
-      params=motion,
+      params=dict(motion),
       noise=Unoise(n_min=-0.05, n_max=0.05),
     ),
     "ref_joint_vel": ObservationTermCfg(
       func=mdp.ref_joint_vel,
-      params=motion,
+      params=dict(motion),
       noise=Unoise(n_min=-0.25, n_max=0.25),
     ),
     "base_ang_vel": ObservationTermCfg(

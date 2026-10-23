@@ -37,6 +37,18 @@ options, and passes every other option through (``--agent.*``, ``--env.*``, ``--
 All options: :ref:`cli-train` · ``uv run wbc-mjlab-train Wbc-G1 --help`` shows the task's
 defaults.
 
+Choose the algorithm
+--------------------
+
+Tasks train with PPO. ``--algo wm`` trains the same task — preset, data, sampling, export —
+through a learned world model instead (SuperMimic-style, one GPU): :doc:`../concepts/world_model`.
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --algo wm
+
+Play and resume pick up the algorithm a run was trained with.
+
 Follow progress
 ---------------
 

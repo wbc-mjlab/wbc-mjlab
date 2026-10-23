@@ -81,6 +81,12 @@ in addition to wbc-mjlab and mjlab. See :doc:`tasks/index`.
      - `Supersized motion tracking <https://arxiv.org/abs/2511.07820>`_
      - partial (body-velocity rewards, obs.\ corruption); full preset planned
      - 2025
+   * - **SuperMimic**
+     - `Scaling humanoid whole-body control with one differentiable world model
+       <https://arxiv.org/abs/2610.28480>`_
+     - any task with ``--algo wm`` (:doc:`concepts/world_model`); its task:
+       ``Wbc-G1-Lookahead``
+     - 2026
    * - **OmniXtreme**
      - `High-dynamic scalable tracking <https://arxiv.org/abs/2602.23843>`_
      - partial (G1 torque envelope)

@@ -35,6 +35,8 @@ REFERENCE_OBS_TERM_NAMES = (
   "ref_joint_vel",
   "ref_body_pos",
   "ref_body_ori",
+  "ref_anchor_ori_b",
+  "ref_anchor_shift_b",
 )
 """Reference-command actor terms recognized when building tracking params."""
 
@@ -49,6 +51,8 @@ _MOTION_OBS_PARAM_TERMS = frozenset(
     "motion_anchor_ori_error",
     "ref_body_pos",
     "ref_body_ori",
+    "ref_anchor_ori_b",
+    "ref_anchor_shift_b",
     "ref_body_lin_vel",
     "ref_body_ang_vel",
     "motion_body_lin_vel",
@@ -146,8 +150,10 @@ def _observation_dim(
     return 1
   if name == "motion_anchor_ori_error":
     return 3
-  if name in ("ref_anchor_ori_6d", "motion_anchor_ori_b"):
+  if name in ("ref_anchor_ori_6d", "motion_anchor_ori_b", "ref_anchor_ori_b"):
     return 6
+  if name == "ref_anchor_shift_b":
+    return 3
   if name in ("ref_body_pos", "body_pos"):
     return 3 * body_count
   if name in ("ref_body_ori", "body_ori"):
@@ -208,6 +214,10 @@ def _observation_params(
   term_params = getattr(term, "params", None) or {}
   if "body_names" in term_params:
     params["body_names"] = list(term_params["body_names"])
+  # reference frames ahead: frame-major, ``stride`` control steps apart
+  for key in ("frames", "stride"):
+    if key in term_params:
+      params[key] = int(term_params[key])
   return params
 
 
@@ -290,6 +300,7 @@ def build_wbc_tracking_params(
   motion_cmd = cfg.commands["motion"]
   body_count = len(motion_cmd.body_names)
   actor_terms = cfg.observations["actor"].terms
+  group_history = cfg.observations["actor"].history_length
   term_body_counts = {
     name: _term_body_count(actor_terms[name], body_count) for name in actor_names
   }
@@ -315,12 +326,19 @@ def build_wbc_tracking_params(
       params = _observation_params(
         name, command_name=command_name, term=actor_terms[name]
       )
+      dim *= params.get("frames", 1)
     actor_observations[name] = {
       "dim": dim,
       "scale": [1.0] * dim,
       "params": params,
+      # steps of this term the policy sees (the group's, else its own)
+      "history_length": max(1, int(group_history or actor_terms[name].history_length or 0)),
     }
 
+  if "command" not in actor_names:  # reference terms looking ahead feed more frames
+    wbc_command_dim = sum(
+      actor_observations[n]["dim"] for n in actor_names if n in REFERENCE_OBS_TERM_NAMES
+    )
   stiffness, damping, default_pos = _pd_from_robot(cfg, joint_names)
 
   return {
