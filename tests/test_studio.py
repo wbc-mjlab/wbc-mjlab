@@ -111,6 +111,14 @@ def test_job_progress_parsing(tmp_path: Path) -> None:
   assert p["iteration"] == 41 and p["total"] == 100
   assert p["fraction"] == pytest.approx(0.42)
   assert p["log_dir"].endswith("wbc_g1/run")
+  assert "phase" not in p
+  # the world model's first update compiles silently for minutes: say so
+  with log.open("a") as f:
+    f.write("[INFO] wm: first update: compiling (minutes; cached for later runs)\n")
+  assert "compiling" in job.progress()["phase"]
+  with log.open("a") as f:
+    f.write("[INFO] wm: first update: compiled in 212 s\n")
+  assert "phase" not in job.progress()
 
   conv = tmp_path / "convert.log"
   conv.write_text(
@@ -232,11 +240,11 @@ def test_preset_roundtrip_applies_overrides(preset_dir) -> None:
   from wbc_mjlab.tasks import register_all_wbc_tasks
 
   register_all_wbc_tasks()
-  schema = presets.describe(load_env_cfg("Wbc-G1"), load_rl_cfg("Wbc-G1"))
+  schema = presets.describe(load_env_cfg("Wbc-G1"))
   assert {r["name"] for r in schema["rewards"]} >= {"motion_body_pos", "survival"}
   keys = {f["key"] for f in schema["command"]}
   assert {"rsi.bin_width_s", "rsi.sampling_mode", "env.episode_length_s"} <= keys
-  assert any(f["key"] == "algorithm.learning_rate" for f in schema["agent"])
+  assert "agent" not in schema  # training settings are recipes
 
   ov = {
     "rewards": {
@@ -270,6 +278,261 @@ def test_preset_roundtrip_applies_overrides(preset_dir) -> None:
   assert load_env_cfg(tid).rewards["survival"].weight == 3.0
   presets.delete("zz_pytest")
   assert presets.list_presets() == []
+
+
+def test_recipes_train_any_preset_with_either_method(preset_dir) -> None:
+  """Recipes (a method and its settings) are saved apart from presets; the Train form lists
+  every setting of each method with the preset's value as default."""
+  from wbc_mjlab.studio import presets, recipes
+  from wbc_mjlab.studio.training import TrainingService
+  from wbc_mjlab.tasks import register_all_wbc_tasks
+
+  register_all_wbc_tasks()
+  assert {r["name"] for r in recipes.list_recipes()} == {"ppo", "wm", "wm-24gb"}
+  recipes.save("zz_fast", "wm", {"algorithm.horizon": 16}, "short horizon")
+  r = recipes.load("zz_fast")
+  assert r["algo"] == "wm" and r["settings"] == {"algorithm.horizon": 16}
+  assert not r["builtin"] and "zz_fast" in {x["name"] for x in recipes.list_recipes()}
+  with pytest.raises(ValueError, match="built-in"):
+    recipes.save("ppo", "ppo", {})
+  with pytest.raises(ValueError, match="unknown algorithm"):
+    recipes.save("zz_bad", "sac", {})
+
+  # a preset's own PPO settings from before recipes still apply, and move to a recipe
+  presets.save("zz_methods", "Wbc-G1", {"agent": {"actor.hidden_dims": [256, 128]}})
+  tid = presets.register("zz_methods")
+  m = TrainingService(None).methods(tid)
+  wm = next(x for x in m["methods"] if x["id"] == "wm")
+  fields = {f["key"]: f for f in wm["settings"]}
+  assert (
+    fields["algorithm.horizon"]["main"] and fields["algorithm.horizon"]["value"] == 32
+  )
+  assert fields["actor.hidden_dims"]["value"] == [256, 128]  # the policy is shared
+  assert fields["actor.hidden_dims"]["section"] == "Policy network"
+  assert "algorithm.horizon" not in {
+    f["key"] for f in next(x for x in m["methods"] if x["id"] == "ppo")["settings"]
+  }
+  recipe = presets.move_agent_to_recipe("zz_methods")
+  assert recipe["algo"] == "ppo"
+  assert recipe["settings"] == {"actor.hidden_dims": [256, 128]}
+  assert "agent" not in presets.load("zz_methods")["overrides"]
+  recipes.delete("zz_fast")
+  recipes.delete("zz_methods")
+  presets.delete("zz_methods")
+
+
+class _Core:
+  def log(self, *a) -> None:
+    pass
+
+  def emit(self, *a, **k) -> None:
+    pass
+
+
+def test_launch_passes_the_method_and_its_settings(monkeypatch, tmp_path) -> None:
+  from wbc_mjlab.studio.training import TrainingService
+
+  launched = {}
+
+  def fake_launch(kind, args, *, label, meta=None):
+    launched.update(args=args, meta=meta)
+    return jobmod.Job(name="j", kind=kind, pid=0, log="", started=0.0, command=[])
+
+  monkeypatch.setattr(jobmod, "launch", fake_launch)
+  t = TrainingService(_Core())
+  t.launch(
+    "Wbc-G1",
+    "samples",
+    algo="wm",
+    algo_settings={
+      "algorithm.imagined_rollouts": 2048,
+      "algorithm.model_hidden_dims": [512, 512],
+    },
+    recipe="wm-24gb",
+  )
+  args = launched["args"]
+  assert args[args.index("--algo") + 1] == "wm"
+  assert args[args.index("--agent.algorithm.imagined-rollouts") + 1] == "2048"
+  # mjlab's CLI takes tuples as Python literals
+  assert args[args.index("--agent.algorithm.model-hidden-dims") + 1] == "(512, 512)"
+  assert launched["meta"]["algo"] == "wm" and launched["meta"]["recipe"] == "wm-24gb"
+  with pytest.raises(ValueError, match="not a setting"):
+    t.launch("Wbc-G1", "samples", algo="ppo", algo_settings={"algorithm.horizon": 8})
+  with pytest.raises(ValueError, match="unknown algorithm"):
+    t.launch("Wbc-G1", "samples", algo="sac")
+
+  # a run continues with the method it was trained with
+  run_dir = tmp_path / "wbc_g1" / "run"
+  (run_dir / "params").mkdir(parents=True)
+  (run_dir / "params" / "agent.yaml").write_text(
+    "algorithm:\n  class_name: PPO\nactor:\n  hidden_dims: [64, 32]\n"
+  )
+  run = jobmod.Run(experiment="wbc_g1", name="run", path=run_dir)
+  monkeypatch.setattr(jobmod, "find_run", lambda label: run)
+  monkeypatch.setattr(jobmod.Run, "task_id", lambda self: "Wbc-G1")
+  with pytest.raises(ValueError, match="trained with PPO"):
+    t.launch("Wbc-G1", "samples", algo="wm", resume_run="wbc_g1/run")
+  t.launch(
+    "Wbc-G1",
+    "samples",
+    algo="ppo",
+    resume_run="wbc_g1/run",
+    algo_settings={"actor.hidden_dims": [512, 512]},
+  )
+  args = launched["args"]
+  assert "--agent.resume" in args
+  # the run's checkpoint fixes its network, whatever the form says
+  assert args[args.index("--agent.actor.hidden-dims") + 1] == "(64, 32)"
+
+
+def test_loss_curves_follow_the_method(monkeypatch, tmp_path) -> None:
+  from torch.utils.tensorboard import SummaryWriter
+
+  from wbc_mjlab.studio.training import TrainingService
+
+  w = SummaryWriter(str(tmp_path))
+  for tag in (
+    "Loss/wm_dynamics",
+    "Loss/critic",
+    "Loss/learning_rate",
+    "Policy/mean_std",
+  ):
+    w.add_scalar(tag, 1.0, 0)
+  w.close()
+  run = jobmod.Run(experiment="x", name="r", path=tmp_path)
+  monkeypatch.setattr(jobmod, "find_run", lambda label: run)
+  series = TrainingService(None).curves(run="x/r", group="loss")["series"]
+  assert set(series) == {"Loss/wm_dynamics", "Loss/critic", "Policy/mean_std"}
+
+
+def test_job_status_follows_the_exit_code(tmp_path) -> None:
+  import subprocess
+
+  proc = subprocess.Popen(["true"])
+  proc.wait()  # a pid that is gone
+  log = tmp_path / "job.log"
+
+  def status(text: str) -> str:
+    log.write_text(text)
+    job = jobmod.Job(
+      name="j", kind="train", pid=proc.pid, log=str(log), started=0.0, command=[]
+    )
+    return job.status()
+
+  assert status("Unrecognized options: 512\n[job exit 2]\n") == "failed"
+  assert status("Mean reward: 1.0\n[job exit 0]\n") == "done"
+  assert status("[WARN] export Error, training continues\n[job exit 0]\n") == "done"
+  # jobs started before the exit marker: read from the output
+  assert status("Unrecognized options: 512\n") == "failed"
+  assert status("Learning iteration 9/10\n") == "done"
+
+
+def test_job_log_for_the_viewer(monkeypatch, tmp_path) -> None:
+  """The log viewer reads a job's output as a terminal shows it (colour codes and redrawn
+  progress lines resolved), up to its last lines, and the whole file downloads."""
+  import subprocess
+
+  from wbc_mjlab.studio.training import TrainingService
+
+  proc = subprocess.Popen(["true"])
+  proc.wait()  # a pid that is gone
+  log = tmp_path / "job.log"
+  lines = [f"\x1b[1m Learning iteration {i}/9 \x1b[0m" for i in range(10)]
+  log.write_text("\n".join([*lines, "bar 10%\rbar 100%", "[job exit 0]"]) + "\n")
+  job = jobmod.Job(
+    name="j", kind="train", pid=proc.pid, log=str(log), started=0.0, command=[]
+  )
+  monkeypatch.setattr(jobmod, "find_job", lambda name: job if name == "j" else None)
+  t = TrainingService(_Core())
+  d = t.job_log("j", lines=3)
+  assert d["log"].split("\n") == [
+    " Learning iteration 9/9 ",
+    "bar 100%",
+    "[job exit 0]",
+  ]
+  assert d["size"] == log.stat().st_size and d["status"] == "done"
+  assert "\x1b" not in t.job_log("j")["log"]
+  assert t.job_log_path("j") == log
+  with pytest.raises(ValueError, match="no job"):
+    t.job_log("missing")
+
+
+def _job(name, kind, alive, *, run=None, robot=""):
+  """A saved job whose process is alive (this one) or gone, its log naming ``run``."""
+  import os
+  import subprocess
+
+  if alive:
+    pid = os.getpid()
+  else:
+    proc = subprocess.Popen(["true"])
+    proc.wait()
+    pid = proc.pid
+  log = jobmod._jobs_dir() / f"{name}.log"
+  head = f"[INFO] Logging experiment in directory: {run}\n" if run else ""
+  log.write_text(head + ("" if alive else "[job exit 1]\n"))
+  meta = {"robot": robot} if robot else {}
+  jobmod.Job(name, kind, pid, str(log), 0.0, [], meta=meta).save()
+
+
+def test_clear_finished_jobs(monkeypatch, tmp_path) -> None:
+  """Clearing removes finished jobs of the kind (and robot) asked for, records and logs,
+  and leaves running ones."""
+  monkeypatch.setattr(jobmod, "logs_dir", lambda: tmp_path)
+  _job("done_train", "train", False)
+  _job("live_train", "train", True)
+  _job("done_g1", "convert", False, robot="g1")
+  _job("done_h1", "convert", False, robot="h1")
+
+  assert jobmod.clear_jobs("convert", "g1") == ["done_g1"]
+  assert jobmod.clear_jobs("train") == ["done_train"]
+  left = {p.name for p in jobmod._jobs_dir().iterdir()}
+  assert left == {
+    f"{n}.{s}" for n in ("live_train", "done_h1") for s in ("json", "log")
+  }
+
+
+def test_runs_on_disk(monkeypatch, tmp_path) -> None:
+  """The storage view maps runs to the jobs that wrote them; runs are pruned to their last
+  checkpoint (plus multiples of ``every``) or deleted with their jobs, never while a job
+  trains them."""
+  from wbc_mjlab.studio.training import TrainingService
+
+  monkeypatch.setattr(jobmod, "logs_dir", lambda: tmp_path)
+  root = tmp_path / "rsl_rl" / "exp"
+  for run, its in (("a", (0, 100, 200, 300)), ("b", (0,)), ("c", (0, 100))):
+    (root / run).mkdir(parents=True)
+    for it in its:
+      (root / run / f"model_{it}.pt").write_bytes(b"x" * 10)
+  (root / "empty").mkdir()  # a job that died before its first checkpoint
+  _job("failed", "train", False, run=root / "b")
+  _job("training", "train", True, run=root / "c")
+  t = TrainingService(_Core())
+
+  rows = {r["label"]: r for r in t.storage()["runs"]}
+  assert set(rows) == {"exp/a", "exp/b", "exp/c", "exp/empty"}
+  assert rows["exp/a"]["checkpoints"] == 4 and rows["exp/a"]["last"] == 300
+  assert rows["exp/a"]["prunable"] == 30 and rows["exp/empty"]["checkpoints"] == 0
+  assert (rows["exp/b"]["job"], rows["exp/b"]["status"]) == ("failed", "failed")
+  assert rows["exp/c"]["busy"] and not rows["exp/a"]["busy"]
+
+  assert t.prune_runs(["exp/a"], every=200) == 10
+  assert sorted(p.name for p in (root / "a").glob("*.pt")) == [
+    "model_0.pt",
+    "model_200.pt",
+    "model_300.pt",
+  ]
+  assert t.prune_runs(["exp/a"]) == 20
+  assert [p.name for p in (root / "a").glob("*.pt")] == ["model_300.pt"]
+  with pytest.raises(ValueError, match="training it"):
+    t.delete_runs(["exp/a", "exp/c"])
+  assert (root / "a").is_dir()  # nothing deleted when one run is refused
+  with pytest.raises(ValueError, match="no run"):
+    t.delete_runs(["exp/nope"])
+
+  assert t.delete("failed", run=True) == 10
+  assert not (root / "b").exists() and jobmod.find_job("failed") is None
+  assert t.delete_runs(["exp/empty"]) == 0 and not (root / "empty").exists()
 
 
 def test_se_module_reproduces_the_se_task() -> None:
@@ -327,7 +590,7 @@ def test_observation_overrides_modules_and_snapshot(preset_dir) -> None:
   assert actor.terms["ref_body_pos"].params["body_names"] == ("pelvis", "torso_link")
   assert list(actor.terms)[-1] == "ref_body_pos"
   assert "assistive_gain" not in load_env_cfg(tid).observations["critic"].terms
-  schema = presets.describe(*presets.build("Wbc-G1", {}, modules=["se"]))
+  schema = presets.describe(presets.build("Wbc-G1", {}, modules=["se"])[0])
   names = [t["name"] for t in schema["observations"]["groups"][0]["terms"]]
   assert "motion_anchor_ori_error" in names and "projected_gravity" not in names
   assert {"name", "dim", "deployable"} <= set(presets.library("g1", 29, 14)[0])
@@ -344,6 +607,74 @@ def test_observation_overrides_modules_and_snapshot(preset_dir) -> None:
     presets.resolve("zz_obs")
   presets.register("zz_obs", snapshot=presets.snapshot_of(run))
   assert load_env_cfg(tid).observations["actor"].terms["joint_pos"].noise is None
+
+
+def test_reference_terms_look_ahead(preset_dir) -> None:
+  """A preset sets how many reference frames a term covers (``frames``, ``stride``): the
+  term's noise repeats per frame, the Studio's width and the deploy export follow."""
+  from wbc_mjlab.export.tracking_params_yaml import build_wbc_tracking_params
+  from wbc_mjlab.studio import presets
+
+  ov = {
+    "observations": {
+      "actor": {"terms": {"ref_base_lin_vel_b": {"frames": 4, "stride": 2}}}
+    }
+  }
+  env, _ = presets.build("Wbc-G1", ov)
+  term = env.observations["actor"].terms["ref_base_lin_vel_b"]
+  assert term.params == {"command_name": "motion", "frames": 4, "stride": 2}
+  assert term.noise.n_max == (0.1, 0.1, 0.05) * 4
+  # the other reference terms are untouched
+  assert "frames" not in env.observations["actor"].terms["ref_base_ang_vel_b"].params
+  rows = {
+    t["name"]: t for t in presets.describe(env)["observations"]["groups"][0]["terms"]
+  }
+  assert (
+    rows["ref_base_lin_vel_b"]["dim"] == 12
+    and rows["ref_base_lin_vel_b"]["frames"] == 4
+  )
+  assert rows["ref_joint_pos"]["takes_frames"] and not rows["joint_pos"]["takes_frames"]
+  params = build_wbc_tracking_params(env, robot_id="g1", has_state_estimation=False)
+  exported = params["actor_observations"]["ref_base_lin_vel_b"]
+  assert exported["dim"] == 12 and exported["params"]["frames"] == 4
+  assert exported["params"]["stride"] == 2
+  # Lookahead's window: separate reference terms, 10 frames each
+  sm, _ = presets.build("Wbc-G1-Lookahead", {})
+  sm_params = build_wbc_tracking_params(sm, robot_id="g1", has_state_estimation=False)
+  obs = sm_params["actor_observations"]
+  assert obs["ref_joint_pos"]["dim"] == 290 and obs["ref_anchor_shift_b"]["dim"] == 30
+  assert obs["joint_pos"]["history_length"] == 10
+  assert sm_params["tracking"]["wbc_command_dim"] == 10 * (2 * 29 + 9)
+
+
+def test_play_refuses_a_changed_observation_layout(tmp_path) -> None:
+  """A run whose actor observation differs from what its task builds now (order, frames
+  ahead, history) is refused: the same width would load with scrambled inputs."""
+  import yaml
+
+  from wbc_mjlab.run_params import actor_layout_change
+  from wbc_mjlab.studio import presets
+
+  env, _ = presets.build("Wbc-G1", {})
+  actor = env.observations["actor"]
+  record = {
+    "history_length": actor.history_length,
+    "terms": {
+      n: {"params": dict(t.params or {}), "history_length": t.history_length}
+      for n, t in actor.terms.items()
+    },
+  }
+  (tmp_path / "params").mkdir()
+  path = tmp_path / "params" / "env.yaml"
+  path.write_text(yaml.safe_dump({"observations": {"actor": record}}, sort_keys=False))
+  assert actor_layout_change(tmp_path, env) == ""
+  record["terms"]["ref_joint_pos"]["params"]["frames"] = 5
+  path.write_text(yaml.safe_dump({"observations": {"actor": record}}, sort_keys=False))
+  assert "ref_joint_pos" in actor_layout_change(tmp_path, env)
+  record["terms"] = dict(reversed(list(record["terms"].items())))
+  path.write_text(yaml.safe_dump({"observations": {"actor": record}}, sort_keys=False))
+  assert "trained with actor terms" in actor_layout_change(tmp_path, env)
+  assert actor_layout_change(tmp_path / "missing", env) == ""
 
 
 def test_preset_names_are_validated(preset_dir) -> None:
@@ -521,8 +852,8 @@ def test_prepare_cleans_models(tmp_path) -> None:
 def test_terrain_preset_knobs_and_sensor_guard() -> None:
   from wbc_mjlab.studio import presets
 
-  env, agent = presets.build("Wbc-G1-Terrain-Scan", {})
-  schema = presets.describe(env, agent)
+  env, _ = presets.build("Wbc-G1-Terrain-Scan", {})
+  schema = presets.describe(env)
   keys = {f["key"] for f in schema["terrain"]}
   assert {"curriculum.start_row", "curriculum.num_rows", "rough.noise_range"} <= keys
   scan = next(
@@ -542,7 +873,7 @@ def test_terrain_preset_knobs_and_sensor_guard() -> None:
   play, _ = presets.build("Wbc-G1-Terrain-Scan", ov, play=True)
   assert play.scene.terrain.max_init_terrain_level is None
   flat, _ = presets.build("Wbc-G1", {})
-  assert presets.describe(flat, agent)["terrain"] == []
+  assert presets.describe(flat)["terrain"] == []
   lib = {x["name"]: x for x in presets.library("g1", 29, 14, flat)}
   assert lib["height_scan"]["requires"] == "height_scan"
   with pytest.raises(ValueError, match="Terrain-Scan"):

@@ -59,9 +59,12 @@ class Session:
   ):
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
-    from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
+    from mjlab.tasks.registry import load_env_cfg, load_runner_cls
 
     from wbc_mjlab.motion.library import apply_run_motion_options
+    from wbc_mjlab.rl.algos import env_cfg as algo_env_cfg
+    from wbc_mjlab.rl.algos import rl_cfg, run_algo
+    from wbc_mjlab.run_params import actor_layout_change
     from wbc_mjlab.studio.presets import register, split_task_id
     from wbc_mjlab.tasks import prepare_wbc_run
 
@@ -69,7 +72,14 @@ class Session:
       register(split_task_id(task_id)[1], snapshot=preset)
     prepare_wbc_run(task_id=task_id)
     env_cfg = load_env_cfg(task_id, play=True)
-    agent_cfg = load_rl_cfg(task_id)
+    # the algorithm the run trained with (its runner builds the matching policy), its env
+    algo = run_algo(run_dir) if run_dir is not None else "ppo"
+    agent_cfg = rl_cfg(task_id, algo)
+    env_cfg = algo_env_cfg(env_cfg, algo)
+    if run_dir is not None and checkpoint is not None:
+      change = actor_layout_change(run_dir, env_cfg)
+      if change:
+        raise RuntimeError(f"{task_id} can't replay this run: {change}")
     motion = env_cfg.commands["motion"]
     motion.motion_file = motion_file
     apply_run_motion_options(motion, run_dir)  # mirror / debias as trained

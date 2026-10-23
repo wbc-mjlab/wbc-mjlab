@@ -5,6 +5,7 @@ Usage::
   wbc-mjlab-train --task Wbc-G1 --dataset lafan
   wbc-mjlab-train --task Wbc-G1-Zest --dataset lafan
   wbc-mjlab-train --task Wbc-G1 --dataset lafan --cache-motion-bundle
+  wbc-mjlab-train --task Wbc-G1 --dataset lafan --algo wm   # world-model training
 """
 
 from __future__ import annotations
@@ -67,6 +68,20 @@ def _apply_motion_file_shortcut(argv: list[str]) -> list[str]:
   return out
 
 
+def _pop_algo(argv: list[str]) -> tuple[list[str], str]:
+  """``--algo ppo|wm`` (default ``ppo``): the training algorithm (:mod:`wbc_mjlab.rl.algos`)."""
+  out, algo, i = [], "ppo", 0
+  while i < len(argv):
+    if argv[i].startswith("--algo="):
+      algo = argv[i].split("=", 1)[1]
+    elif argv[i] == "--algo" and i + 1 < len(argv):
+      algo, i = argv[i + 1], i + 1
+    else:
+      out.append(argv[i])
+    i += 1
+  return out, algo
+
+
 def _apply_default_logger(argv: list[str], *, use_wandb: bool) -> list[str]:
   if use_wandb or _has_explicit_agent_logger(argv):
     return argv
@@ -111,6 +126,12 @@ def main() -> None:
   if legacy:
     log.warning("Legacy task id mapped to --task / --no-state-estimation")
   prepare_wbc_run(task_id=task_id)
+  rest, algo = _pop_algo(rest)
+  from wbc_mjlab.rl.algos import ALGOS, select_algo
+
+  if algo not in ALGOS:
+    raise SystemExit(f"--algo {algo!r}: choose from {', '.join(ALGOS)}")
+  select_algo(task_id, algo)
 
   rest, use_wandb = _filter_argv_for_wandb_flag(rest)
   rest = apply_dataset_motion_file(

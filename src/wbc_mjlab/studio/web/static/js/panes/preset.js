@@ -1,10 +1,11 @@
 // Step 3 · Preset: the MDP a policy trains on. Built-in presets are the paper setups
 // (--task Wbc-G1, Wbc-G1-Zest …); a custom preset is one of them + modules (reusable pieces such
 // as SE) + its own overrides of observations, rewards, terminations, sampling, randomization
-// and PPO. Saved per user (~/.config/wbc-mjlab), trained as task <base>--<name>.
+// and terrain. How it is trained (PPO or the world model, and their settings) is a recipe,
+// picked in Train. Saved per user (~/.config/wbc-mjlab), trained as task <base>--<name>.
 import {
-  PaneFrame, api, button, closePopover, del, empty, field, fmtNum, group, h, help, iconButton, input, modal,
-  popover, post, put, seg, select, switchEl, tabs, tag, toast,
+  PaneFrame, api, button, closePopover, del, empty, field, fmtNum, group, h, help, iconButton, input, knob as uiKnob, modal,
+  popover, post, put, seg, select, stepFor, switchEl, tabs, tag, toast,
 } from "../ui.js";
 
 const TABS = [
@@ -14,7 +15,6 @@ const TABS = [
   ["command", "Sampling"],
   ["events", "Randomization"],
   ["terrain", "Terrain"],
-  ["agent", "PPO"],
 ];
 const COMMAND_SECTIONS = [
   ["rsi.", "Reference state init (RSI)", "Where episodes start in the clips and how hard bins are favoured."],
@@ -23,14 +23,8 @@ const COMMAND_SECTIONS = [
   ["velocity_range.", "Reset noise · root velocity", null],
   ["", "Episode", null],
 ];
-const AGENT_SECTIONS = [
-  ["algorithm.", "Optimisation", null],
-  ["actor.", "Policy network", "Changing the network makes older checkpoints incompatible."],
-  ["critic.", "Value network", null],
-  ["", "Rollouts", null],
-];
 const TERRAIN_INTRO = "Procedural terrain of the -Terrain-Scan tasks: rows of rising difficulty (the curriculum moves envs up as they track well) and a mix of sub-terrains, one column each.";
-const FLAT_TABS = new Set(["command", "terrain", "agent"]);
+const FLAT_TABS = new Set(["command", "terrain"]);
 const OBS_GROUPS = {
   actor: ["Actor · policy input", "What the policy sees, on the robot too. Changing it changes the network input (train from scratch); the export only rebuilds deployable terms."],
   critic: ["Critic · privileged", "Training-only inputs of the value function: ground truth, contacts, the full reference. Free to change."],
@@ -44,7 +38,9 @@ const MODULE = "module:";
 
 const clone = (o) => JSON.parse(JSON.stringify(o || {}));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-const pretty = (key) => key.replace(/^(rsi|algorithm|actor|critic|env)\./, "").replace(/_/g, " ");
+const pretty = (key) => key.replace(/^(rsi|env)\./, "").replace(/_/g, " ");
+// settings labelled without their config prefix (rsi., env.)
+const knob = (f, ov, onChange, prefix = "") => uiKnob(f, ov, onChange, prefix, { pretty });
 const prune = (o) => {
   for (const [k, v] of Object.entries(o)) if (v === undefined) delete o[k];
   return o;
@@ -56,7 +52,7 @@ export class PresetPane {
     this.topics = ["presets", "robot", "play"];
     this.width = 640;
     this.deleteBtn = iconButton("trash", () => this.remove(), "Delete");
-    this.frame = new PaneFrame("Preset", "The MDP a policy learns: what it sees, how it is rewarded, sampled, randomized and optimised.", { actions: [this.deleteBtn] });
+    this.frame = new PaneFrame("Preset", "What a policy learns: what it sees, how it is rewarded, where episodes start and what is randomized. How it learns (PPO or a world model) is chosen in Train.", { actions: [this.deleteBtn] });
     this.tab = "observations";
     this.tasks = [];
     this.modules = [];
@@ -244,7 +240,8 @@ export class PresetPane {
       }
       return Object.values(ov[g] || {}).reduce((n, o) => n + (o.enabled === false ? 1 : 0) + ("weight" in o ? 1 : 0) + Object.keys(o.params || {}).length, 0);
     };
-    return group ? count(group) : TABS.reduce((n, [g]) => n + count(g), 0);
+    // + PPO settings saved before recipes (legacyNote)
+    return group ? count(group) : TABS.reduce((n, [g]) => n + count(g), 0) + Object.keys(ov.agent || {}).length;
   }
 
   changed() {
@@ -280,10 +277,26 @@ export class PresetPane {
       command: () => this.flatTab("command", COMMAND_SECTIONS),
       events: () => this.termsTab("events", "Domain randomization applied at startup, reset or on an interval."),
       terrain: () => h("div", h("p.help", { style: { marginBottom: "12px" } }, TERRAIN_INTRO), this.flatTab("terrain", this.terrainSections())),
-      agent: () => this.flatTab("agent", AGENT_SECTIONS),
     }[this.tab]();
-    this.frame.setBody(this.pickerGroup(), body);
+    this.frame.setBody(this.pickerGroup(), this.legacyNote(), body);
     this.renderFooter();
+  }
+
+  /** A preset saved before recipes may hold PPO settings: they still apply; offer to move them. */
+  legacyNote() {
+    const n = Object.keys(this.overrides.agent || {}).length;
+    const t = this.current();
+    if (!n || !t?.custom) return null;
+    const move = button("Move to a recipe", async () => {
+      if (this.dirty()) await this.save(t.preset);
+      const r = await post(`/api/presets/${encodeURIComponent(t.preset)}/move-agent`, {});
+      toast(`PPO settings moved to recipe ${r.name}: pick it in Train`, "ok");
+      await this.choose(this.selected, { keepTab: true, force: true });
+    }, { cls: "small" });
+    return h("div.callout.warn", { style: { marginBottom: "14px" } },
+      h("b", `${n} PPO setting${n === 1 ? "" : "s"} from before recipes · `),
+      `${Object.keys(this.overrides.agent).join(", ")}. They still apply when this preset trains; training settings now live in recipes (Train → How to train). `,
+      move);
   }
 
   /** Tabs of this task: Terrain only when it has a procedural terrain. */
@@ -361,8 +374,8 @@ export class PresetPane {
       if (!o.add || rows.some((r) => r.name === name)) continue;
       const l = lib.get(name) || { name, kind: "state", func: "", deployable: false };
       rows.push({
-        name, func: l.func, kind: l.kind, dim: l.dim ?? null, noise: g === "actor" ? l.noise : "", history_length: 0,
-        bodies: g === "actor" ? l.bodies || null : null, takes_bodies: !!l.takes_bodies, deployable: g === "actor" ? l.deployable : true, added: true,
+        name, func: l.func, kind: l.kind, dim: l.dim ?? null, noise: g === "actor" ? l.noise : "", history_length: 0, frames: 1, stride: 1,
+        bodies: g === "actor" ? l.bodies || null : null, takes_bodies: !!l.takes_bodies, takes_frames: !!l.takes_frames, deployable: g === "actor" ? l.deployable : true, added: true,
       });
     }
     return { grp, rows };
@@ -373,12 +386,12 @@ export class PresetPane {
     const o = this.obsTermOv(g, r.name);
     if (o.enabled === false) return 0;
     if (r.dim === null || r.dim === undefined) return null;
-    let d = r.dim / Math.max(1, r.history_length || 1);
+    let d = r.dim / Math.max(1, r.history_length || 1) / Math.max(1, r.frames || 1);
     if ("bodies" in o && r.takes_bodies) {
       const all = this.schema.observations.bodies;
       d = (d / Math.max(1, (r.bodies || all).length)) * ((o.bodies && o.bodies.length) || all.length);
     }
-    return d * Math.max(1, o.history_length ?? r.history_length ?? 1);
+    return d * Math.max(1, o.history_length ?? r.history_length ?? 1) * Math.max(1, o.frames ?? r.frames ?? 1);
   }
 
   groupStats(g) {
@@ -458,7 +471,7 @@ export class PresetPane {
     const row = h(`div.term.obs-term${off ? ".off" : ""}${this.open.has(key) ? ".open" : ""}`);
     const sw = switchEl("", !off, (on) => {
       if (r.added && !on) {
-        this.setObs(g, { add: undefined, noise_scale: undefined, history_length: undefined, bodies: undefined }, r.name);
+        this.setObs(g, { add: undefined, noise_scale: undefined, history_length: undefined, frames: undefined, stride: undefined, bodies: undefined }, r.name);
         this.render();
         return;
       }
@@ -475,13 +488,14 @@ export class PresetPane {
       dim.textContent = d === null || d === undefined ? "?" : String(d);
     };
     mod.addEventListener("click", () => {
-      this.setObs(g, { enabled: undefined, noise_scale: undefined, history_length: undefined, bodies: undefined }, r.name);
+      this.setObs(g, { enabled: undefined, noise_scale: undefined, history_length: undefined, frames: undefined, stride: undefined, bodies: undefined }, r.name);
       this.render();
     });
     const from = this.moduleOf(g, r.name);
     const tags = [
       r.added ? tag("added", "accent") : from ? tag(from, "accent", `added by module ${from}`) : null,
       g === "actor" && !r.deployable ? tag("sim only", "amber", "the export can't rebuild this term on the robot") : null,
+      (o.frames ?? r.frames) > 1 ? tag(`${o.frames ?? r.frames} frames ahead`, "", `the reference now and ${(o.frames ?? r.frames) - 1} later frame(s), ${o.stride ?? r.stride} step(s) apart`) : null,
     ].filter(Boolean);
     let noise = h("span.obs-noise.none", g === "actor" ? "no noise" : "");
     if (r.noise) {
@@ -503,9 +517,16 @@ export class PresetPane {
     expand.addEventListener("click", toggle);
     const name = h("div.name", { on: { click: toggle } }, h("b", r.name, ...tags), h("span", r.func));
     const opts = [
-      knob({ key: "history", kind: "int", value: r.history_length, help: "frames of this term (0 = the group's)" }, o.history_length,
+      knob({ key: "history", kind: "int", value: r.history_length, help: "past steps of this term (0 = the group's)" }, o.history_length,
         (v) => { this.setObs(g, { history_length: v === r.history_length ? undefined : v }, r.name); syncMod(); }),
     ];
+    if (r.takes_frames) {
+      opts.push(
+        knob({ key: "frames ahead", kind: "int", value: r.frames, help: "reference frames, the current one first (1 = now only)" }, o.frames,
+          (v) => { this.setObs(g, { frames: v === r.frames ? undefined : Math.max(1, v) }, r.name); syncMod(); }),
+        knob({ key: "stride", kind: "int", value: r.stride, help: "control steps between those frames" }, o.stride,
+          (v) => { this.setObs(g, { stride: v === r.stride ? undefined : Math.max(1, v) }, r.name); syncMod(); }));
+    }
     if (r.takes_bodies) opts.push(this.bodyPicker(g, r, syncMod));
     row.append(h("div.term-head", sw, name, dim, noise, mod, expand), h("div.term-params", opts));
     syncMod();
@@ -808,11 +829,6 @@ export class PresetPane {
 }
 
 // ---------------------------------------------------------------------- knobs
-function stepFor(v) {
-  const a = Math.abs(v || 0);
-  if (!a) return 0.1;
-  return 10 ** Math.floor(Math.log10(a) - 1);
-}
 
 function svgChev() {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -822,42 +838,3 @@ function svgChev() {
 }
 
 /** One editable value of the schema ({key, kind, value, choices, help}); ``ov`` = override. */
-function knob(f, ov, onChange, prefix = "") {
-  const cur = ov === undefined ? f.value : ov;
-  const label = prefix && f.key.startsWith(prefix) ? f.key.slice(prefix.length) : f.key;
-  const el = h(`div.knob${ov !== undefined ? ".mod" : ""}${f.kind === "bool" ? ".bool" : ""}`, { title: `${f.key} · default ${JSON.stringify(f.value)}` });
-  const mark = (v) => el.classList.toggle("mod", JSON.stringify(v) !== JSON.stringify(f.value));
-  const emit = (v) => { mark(v); onChange(v); };
-  let control;
-  if (f.kind === "bool") {
-    control = switchEl(pretty(label), cur, (v) => emit(v));
-    el.append(control);
-  } else {
-    if (f.kind === "choice") {
-      control = select(f.choices, cur, (v) => emit(v));
-    } else if (f.kind === "range") {
-      const lo = input(cur[0], { type: "number", step: stepFor(f.value[1] - f.value[0]) });
-      const hi = input(cur[1], { type: "number", step: stepFor(f.value[1] - f.value[0]) });
-      const read = () => { const a = Number(lo.value); const b = Number(hi.value); if (Number.isFinite(a) && Number.isFinite(b)) emit([a, b]); };
-      lo.addEventListener("input", read);
-      hi.addEventListener("input", read);
-      control = h("div.range", lo, h("i", "to"), hi);
-    } else if (f.kind === "ints") {
-      control = input(cur.join(", "), {});
-      control.addEventListener("change", () => {
-        const v = control.value.split(/[\s,]+/).filter(Boolean).map(Number);
-        if (v.length && v.every(Number.isInteger)) emit(v);
-        else control.value = cur.join(", ");
-      });
-    } else {
-      control = input(cur, { type: "number", step: f.kind === "int" ? 1 : stepFor(f.value), min: f.kind === "int" && f.key.includes("history") ? 0 : undefined });
-      control.addEventListener("input", () => {
-        const v = Number(control.value);
-        if (control.value !== "" && Number.isFinite(v)) emit(f.kind === "int" ? Math.max(0, Math.round(v)) : v);
-      });
-    }
-    el.append(h("label", h("span", pretty(label))), control);
-  }
-  if (f.help) el.append(h("div.hint", f.help));
-  return el;
-}

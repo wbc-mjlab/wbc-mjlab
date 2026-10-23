@@ -1,7 +1,8 @@
 // Step 5 · Play: a run's checkpoint (or the zero action = PD on the reference) on N envs over a
 // motion library. Clip / env / push live on the stage; this pane picks the policy and shows the
 // focused env's reward terms.
-import { PaneFrame, api, bars, button, empty, field, group, h, help, input, listRow, post, seg, select, switchEl, tag, toast } from "../ui.js";
+import { openStorage } from "../storage.js";
+import { PaneFrame, api, bars, button, empty, field, group, h, help, iconButton, input, linkButton, listRow, post, seg, select, switchEl, tag, toast } from "../ui.js";
 
 const ENVS = ["1", "4", "16", "64"];
 const MAX_ENVS = 4096; // play.MAX_ENVS
@@ -123,13 +124,17 @@ export class PlayPane {
 
   renderPicker() {
     const c = this.choice;
-    const rows = this.runs.map((r) => {
+    // filter by training method once runs of both exist (the demo is always listed)
+    const methods = new Set(this.runs.filter((r) => !r.demo).map((r) => r.algo || "ppo"));
+    const filter = methods.size > 1 ? (this.methodFilter || "all") : "all";
+    const shown = this.runs.filter((r) => filter === "all" || r.demo || (r.algo || "ppo") === filter || r.label === c.run);
+    const rows = shown.map((r) => {
       const preset = r.task.includes("--") ? r.task.split("--").pop() : "";
       return listRow({
         lead: r.demo ? "bolt" : preset ? "sliders" : "layers",
         title: r.demo ? "Bundled demo" : preset || r.task || r.experiment,
         sub: `${preset ? `${r.task.split("--")[0]} + preset · ` : ""}${r.updated_text} · ${r.checkpoints.length} ckpt${r.name.includes("_", 19) ? ` · ${r.name.slice(20)}` : ""}`,
-        trail: r.demo ? tag("demo", "accent") : null,
+        trail: r.demo ? tag("demo", "accent") : r.algo === "wm" ? tag("world model", "", "Trained with the world model (--algo wm)") : null,
         active: r.label === c.run,
         onClick: async () => { c.run = r.label; c.checkpoint = ""; await this.loadLibraries(); this.render(); },
       });
@@ -138,7 +143,14 @@ export class PlayPane {
     const ckpts = run?.checkpoints || [];
     if (!c.checkpoint || (c.checkpoint !== ZERO && !ckpts.includes(c.checkpoint))) c.checkpoint = ckpts[0] || ZERO;
     this.frame.setBody(
-      group("Run", { aside: `${this.runs.length} on disk` }, h("div.list", rows)),
+      group("Run", {
+        action: h("div.row", { style: { gap: "12px" } },
+          methods.size > 1
+            ? seg([{ value: "all", label: "All" }, { value: "ppo", label: "PPO" }, { value: "wm", label: "World model" }], filter, (v) => { this.methodFilter = v; this.render(); })
+            : h("span.aside", `${this.runs.length} on disk`),
+          h("a.link", { href: "/tensorboard", target: "_blank", rel: "noopener", title: "Every run's training curves" }, "All in TensorBoard"),
+          iconButton("database", () => openStorage({ onChange: () => this.refresh() }), "Runs on disk: sizes, delete runs, prune old checkpoints")),
+      }, h("div.list", rows)),
       group("Setup", {},
         h("div.stack",
           field("Checkpoint", select([...ckpts.map((x) => ({ value: x, label: x })), { value: ZERO, label: "Zero action · PD on the reference" }], c.checkpoint, (v) => (c.checkpoint = v))),
@@ -149,6 +161,7 @@ export class PlayPane {
     this.frame.setFooter(
       this.state?.active ? button("Cancel", () => { this.picking = false; this.render(); }, { cls: "ghost" }) : h("span.note", run ? run.task : ""),
       h("span.spacer"),
+      tensorBoardButton(run),
       button(this.state?.active ? "Apply" : "Load policy", () => this.apply(), { cls: "primary", icon: "play", disabled: !c.motion }),
     );
   }
@@ -184,7 +197,7 @@ export class PlayPane {
         h("div.list", listRow({
           lead: run?.demo ? "bolt" : "layers",
           title: run?.demo ? "Bundled demo" : (s.task.includes("--") ? s.task.split("--").pop() : s.task),
-          sub: `${run?.updated_text || ""} · ${s.checkpoint === s.zero ? "zero action" : s.checkpoint} · ${lib} · ${s.num_envs} envs`,
+          sub: `${run?.algo === "wm" ? "world model · " : ""}${run?.updated_text || ""} · ${s.checkpoint === s.zero ? "zero action" : s.checkpoint} · ${lib} · ${s.num_envs} envs`,
           trail: tag(s.playing ? "live" : "paused", s.playing ? "accent" : "amber"),
           active: true,
         }))),
@@ -208,6 +221,7 @@ export class PlayPane {
     this.frame.setFooter(
       button("Stop", () => post("/api/play/stop"), { cls: "danger ghost", icon: "stop" }),
       h("span.spacer"),
+      tensorBoardButton(run),
       button("Restart all", () => post("/api/play/restart"), { icon: "refresh" }),
     );
   }
@@ -215,4 +229,10 @@ export class PlayPane {
   hud(hud) {
     if (this.barsHost && hud.terms) this.barsHost.replaceChildren(bars(hud.terms, 24));
   }
+}
+
+/** The run's training curves in TensorBoard (started on demand), for runs that logged there. */
+function tensorBoardButton(run) {
+  if (!run?.events) return null;
+  return linkButton("TensorBoard", `/tensorboard?run=${encodeURIComponent(run.name)}`, { cls: "ghost", icon: "link", title: "This run's training curves" });
 }

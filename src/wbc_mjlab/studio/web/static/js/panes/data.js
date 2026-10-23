@@ -1,9 +1,11 @@
 // Step 2 · Data: datasets → clips → inspect (QA, raw vs converted; curves in the Plots window).
 // Training plays the source clips directly; Export writes npz/<clip>.npz for tools that want them.
 import {
-  PaneFrame, api, button, chips, debounce, dot, empty, field, fmtDuration, group, h, help, iconButton, input,
+  PaneFrame, api, button, chips, debounce, del, dot, empty, field, fmtDuration, group, h, help, iconButton, input,
   listRow, modal, plural, post, progressBar, qs, ring, searchBox, seg, select, strip, svgIcon, switchEl, tabs, tag, toast,
 } from "../ui.js";
+import { logBlock } from "../logview.js";
+import { clearJobs } from "../storage.js";
 
 const PAGE = 100;
 
@@ -292,6 +294,7 @@ export class DataPane {
     const o = this.opts;
     const set = (k) => (v) => { o[k] = v; if (k === "which") this.render(); };
     const jobs = this.jobs.slice(0, 8).map((j) => this.jobCard(j));
+    const finished = this.jobs.filter((j) => j.status !== "running").length;
     this.frame.setBody(
       group("Clips", {},
         seg([
@@ -308,7 +311,10 @@ export class DataPane {
           field("Source rate override", input(o.input_fps || "", { type: "number", placeholder: "from the file (CSV: 30 Hz)", onChange: set("input_fps") })),
           switchEl("Mirror — also export left/right mirrored clips", o.mirror, set("mirror")),
           switchEl("Debias z — put the feet on the ground", o.debias_z, set("debias_z")))),
-      group("Jobs", { aside: jobs.length ? "" : "none yet" }, jobs.length ? h("div.jobs", jobs) : null),
+      group("Jobs", {
+        aside: jobs.length ? "" : "none yet",
+        action: finished ? button(`Clear finished · ${finished}`, () => clearJobs("convert", this.jobs, { robot: this.app.state.robot, onDone: () => this.loadJobs().then(() => this.render()) }), { cls: "ghost small", icon: "trash", title: "Remove every finished conversion job and its log; exported clips stay" }) : null,
+      }, jobs.length ? h("div.jobs", jobs) : null),
     );
     const n = counts[o.which];
     this.frame.setFooter(
@@ -330,13 +336,21 @@ export class DataPane {
     this.jobs = (await api("/api/jobs?kind=convert")).filter((j) => !j.meta.robot || j.meta.robot === this.app.state.robot);
   }
 
+  async forget(name) {
+    await del(`/api/jobs/${name}`);
+    if (this.openJob === name) this.openJob = "";
+    await this.loadJobs();
+    this.render();
+  }
+
   jobCard(j) {
     const tone = { running: "accent", done: "ok", failed: "bad", stopped: "amber" }[j.status];
     const pr = j.progress || {};
     const open = j.name === this.openJob;
     const logHost = h("div");
     const card = h(`div.job${open ? ".is-active" : ""}`,
-      h("div.job-head", h("b", `${j.meta.dataset} · ${plural(j.meta.clips, "clip")}`), tag(j.status, tone)),
+      h("div.job-head", h("b", `${j.meta.dataset} · ${plural(j.meta.clips, "clip")}`), tag(j.status, tone),
+        j.status === "running" ? null : iconButton("x", (e) => { e.stopPropagation(); this.forget(j.name); }, "Remove this job (exported clips stay)")),
       h("div.job-meta", `${j.started_text} · ${fmtDuration(j.elapsed)}${pr.total ? ` · ${pr.done}/${pr.total}` : ""}${j.meta.mirror ? " · mirror" : ""}${j.meta.debias_z ? " · debias" : ""}`),
       j.status === "running" ? progressBar(pr.fraction) : null,
       open ? logHost : null,
@@ -347,8 +361,7 @@ export class DataPane {
       this.render();
     });
     if (open) api(`/api/jobs/${j.name}?tail=24`).then((d) => {
-      logHost.replaceChildren(h("pre.log", d.log || "(no output yet)"));
-      logHost.firstChild.scrollTop = 1e9;
+      logHost.replaceChildren(logBlock(j.name, d.log, { title: `${j.meta.dataset} · conversion log` }));
     });
     return card;
   }
