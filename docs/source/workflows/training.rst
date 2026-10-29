@@ -41,13 +41,16 @@ Choose the algorithm
 --------------------
 
 Tasks train with PPO. ``--algo wm`` trains the same task — preset, data, sampling, export —
-through a learned world model instead (SuperMimic-style, one GPU): :doc:`../concepts/world_model`.
+through a learned world model instead (SuperMimic-style, one or several GPUs):
+:doc:`../concepts/world_model`.
 
 .. code-block:: bash
 
    uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --algo wm
 
 Play and resume pick up the algorithm a run was trained with.
+Both methods accept ``--agent.actor.architecture motion_encoder``; its settings
+live under ``agent.actor`` and the default remains ``mlp``.
 
 Follow progress
 ---------------
@@ -96,10 +99,13 @@ What ``--agent.resume True`` does
 2. **Load latest checkpoint** — mjlab searches ``logs/rsl_rl/<experiment_name>/`` for
    the most recent run matching ``--agent.load-run`` (default ``.*``) and checkpoint
    matching ``--agent.load-checkpoint`` (default ``model_.*.pt``).
-3. **Restore training state** — policy (+ optimizer) weights via RSL-RL ``runner.load``.
-4. **Restore RSI curriculum** — wbc-mjlab's runner also loads ``rsi_bin_stats.npz`` from
-   the checkpoint run's ``params/`` when ``persist_failure_levels=True`` (WBC/Zest
-   presets), so adaptive bin failure EMA continues where you left off.
+3. **Restore saved configuration and training state** — task behavior, actor architecture,
+   algorithm and optimizer settings come from the run; explicit CLI flags override those
+   defaults. Policy and optimizer weights load through the common runner.
+4. **Restore RSI curriculum** — PPO and WM checkpoints hold the sampler's failure levels,
+   sampling memory and visit counts. Segment names, frame counts and bin widths must
+   match. A checkpoint's state takes precedence over a newer sidecar. Legacy checkpoints
+   fall back to ``params/rsi_bin_stats.npz`` when ``persist_failure_levels=True``.
 
 Pick a specific prior run:
 

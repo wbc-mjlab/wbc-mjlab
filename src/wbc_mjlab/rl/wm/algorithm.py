@@ -31,22 +31,26 @@ import torch
 import torch.nn.functional as F
 from rsl_rl.models import MLPModel
 from rsl_rl.modules import MLP
-from rsl_rl.utils import resolve_callable, resolve_obs_groups
+from rsl_rl.utils import resolve_obs_groups
 from tensordict import TensorDict
 from torch import nn
 
 from wbc_mjlab.motion.library import MotionFrame
+from wbc_mjlab.rl.policy import build_actor
+from wbc_mjlab.rl.wm.distributed import average_gradients, broadcast, world_size
 from wbc_mjlab.rl.wm.imagined import Goal, Imagination
 from wbc_mjlab.rl.wm.kinematics import RobotState
 from wbc_mjlab.rl.wm.model import (
   RunningNorm,
   WorldModel,
   feature_dim,
+  nominal_error,
   state_change,
   state_features,
   update_running_stats,
 )
-from wbc_mjlab.rl.wm.replay import Replay
+from wbc_mjlab.rl.wm.recording import RECORDER
+from wbc_mjlab.rl.wm.replay import Replay, transition_mask
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
@@ -89,9 +93,15 @@ class WorldModelRL:
     warmup_steps: int,
     compile: bool,
     cuda_graphs: bool,
+    dynamics_mode: str = "increment",
+    separate_action_noise: bool = False,
+    scale_lr_by_world_size: bool = True,
+    diagnostic_interval: int = 100,
+    diagnostic_batch: int = 256,
+    clip_actions: float | None = None,
     device: str = "cpu",
   ):
-    del action_noise  # set on the actor's distribution by ``construct_algorithm``
+    self.action_noise, self.clip_actions = action_noise, clip_actions
     self.env, self.device = env, device
     self.imagination = im = Imagination(env)
     print("[INFO] wm:", im.summary().replace("\n", "\n[INFO] wm: "))
@@ -110,6 +120,8 @@ class WorldModelRL:
       self.num_learned_rewards,
       model_hidden_dims,
       heads_hidden_dims,
+      dynamics_mode=dynamics_mode,
+      step_dt=env.step_dt,
     ).to(device)
     # The critic sees the state, its tracking features, the context and the actor's
     # observation (the reference ahead): V(s, g, ξ).
@@ -118,9 +130,19 @@ class WorldModelRL:
     self.critic = MLP(critic_in, 1, critic_hidden_dims, critic_activation).to(device)
 
     # Learning rates as tensors: the schedule changes them inside captured graphs.
+    learning_rate *= math.sqrt(world_size()) if scale_lr_by_world_size else 1.0
     lr = torch.tensor(learning_rate, device=device)
     # Graphs need compiled steps: eager terms copy Python index lists to the GPU.
-    graphs = cuda_graphs and compile and torch.device(device).type == "cuda"
+    graphs = (
+      cuda_graphs
+      and compile
+      and torch.device(device).type == "cuda"
+      and world_size() == 1
+    )
+    if cuda_graphs and world_size() > 1:
+      print(
+        "[INFO] wm: distributed updates use torch.compile without full-update CUDA graphs"
+      )
     self.model_optimizer = torch.optim.Adam(
       self.world_model.parameters(), lr=lr.clone(), capturable=graphs
     )
@@ -147,6 +169,23 @@ class WorldModelRL:
     self.critic_epochs, self.critic_mini_batches = critic_epochs, critic_mini_batches
     self.replay_steps, self.warmup_steps = replay_steps, warmup_steps
     self.num_updates = 0
+    self.diagnostic_interval, self.diagnostic_batch = (
+      diagnostic_interval,
+      diagnostic_batch,
+    )
+    self.separate_action_noise = separate_action_noise
+    term = im._action_term
+    if separate_action_noise and not hasattr(term, "set_execution_noise"):
+      raise ValueError(
+        "execution-only noise needs a tracking joint-position action term"
+      )
+    if hasattr(term, "set_execution_noise"):
+      term.set_execution_noise(action_noise if separate_action_noise else 0.0)
+    self.terminal_recorder = (
+      env.recorder_manager.get_term(RECORDER)
+      if RECORDER in env.recorder_manager.active_terms
+      else None
+    )
     self._updated = False  # in this process (the first update compiles)
     self._compile = compile
     self.replay: Replay | None = None  # allocated on the first step (not for Play)
@@ -164,8 +203,6 @@ class WorldModelRL:
   def construct_algorithm(
     obs: TensorDict, env: VecEnv, cfg: dict, device: str
   ) -> WorldModelRL:
-    if cfg.get("multi_gpu"):
-      raise ValueError("world-model training runs on a single GPU")
     alg_cfg = dict(cfg["algorithm"])
     alg_cfg.pop("class_name", None)
     cfg["algorithm"]["rnd_cfg"] = None  # the runner reads it
@@ -174,17 +211,7 @@ class WorldModelRL:
       raise ValueError(
         "world-model training needs the actor to read the 'actor' group only"
       )
-    actor_cfg = dict(cfg["actor"])
-    actor_class: type[MLPModel] = resolve_callable(actor_cfg.pop("class_name"))  # type: ignore
-    if actor_class is not MLPModel:
-      raise ValueError("world-model training needs an MLPModel actor")
-    actor_cfg["distribution_cfg"] = {
-      "class_name": "GaussianDistribution",
-      "init_std": alg_cfg["action_noise"],
-      "std_type": "scalar",
-      "learn_std": False,
-    }
-    actor = actor_class(obs, cfg["obs_groups"], "actor", env.num_actions, **actor_cfg)
+    actor = build_actor(obs, env.unwrapped, cfg)
     print(f"Actor Model: {actor}")
     return WorldModelRL(
       env.unwrapped,
@@ -192,6 +219,7 @@ class WorldModelRL:
       tuple(cfg["critic"]["hidden_dims"]),
       cfg["critic"]["activation"],
       device=device,
+      clip_actions=cfg.get("clip_actions"),
       **alg_cfg,
     )
 
@@ -200,11 +228,16 @@ class WorldModelRL:
       with torch.inference_mode(False):
         self.replay = self._new_replay()
     im, command = self.imagination, self.imagination.command
-    actions = self.actor(obs, stochastic_output=True)
+    if self.terminal_recorder is not None:
+      self.terminal_recorder.captured.zero_()
+    actions = self.actor(obs, stochastic_output=not self.separate_action_noise)
+    if self.clip_actions is not None:
+      actions = actions.clamp(-self.clip_actions, self.clip_actions)
+    if self.separate_action_noise:
+      self.actor.distribution.update(actions)  # runner's action-std logging
     ids = torch.arange(self.env.num_envs, device=self.device)
     self.replay.begin(
       state=im.robot_state().vector(),
-      action=actions,
       setpoint=im.joint_setpoint(actions, command.reference(), ids),
       last_action=self.env.action_manager.action,
       time_step=command.time_steps,
@@ -225,12 +258,27 @@ class WorldModelRL:
     norm = self.actor.obs_normalizer
     with torch.inference_mode(False):
       update_running_stats(norm._mean, norm._var, norm._std, norm.count, obs["actor"])
+    next_state = self.imagination.robot_state().vector()
+    valid = ~dones.bool() & self._within_clip
+    if self.terminal_recorder is not None:
+      captured = self.terminal_recorder.captured
+      next_state = torch.where(
+        captured[:, None], self.terminal_recorder.state, next_state
+      )
+      valid = valid | captured
     # The next row continues this one unless the env reset or the clip ended (resample).
     self.replay.end(
+      **(
+        {"setpoint": self.imagination._action_term.executed_setpoint}
+        if hasattr(self.imagination._action_term, "executed_setpoint")
+        else {}
+      ),
       rewards=self.imagination.learned_reward_targets(),
       terminated=self.env.reset_terminated,
       done=dones.bool(),
       continues=~dones.bool() & self._within_clip,
+      next_state=next_state,
+      valid=valid,
     )
 
   def compute_returns(self, obs: TensorDict) -> None:
@@ -238,7 +286,7 @@ class WorldModelRL:
 
   def update(self) -> dict[str, float]:
     assert self.replay is not None
-    if self.replay.size < max(self.warmup_steps, self.window + 1):
+    if self.replay.size < max(self.warmup_steps, self.window):
       return {}
     if not self._updated and self._compile:  # minutes of silence otherwise
       print(FIRST_UPDATE, "compiling (minutes; cached for later runs)", flush=True)
@@ -250,6 +298,11 @@ class WorldModelRL:
         totals[k] = totals.get(k, 0.0) + v / self.updates_per_iteration
       self.num_updates += 1
       self._set_learning_rate()
+    if (
+      self.diagnostic_interval
+      and self.num_updates % self.diagnostic_interval < self.updates_per_iteration
+    ):
+      totals.update(self.rollout_diagnostics(self.diagnostic_batch))
     if not self._updated and self._compile:
       print(
         FIRST_UPDATE, f"compiled in {time.perf_counter() - start:.0f} s", flush=True
@@ -278,6 +331,10 @@ class WorldModelRL:
       "world_model_state_dict": self.world_model.state_dict(),
       "optimizer_state_dict": [o.state_dict() for o in self._optimizers],
       "num_updates": self.num_updates,
+      "wm_metadata": {
+        "dynamics_mode": self.world_model.dynamics_mode,
+        "step_dt": self.world_model.step_dt,
+      },
     }
 
   def load(self, loaded_dict: dict, load_cfg: dict | None, strict: bool) -> bool:
@@ -293,6 +350,15 @@ class WorldModelRL:
     if "world_model_state_dict" not in loaded_dict:  # e.g. a PPO checkpoint: actor only
       return False
     if load_cfg.get("critic"):
+      metadata = loaded_dict.get("wm_metadata", {"dynamics_mode": "increment"})
+      if metadata["dynamics_mode"] != self.world_model.dynamics_mode:
+        raise ValueError(
+          "checkpoint dynamics mode differs from the configured world model"
+        )
+      if not math.isclose(metadata.get("step_dt", self.env.step_dt), self.env.step_dt):
+        raise ValueError(
+          "checkpoint world-model control timestep differs from this task"
+        )
       self.world_model.load_state_dict(
         loaded_dict["world_model_state_dict"], strict=strict
       )
@@ -312,7 +378,8 @@ class WorldModelRL:
     return bool(load_cfg.get("iteration"))
 
   def broadcast_parameters(self) -> None:
-    raise NotImplementedError("world-model training runs on a single GPU")
+    for module in (self.actor, self.world_model, self.critic, self.critic_norm):
+      broadcast(module)
 
   # --- phases ---
 
@@ -330,18 +397,61 @@ class WorldModelRL:
   def _state(self, x: torch.Tensor) -> RobotState:
     return RobotState.from_vector(x, self.num_joints)
 
+  @torch.no_grad()
+  def rollout_diagnostics(self, batch: int = 256) -> dict[str, float]:
+    """Independent replay windows, fixed physical scales; never update normalization.
+
+    After SuperMimic Fig. 3c and SuperMimic-Reproduced's wm_trainer.online_error
+    (ba61053). These are in-replay diagnostics, not held-out generalization scores.
+    """
+    assert self.replay is not None
+    w = self.replay.sample_windows(batch, self.window)
+    context = self.imagination.context(w.env_ids)
+    s = self._state(w.state[0])
+    valid_steps = transition_mask(w.continues, w.valid)
+    metrics = {}
+    for t in range(self.window):
+      valid = valid_steps[t]
+      s = self.world_model.step(s, w.setpoint[t], context)
+      true = self._state(w.next_state[t])
+      score = _masked_mean(nominal_error(s, true).mean(-1), valid)
+      if t in (0, self.window - 1):
+        metrics[f"wm_eval_nominal_{t + 1}_step"] = score.item()
+      if t == self.window - 1:
+        error = state_change(true, s)
+        j = self.num_joints
+        for name, chunk in zip(
+          (
+            "root_pos_m",
+            "root_rot_rad",
+            "root_vel_m_s",
+            "root_omega_rad_s",
+            "joint_pos_rad",
+            "joint_vel_rad_s",
+          ),
+          error.split((3, 3, 3, 3, j, j), dim=-1),
+          strict=True,
+        ):
+          metrics[f"wm_eval_{name}_rmse"] = (
+            _masked_mean(chunk.square().mean(-1), valid).sqrt().item()
+          )
+        metrics["wm_eval_valid_fraction"] = valid.float().mean().item()
+    return metrics
+
   def _update_world_model(self) -> dict[str, float]:
     assert self.replay is not None
     k = self.window
     totals = torch.zeros(3, device=self.device)
     for _ in range(self.model_steps):
-      w = self.replay.sample_windows(self.model_batch, k + 1)
+      w = self.replay.sample_windows(self.model_batch, k)
       with torch.no_grad():
         frames = self.imagination.command.motion.frame(w.time_step[:k].reshape(-1))
       totals += self._model_step(
         w.state,
+        w.next_state,
         w.setpoint,
         w.continues,
+        w.valid,
         w.terminated,
         w.rewards,
         w.time_step,
@@ -360,8 +470,10 @@ class WorldModelRL:
   def _model_step(
     self,
     states: torch.Tensor,
+    next_states: torch.Tensor,
     setpoints: torch.Tensor,
     continues: torch.Tensor,
+    captured: torch.Tensor,
     terminated: torch.Tensor,
     rewards: torch.Tensor,
     time_steps: torch.Tensor,
@@ -370,7 +482,7 @@ class WorldModelRL:
     env_ids: torch.Tensor,
     frames: MotionFrame,
   ) -> torch.Tensor:
-    """One gradient step of the world model on a batch of windows (``[k + 1, B]`` rows,
+    """One gradient step of the world model on a batch of windows (``[k, B]`` rows,
     reference ``frames`` ``[k, B]``); returns its losses."""
     wm, k = self.world_model, self.window
     context = self.imagination.context(env_ids)
@@ -379,18 +491,27 @@ class WorldModelRL:
       for j in range(k)
     ]
     # Step j of a window is a logged transition when no reset / resample came before.
-    valid = continues[:k].long().cumprod(0).bool()
-    s0, s1 = self._state(states[0]), self._state(states[1])
+    valid = transition_mask(continues, captured)
+    s0, s1 = self._state(states[0]), self._state(next_states[0])
     wm.update_dynamics_normalization(
-      s0, setpoints[0], context, state_change(s0, s1), valid[0]
+      s0, setpoints[0], context, wm.target_change(s0, s1), valid[0]
     )
     tracking = self._tracking_features(states[0], env_ids, goals[0])
     wm.update_heads_normalization(s0, setpoints[0], tracking, context, rewards[0])
     dynamics, last_step, heads = self._model_losses(
-      states, setpoints, valid, context, goals, env_ids, terminated, rewards
+      states,
+      next_states,
+      setpoints,
+      valid,
+      context,
+      goals,
+      env_ids,
+      terminated,
+      rewards,
     )
     self.model_optimizer.zero_grad(set_to_none=False)
     (dynamics + heads).backward()
+    average_gradients(wm)
     nn.utils.clip_grad_norm_(wm.parameters(), self.max_grad_norm)
     self.model_optimizer.step()
     return torch.stack([dynamics, last_step, heads]).detach()
@@ -398,6 +519,7 @@ class WorldModelRL:
   def _model_losses(
     self,
     states: torch.Tensor,
+    next_states: torch.Tensor,
     setpoints: torch.Tensor,
     valid: torch.Tensor,
     context: torch.Tensor,
@@ -415,7 +537,7 @@ class WorldModelRL:
     errors, heads = [], []
     for j in range(self.window):
       # Heads on the state reached so far (the logged one at j = 0).
-      on = valid[j - 1] if j else torch.ones_like(valid[0])
+      on = valid[j]
       view = im.view(s, im.kinematics.bodies(s), env_ids, goals[j], zeros, zeros)
       logit, predicted = wm.step_heads(
         s, setpoints[j], im.tracking_features(view), context
@@ -427,7 +549,7 @@ class WorldModelRL:
         loss = loss + wm.reward_error(predicted, rewards[j]).mean(-1)
       heads.append(_masked_mean(loss, on))
       s = wm.step(s, setpoints[j], context)
-      err = wm.change_error(s, self._state(states[j + 1])).mean(-1)
+      err = wm.change_error(s, self._state(next_states[j])).mean(-1)
       errors.append(_masked_mean(err, valid[j]))
     return torch.stack(errors).mean(), errors[-1], torch.stack(heads).mean()
 
@@ -527,6 +649,7 @@ class WorldModelRL:
     actor_params = [p for p in self.actor.parameters() if p.requires_grad]
     self.actor_optimizer.zero_grad(set_to_none=False)
     (-objective.mean()).backward()
+    average_gradients(self.actor)
     nn.utils.clip_grad_norm_(actor_params, self.max_grad_norm)
     for p in actor_params:
       p.grad.clamp_(-self.actor_grad_clip, self.actor_grad_clip)
@@ -562,6 +685,8 @@ class WorldModelRL:
     if last:
       return value, x.detach()
     action = self.actor(TensorDict({"actor": obs}, batch_size=[obs.shape[0]]))
+    if self.clip_actions is not None:
+      action = action.clamp(-self.clip_actions, self.clip_actions)
     setpoint = im.joint_setpoint(action, goal.frame, env_ids)
     logit, learned = wm.step_heads(s, setpoint, tracking, context)
     s_next = wm.step(s, setpoint, context)
@@ -589,28 +714,23 @@ class WorldModelRL:
     inside: torch.Tensor,
   ) -> float:
     """Fit V to GAE(λ) targets of the imagined rollouts (Eq. 3)."""
-    target = values[-1]
-    targets = []
-    for t in reversed(range(rewards.shape[0])):
-      blend = (1 - self.lam) * values[t + 1] + self.lam * target
-      target = torch.where(
-        inside[t], rewards[t] + self.gamma * (1 - ends[t]) * blend, values[t]
-      )
-      targets.append(target)
-    targets.reverse()
-    x, y = critic_in[:-1][inside], torch.stack(targets)[inside]
+    targets = lambda_returns(rewards, ends, values, inside, self.gamma, self.lam)
+    x, y = critic_in[:-1][inside], targets[inside]
     self.critic_norm.update(x)
     total = torch.zeros((), device=self.device)
     for _ in range(self.critic_epochs):
-      batches = torch.randperm(x.shape[0], device=self.device).chunk(
+      # tensor_split keeps the collective count identical even for small or uneven
+      # clip-masked batches on different ranks. Empty minibatches yield zero gradients.
+      batches = torch.randperm(x.shape[0], device=self.device).tensor_split(
         self.critic_mini_batches
       )
       for idx in batches:
         loss = (
-          (self.critic(self.critic_norm(x[idx])).squeeze(-1) - y[idx]).square().mean()
-        )
+          self.critic(self.critic_norm(x[idx])).squeeze(-1) - y[idx]
+        ).square().sum() / max(idx.numel(), 1)
         self.critic_optimizer.zero_grad()
         loss.backward()
+        average_gradients(self.critic)
         nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
         self.critic_optimizer.step()
         total += loss.detach() / (self.critic_epochs * len(batches))
@@ -661,6 +781,23 @@ class CudaGraphed:
       _copy_tensors(self._inputs, args)
     self._graph.replay()
     return self._outputs
+
+
+@torch.no_grad()
+def lambda_returns(rewards, ends, values, inside, gamma, lam):
+  """SuperMimic Eq. 3, with this repo's clip-end bootstrap preserved.
+
+  Numerical reference: SuperMimic-Reproduced (ba61053), imagination/objective.py,
+  https://github.com/CuboiLeo/SuperMimic-Reproduced/blob/ba6105349069bf040f1fdad60873d13138d505a2/src/supermimic/imagination/objective.py
+  """
+  target, targets = values[-1], []
+  for t in reversed(range(rewards.shape[0])):
+    blend = (1 - lam) * values[t + 1] + lam * target
+    target = torch.where(
+      inside[t], rewards[t] + gamma * (1 - ends[t]) * blend, values[t]
+    )
+    targets.append(target)
+  return torch.stack(targets[::-1])
 
 
 def _map_tensors(x, fn):

@@ -288,7 +288,12 @@ def test_recipes_train_any_preset_with_either_method(preset_dir) -> None:
   from wbc_mjlab.tasks import register_all_wbc_tasks
 
   register_all_wbc_tasks()
-  assert {r["name"] for r in recipes.list_recipes()} == {"ppo", "wm", "wm-24gb"}
+  assert {r["name"] for r in recipes.list_recipes()} == {
+    "ppo",
+    "wm",
+    "wm-24gb",
+    "wm-encoder",
+  }
   recipes.save("zz_fast", "wm", {"algorithm.horizon": 16}, "short horizon")
   r = recipes.load("zz_fast")
   assert r["algo"] == "wm" and r["settings"] == {"algorithm.horizon": 16}
@@ -309,6 +314,13 @@ def test_recipes_train_any_preset_with_either_method(preset_dir) -> None:
   )
   assert fields["actor.hidden_dims"]["value"] == [256, 128]  # the policy is shared
   assert fields["actor.hidden_dims"]["section"] == "Policy network"
+  assert fields["actor.goal_terms"]["kind"] == "strings"
+  assert fields["actor.goal_terms"]["visible_if"] == {
+    "actor.architecture": "motion_encoder"
+  }
+  assert recipes.check_settings(tid, "wm", {"algorithm.goal_terms": []}) == {
+    "actor.goal_terms": []
+  }
   assert "algorithm.horizon" not in {
     f["key"] for f in next(x for x in m["methods"] if x["id"] == "ppo")["settings"]
   }
@@ -383,6 +395,58 @@ def test_launch_passes_the_method_and_its_settings(monkeypatch, tmp_path) -> Non
   assert "--agent.resume" in args
   # the run's checkpoint fixes its network, whatever the form says
   assert args[args.index("--agent.actor.hidden-dims") + 1] == "(64, 32)"
+
+
+def test_evaluate_saved_checkpoint_job_and_download(core, monkeypatch, tmp_path):
+  from fastapi.testclient import TestClient
+
+  from wbc_mjlab.studio.web.server import create_app
+
+  run_dir = tmp_path / "wbc_g1" / "run"
+  (run_dir / "params").mkdir(parents=True)
+  (run_dir / "model_5.pt").touch()
+  (run_dir / "model_10.pt").touch()
+  run = jobmod.Run(experiment="wbc_g1", name="run", path=run_dir)
+  monkeypatch.setattr(jobmod, "find_run", lambda label: run)
+  launched = {}
+  log = tmp_path / "evaluate.log"
+  log.write_text("[EVAL] clips 3/3\n[job exit 0]\n")
+
+  def launch(kind, args, *, label, meta):
+    launched.update(args=args, meta=meta)
+    return jobmod.Job(
+      name="evaluation",
+      kind=kind,
+      pid=999999999,
+      log=str(log),
+      started=0.0,
+      command=[],
+      meta=meta,
+    )
+
+  monkeypatch.setattr(jobmod, "launch", launch)
+  job = core.training.evaluate(run.label)
+  assert launched["args"][0] == "wbc_mjlab.scripts.evaluate"
+  assert launched["meta"]["checkpoint"] == str(run_dir / "model_10.pt")
+  assert job.progress() == {"done": 3, "total": 3, "fraction": 1.0}
+  with pytest.raises(ValueError, match="select a saved checkpoint"):
+    core.training.evaluate(run.label, "../other.pt")
+  monkeypatch.setattr(jobmod, "find_job", lambda name: job)
+  result = run_dir / "benchmark_model_10.json"
+  result.write_text('{"summary": {"clips": 3}}')
+  client = TestClient(create_app(core), client=("127.0.0.1", 5000))
+  launch_response = client.post(
+    "/api/runs/evaluate",
+    json={"run": run.label, "motion": "/tmp/chosen-clips", "num_envs": 4},
+  )
+  assert launch_response.status_code == 200
+  args = launched["args"]
+  assert args[args.index("--dataset-path") + 1] == "/tmp/chosen-clips"
+  assert args[args.index("--num-envs") + 1] == "4"
+  response = client.get("/api/jobs/evaluation/result")
+  assert response.status_code == 200
+  assert response.json()["summary"]["clips"] == 3
+  assert "attachment" in response.headers["content-disposition"]
 
 
 def test_loss_curves_follow_the_method(monkeypatch, tmp_path) -> None:

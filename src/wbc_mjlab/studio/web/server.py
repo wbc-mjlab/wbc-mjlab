@@ -667,6 +667,16 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
   def jobs(kind: str = ""):
     return core.training.jobs(kind or None)
 
+  @app.post("/api/runs/evaluate")
+  def runs_evaluate(
+    run: str = Body(),
+    checkpoint: str = Body(""),
+    num_envs: int = Body(128),
+    motion: str = Body(""),
+  ):
+    job = guard(core.training.evaluate, run, checkpoint, num_envs, motion)
+    return ok(job=job.name)
+
   @app.delete("/api/jobs")
   def jobs_clear(kind: str = "", robot: str = "", runs: bool = False):
     return guard(core.training.clear, kind or None, robot or None, runs)
@@ -678,6 +688,11 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
   @app.get("/api/jobs/{name}/log")
   def job_log(name: str, lines: int = 5000):
     return guard(core.training.job_log, name, lines)
+
+  @app.get("/api/jobs/{name}/result")
+  def evaluation_result(name: str):
+    path = guard(core.training.evaluation_result, name)
+    return FileResponse(path, media_type="application/json", filename=path.name)
 
   @app.get("/api/jobs/{name}/log.txt")
   def job_log_file(name: str):

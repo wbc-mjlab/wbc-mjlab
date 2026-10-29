@@ -126,7 +126,11 @@ def compile_similarity_terms(
   for term_cfg in term_cfgs:
     if term_cfg.weight <= 0.0:
       continue
-    std = term_cfg.std if term_cfg.std is not None else DEFAULT_SIMILARITY_STDS[term_cfg.term]
+    std = (
+      term_cfg.std
+      if term_cfg.std is not None
+      else DEFAULT_SIMILARITY_STDS[term_cfg.term]
+    )
     terms.append((term_cfg.term, term_cfg.weight, std))
     weight_sum += term_cfg.weight
   return terms, weight_sum
@@ -198,7 +202,7 @@ def step_tracking_similarity(
       error = torch.sum(torch.square(state.anchor_pos_error), dim=-1)
       kernel = torch.exp(-error / std**2)
     elif term == "anchor_ori":
-      kernel = torch.exp(-state.anchor_ori_error**2 / std**2)
+      kernel = torch.exp(-(state.anchor_ori_error**2) / std**2)
     elif term == "body_pos":
       kernel = torch.exp(-state.body_pos_error.mean(-1) / std**2)
     elif term == "body_ori":
@@ -295,9 +299,9 @@ def update_failure_ema(
 
   mean_failure = failure_sum[update_mask] / failure_count[update_mask]
   flat_levels = bin_failure_levels.view(-1)
-  flat_levels[update_mask] = (
-    (1.0 - alpha) * flat_levels[update_mask] + alpha * mean_failure
-  )
+  flat_levels[update_mask] = (1.0 - alpha) * flat_levels[
+    update_mask
+  ] + alpha * mean_failure
 
 
 def bin_probabilities(
@@ -348,8 +352,7 @@ def sample_adaptive_bins(
     torch.clamp(seg_lengths - bin_starts, min=1.0),
   )
   local_frames = (
-    bin_starts
-    + sample_uniform(0.0, 1.0, (num_samples,), device=device) * bin_spans
+    bin_starts + sample_uniform(0.0, 1.0, (num_samples,), device=device) * bin_spans
   ).long()
   local_frames = torch.clamp(local_frames, max=(seg_lengths.long() - 1).clamp(min=0))
   time_steps = segment_start_idx[traj_ids] + local_frames
@@ -427,71 +430,91 @@ def rsi_failure_signal_label(
   return "EMA(1 − mean tracking similarity)"
 
 
+def sampling_state(command: MotionCommand) -> dict:
+  """One state schema for PPO/WM checkpoints and exported RSI sidecars."""
+  return {
+    "schema": 1,
+    "failure_levels": command.bin_failure_levels.detach().clone(),
+    "memory": command._bin_memory.detach().clone(),
+    "valid_mask": command.bin_valid_mask.detach().clone(),
+    "visit_counts": command.bin_visit_counts.detach().clone(),
+    "segment_names": tuple(command.motion.segment_names),
+    "segment_lengths": command.motion.segment_length.detach().clone(),
+    "bin_width_s": command.cfg.rsi.bin_width_s,
+  }
+
+
+def restore_sampling_state(command: MotionCommand, state, *, strict=False) -> bool:
+  """Validate identity before copying anything; accept older schemas when compatible."""
+
+  def fail(reason):
+    if strict:
+      raise ValueError(f"RSI sampling state: {reason}")
+    print(f"[WARN] RSI sampling state: {reason}")
+    return False
+
+  def tensor(value, target):
+    return torch.as_tensor(value, dtype=target.dtype, device=target.device)
+
+  if "segment_names" in state and tuple(state["segment_names"]) != tuple(
+    command.motion.segment_names
+  ):
+    return fail("motion segments differ")
+  if "segment_lengths" in state and not torch.equal(
+    tensor(state["segment_lengths"], command.motion.segment_length),
+    command.motion.segment_length,
+  ):
+    return fail("motion segment lengths differ")
+  if "bin_width_s" in state and not math.isclose(
+    float(np.asarray(state["bin_width_s"]).reshape(-1)[0]), command.cfg.rsi.bin_width_s
+  ):
+    return fail("bin width differs")
+  levels = state.get("failure_levels", state.get("failure"))
+  if levels is None:
+    return fail("failure levels are missing")
+  targets = {
+    "failure_levels": command.bin_failure_levels,
+    "memory": command._bin_memory,
+    "valid_mask": command.bin_valid_mask,
+    "visit_counts": command.bin_visit_counts,
+  }
+  values = dict(state)
+  values["failure_levels"] = levels
+  for name, target in targets.items():
+    if name in values and tuple(values[name].shape) != tuple(target.shape):
+      return fail(f"{name} shape differs")
+  for name, target in targets.items():
+    if name in values:
+      target.copy_(tensor(values[name], target))
+  command._valid_bin_indices = command.bin_valid_mask.nonzero(as_tuple=False)
+  return True
+
+
 def save_rsi_bin_stats(path: str | Path, command: MotionCommand) -> Path:
-  """Write adaptive RSI bin failure levels to *path* (``.npz``)."""
+  """Export the same sampler state stored in tracking checkpoints."""
   out = Path(path)
   out.parent.mkdir(parents=True, exist_ok=True)
-  rsi = command.cfg.rsi
-  levels = command.bin_failure_levels.detach().cpu().numpy()
-  np.savez(
-    out,
-    failure_levels=levels,
-    failure=levels,
-    valid_mask=command.bin_valid_mask.detach().cpu().numpy(),
-    visit_counts=command.bin_visit_counts.detach().cpu().numpy(),
-    bin_width_s=np.array([rsi.bin_width_s], dtype=np.float64),
-    alpha=np.array([rsi.alpha], dtype=np.float64),
-    uniform_ratio=np.array([rsi.uniform_ratio], dtype=np.float64),
-    num_trajectories=np.array([command.motion.num_trajectories], dtype=np.int64),
-    bins_per_trajectory=np.array([command.bins_per_trajectory], dtype=np.int64),
+  state = {
+    k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
+    for k, v in sampling_state(command).items()
+  }
+  # Preserve names consumed by older plotting/export tools.
+  state.update(
+    failure=state["failure_levels"],
+    alpha=command.cfg.rsi.alpha,
+    uniform_ratio=command.cfg.rsi.uniform_ratio,
+    num_trajectories=command.motion.num_trajectories,
+    bins_per_trajectory=command.bins_per_trajectory,
   )
+  np.savez(out, **state)
   return out
 
 
 def load_rsi_bin_stats(
-  path: str | Path,
-  command: MotionCommand,
-  *,
-  strict: bool = False,
+  path: str | Path, command: MotionCommand, *, strict=False
 ) -> bool:
-  """Restore bin failure levels from *path*. Returns False if the file is missing."""
   src = Path(path)
   if not src.is_file():
     return False
-
-  data = np.load(src)
-  if "failure_levels" in data:
-    failure_levels = data["failure_levels"]
-  elif "failure" in data:
-    failure_levels = data["failure"]
-  else:
-    msg = f"RSI bin stats missing failure_levels array: {src}"
-    if strict:
-      raise ValueError(msg)
-    print(f"[WARN] {msg}")
-    return False
-  valid = data["valid_mask"]
-
-  if failure_levels.shape != command.bin_failure_levels.shape:
-    msg = (
-      f"RSI bin stats shape mismatch: file {failure_levels.shape}, "
-      f"env {tuple(command.bin_failure_levels.shape)}"
-    )
-    if strict:
-      raise ValueError(msg)
-    print(f"[WARN] {msg}")
-    return False
-
-  command.bin_failure_levels.copy_(
-    torch.as_tensor(failure_levels, dtype=torch.float32, device=command.device)
-  )
-  if valid.shape == command.bin_valid_mask.shape:
-    command.bin_valid_mask.copy_(
-      torch.as_tensor(valid, dtype=torch.bool, device=command.device)
-    )
-    command._valid_bin_indices = command.bin_valid_mask.nonzero(as_tuple=False)
-  if "visit_counts" in data and data["visit_counts"].shape == command.bin_visit_counts.shape:
-    command.bin_visit_counts.copy_(
-      torch.as_tensor(data["visit_counts"], dtype=torch.float32, device=command.device)
-    )
-  return True
+  with np.load(src) as state:
+    return restore_sampling_state(command, dict(state), strict=strict)

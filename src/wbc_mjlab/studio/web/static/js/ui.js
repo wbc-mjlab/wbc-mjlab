@@ -343,6 +343,9 @@ export function knob(f, ov, onChange, prefix = "", { pretty = (k) => k.replace(/
       lo.addEventListener("input", read);
       hi.addEventListener("input", read);
       control = h("div.range", lo, h("i", "to"), hi);
+    } else if (f.kind === "strings") {
+      control = input(cur.join(", "), {});
+      control.addEventListener("change", () => emit(control.value.split(/[\s,]+/).filter(Boolean)));
     } else if (f.kind === "ints") {
       control = input(cur.join(", "), {});
       control.addEventListener("change", () => {

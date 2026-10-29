@@ -334,6 +334,49 @@ class TrainingService:
     self.c.emit("jobs")
     return job
 
+  def evaluate(
+    self, run: str, checkpoint: str = "", num_envs: int = 128, motion: str = ""
+  ):
+    """Launch the common deterministic benchmark for a saved checkpoint."""
+    saved = jobmod.find_run(run)
+    if saved is None:
+      raise ValueError(f"no run {run!r}")
+    checkpoints = saved.checkpoints()
+    selected = (
+      next((p for p in checkpoints if p.name == checkpoint), None)
+      if checkpoint
+      else next(iter(reversed(checkpoints)), None)
+    )
+    if selected is None:
+      raise ValueError("select a saved checkpoint to evaluate")
+    if not 1 <= num_envs <= 4096:
+      raise ValueError("evaluation needs 1–4096 environments")
+    args = [
+      "wbc_mjlab.scripts.evaluate",
+      "--checkpoint-file",
+      str(selected),
+      "--num-envs",
+      str(num_envs),
+      "--device",
+      self.c.device,
+    ]
+    if motion:
+      args += ["--dataset-path", motion]
+    job = jobmod.launch(
+      "evaluate",
+      args,
+      label=f"evaluate-{saved.name}",
+      meta={
+        "robot": saved.robot_id(),
+        "task": saved.task_id(),
+        "checkpoint": str(selected),
+        "dataset": motion or saved.motion_source(),
+        "num_envs": num_envs,
+      },
+    )
+    self.c.emit("jobs")
+    return job
+
   def stop(self, name: str) -> None:
     job = jobmod.find_job(name)
     if job is None:
@@ -498,6 +541,16 @@ class TrainingService:
       "progress": job.progress(),
       "run_dir": self._job_run_dir(job),
     }
+
+  def evaluation_result(self, name: str) -> Path:
+    job = jobmod.find_job(name)
+    if job is None or job.kind != "evaluate" or job.status() != "done":
+      raise ValueError("evaluation has not finished successfully")
+    checkpoint = Path(job.meta["checkpoint"])
+    result = checkpoint.parent / f"benchmark_{checkpoint.stem}.json"
+    if not result.is_file():
+      raise ValueError("evaluation result is missing")
+    return result
 
   def job_log(self, name: str, lines: int = 5000) -> dict:
     """The last ``lines`` lines of a job's output (from its last 8 MB) for the log viewer;

@@ -1,4 +1,11 @@
-"""Replay of simulator steps on the GPU: ``[step, env]`` rings, sampled as k-step windows."""
+"""Replay of simulator steps on the GPU: ``[step, env]`` rings, sampled as k-step windows.
+
+Terminal-successor retention follows SuperMimic's transition loss (Eq. 1,
+https://arxiv.org/abs/2610.28480) and the pre-reset recording approach in
+CuboiLeo/SuperMimic-Reproduced (ba61053), data/recorder.py:
+https://github.com/CuboiLeo/SuperMimic-Reproduced/tree/ba6105349069bf040f1fdad60873d13138d505a2
+Successors are stored per transition here, preserving the existing time-major ring.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +19,8 @@ class Batch:
   """Rows ``[k, B]`` (or ``[B]``) of the replay, and the env of each column."""
 
   state: torch.Tensor  # RobotState vector, env frame
-  action: torch.Tensor  # raw action taken (with exploration noise)
+  next_state: torch.Tensor  # actual successor, including pre-reset terminal states
+  valid: torch.Tensor  # successor was captured (never a reset state)
   setpoint: torch.Tensor  # PD targets it produced
   last_action: torch.Tensor  # action of the step before (the actor's ``actions`` obs)
   time_step: torch.Tensor  # reference frame index (global)
@@ -30,7 +38,9 @@ class Batch:
 class Replay:
   """Last ``capacity`` steps of every env. Row ``t`` holds the state before step ``t``, the
   action taken and what the step produced; ``continues[t]`` says whether row ``t + 1`` is
-  the state that action led to (no reset, no reference resample in between)."""
+  the state that action led to (no reset, no reference resample in between).
+  ``next_state[t]`` retains the actual successor even when that continuity ends;
+  ``valid[t]`` distinguishes captured transitions from reference-resample teleports."""
 
   def __init__(
     self,
@@ -49,7 +59,8 @@ class Replay:
 
     self._fields = {
       "state": buf(state_dim),
-      "action": buf(num_actions),
+      "next_state": buf(state_dim),
+      "valid": buf(dtype=torch.bool),
       "setpoint": buf(num_actions),
       "last_action": buf(num_actions),
       "time_step": buf(dtype=torch.long),
@@ -114,3 +125,9 @@ class Replay:
         past.append(value)
       out.past = torch.stack(past[::-1], dim=1)
     return out
+
+
+def transition_mask(continues: torch.Tensor, captured: torch.Tensor) -> torch.Tensor:
+  """Include the terminal transition, exclude every transition after a reset/resample."""
+  alive = torch.cat([torch.ones_like(continues[:1]), continues[:-1]], dim=0)
+  return alive.long().cumprod(0).bool() & captured

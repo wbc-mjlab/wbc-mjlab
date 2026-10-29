@@ -5,10 +5,13 @@ Defaults follow SuperMimic (Liao et al., arXiv:2610.28480, Table A.5).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
+from typing import Literal
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.rl import RslRlModelCfg, RslRlOnPolicyRunnerCfg
+
+from wbc_mjlab.rl.policy import TrackingRunnerCfg, tracking_runner_cfg
 
 
 @dataclass
@@ -17,10 +20,25 @@ class WmAlgorithmCfg:
 
   window: int = 8
   """Steps of the autoregressive windows the world model is fit on (k)."""
-  model_hidden_dims: tuple[int, ...] = (2048, 2048, 2048)
+  model_hidden_dims: tuple[int, ...] = field(
+    default=(2048, 2048, 2048), metadata={"checkpoint": True}
+  )
   """Dynamics network."""
-  heads_hidden_dims: tuple[int, ...] = (512, 256)
+  heads_hidden_dims: tuple[int, ...] = field(
+    default=(512, 256), metadata={"checkpoint": True}
+  )
   """Step heads (termination, learned reward terms)."""
+  dynamics_mode: Literal["increment", "integrated"] = field(
+    default="increment", metadata={"checkpoint": True}
+  )
+  """Full increments (existing model) or corrections around constant-velocity integration."""
+  separate_action_noise: bool = False
+  """Exploration only in execution; observations and action-rate reward use clean actions."""
+  scale_lr_by_world_size: bool = True
+  """Distributed runs use sqrt(world_size) times the configured learning rate."""
+  diagnostic_interval: int = 100
+  """Updates between independent replay rollout diagnostics; zero disables them."""
+  diagnostic_batch: int = 256
   model_batch: int = 2048
   """Windows per world-model gradient step."""
   model_steps: int = 10
@@ -62,7 +80,7 @@ class WmAlgorithmCfg:
 
 
 @dataclass
-class WmRunnerCfg(RslRlOnPolicyRunnerCfg):
+class WmRunnerCfg(TrackingRunnerCfg):
   """Runner settings for ``--algo wm``: the PPO runner's, with :class:`WmAlgorithmCfg`.
 
   ``actor`` is the policy (exploration noise: ``algorithm.action_noise``); ``critic`` sizes
@@ -76,7 +94,9 @@ class WmRunnerCfg(RslRlOnPolicyRunnerCfg):
 def wm_runner_cfg(ppo: RslRlOnPolicyRunnerCfg) -> WmRunnerCfg:
   """The ``wm`` runner config of a robot, from its PPO one."""
   # The actor's noise is set by ``algorithm.action_noise`` (fixed, not learned).
-  actor = replace(ppo.actor, obs_normalization=True, distribution_cfg=None)
+  actor = replace(
+    tracking_runner_cfg(ppo).actor, obs_normalization=True, distribution_cfg=None
+  )
   return WmRunnerCfg(
     seed=ppo.seed,
     num_steps_per_env=5,
@@ -108,4 +128,21 @@ def wm_env_cfg(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
     cfg.events["assistive_wrench"].params["enabled"] = False
   if removed:
     print(f"[INFO] wm: off for world-model training: {', '.join(removed)}")
+  # Pre-reset capture retains the state reached by a terminal action; see recording.py
+  # for SuperMimic / SuperMimic-Reproduced provenance.
+  from mjlab.envs.mdp.actions import JointPositionActionCfg
+  from mjlab.managers.recorder_manager import RecorderTermCfg
+
+  from wbc_mjlab.env.mdp.actions import TrackingJointPositionActionCfg
+  from wbc_mjlab.rl.wm.recording import RECORDER, TerminalStateRecorder
+
+  for name, action in cfg.actions.items():
+    if type(action) is JointPositionActionCfg:
+      cfg.actions[name] = TrackingJointPositionActionCfg(
+        **{f.name: getattr(action, f.name) for f in fields(action) if f.init}
+      )
+
+  cfg.recorders[RECORDER] = RecorderTermCfg(
+    func=TerminalStateRecorder, params={"command_name": "motion"}
+  )
   return cfg

@@ -171,6 +171,15 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
 
   env_cfg = load_env_cfg(task_id, play=True)
   agent_cfg = load_rl_cfg(task_id)
+  restored = False
+  if cfg.checkpoint_file is not None and Path(cfg.checkpoint_file).is_file():
+    from wbc_mjlab.run_params import load_run_config
+
+    run = load_run_config(Path(cfg.checkpoint_file).parent, task_id)
+    env_cfg, agent_cfg = run.env, run.agent
+    restored = True
+    if cfg.motion_file is None:
+      cfg.motion_file = env_cfg.commands["motion"].motion_file
 
   DUMMY_MODE = cfg.agent in {"zero", "random"}
   TRAINED_MODE = not DUMMY_MODE
@@ -256,21 +265,14 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
         f"[INFO]: Loading checkpoint: {checkpoint_name} (run: {run_id}, {cached_str})"
       )
     log_dir = resume_path.parent
-    from wbc_mjlab.rl.algos import env_cfg as algo_env_cfg
-    from wbc_mjlab.rl.algos import rl_cfg, run_algo
+    if not restored:
+      from wbc_mjlab.run_params import load_run_config
 
-    algo = run_algo(log_dir)  # the algorithm the run trained with, and its env
-    agent_cfg = rl_cfg(task_id, algo)
-    env_cfg = algo_env_cfg(env_cfg, algo)
-    from wbc_mjlab.run_params import actor_layout_change
-
-    change = actor_layout_change(log_dir, env_cfg)
-    if change:
-      raise SystemExit(f"{task_id} can't replay {log_dir.name}: {change}")
-    if is_tracking_task:
-      from wbc_mjlab.motion.library import apply_run_motion_options
-
-      apply_run_motion_options(env_cfg.commands["motion"], log_dir)  # as trained
+      motion_file = env_cfg.commands["motion"].motion_file if is_tracking_task else None
+      run = load_run_config(log_dir, task_id)
+      env_cfg, agent_cfg = run.env, run.agent
+      if motion_file is not None:
+        env_cfg.commands["motion"].motion_file = motion_file
 
   env_cfg.scene.num_envs = cfg.num_envs if cfg.num_envs is not None else 1
   if cfg.video_height is not None:

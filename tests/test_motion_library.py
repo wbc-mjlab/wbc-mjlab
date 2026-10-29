@@ -102,6 +102,44 @@ def _slerp(q0: np.ndarray, q1: np.ndarray, b: float) -> np.ndarray:
   return out / np.linalg.norm(out)
 
 
+def test_small_rotation_resamplers_match_scipy():
+  """Regression motivated by SuperMimic-Reproduced's conversion tests (ba61053)."""
+  from scipy.spatial.transform import Rotation, Slerp
+
+  from wbc_mjlab.motion.library import _slerp as online
+  from wbc_mjlab.motion.motion_formats import _batched_quat_slerp as offline
+
+  angles = np.array([0.0, 1e-7, 1e-4, 0.2, 3.0])
+  q0 = np.tile([1.0, 0.0, 0.0, 0.0], (len(angles), 1))
+  q1 = np.stack(
+    [
+      np.cos(angles / 2),
+      np.zeros_like(angles),
+      np.sin(angles / 2),
+      np.zeros_like(angles),
+    ],
+    -1,
+  )
+  tau = 0.7
+  expected = np.stack(
+    [
+      Slerp([0, 1], Rotation.from_quat(np.stack([a, b])[:, [1, 2, 3, 0]]))(
+        [tau]
+      ).as_quat()[0, [3, 0, 1, 2]]
+      for a, b in zip(q0, q1, strict=True)
+    ]
+  )
+  # Sign flips represent the same rotation and must take the shortest arc.
+  q1[::2] *= -1
+  for sampler in (online, offline):
+    actual = sampler(
+      torch.tensor(q0, dtype=torch.float32),
+      torch.tensor(q1, dtype=torch.float32),
+      torch.full((len(angles), 1), tau),
+    )
+    np.testing.assert_allclose(actual.numpy(), expected, atol=1e-7)
+
+
 def _reference_mujoco(t: float, raw, model, bodies: list[int], fps_out: float) -> tuple:
   """Ground truth for one frame: numpy interpolation + central differences + CPU MuJoCo."""
   n = raw.base_pos.shape[0]

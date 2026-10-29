@@ -153,15 +153,31 @@ export class PlayPane {
       }, h("div.list", rows)),
       group("Setup", {},
         h("div.stack",
-          field("Checkpoint", select([...ckpts.map((x) => ({ value: x, label: x })), { value: ZERO, label: "Zero action · PD on the reference" }], c.checkpoint, (v) => (c.checkpoint = v))),
+          field("Checkpoint", select([...ckpts.map((x) => ({ value: x, label: x })), { value: ZERO, label: "Zero action · PD on the reference" }], c.checkpoint, (v) => { c.checkpoint = v; this.render(); })),
           field("Motion library", select(this.libs.length ? this.libs : [{ value: "", label: "add a dataset in Data first" }], c.motion, (v) => (c.motion = v))),
           field("Environments", envPicker(c.num_envs, (n) => (c.num_envs = n))),
-          switchEl("Terminations — falls end episodes", c.terminations, (v) => (c.terminations = v)))),
+          switchEl("Terminations — falls end episodes", c.terminations, (v) => (c.terminations = v))),
+        help("Evaluate uses the selected library and environment count, with the run's saved rewards and failure conditions. The benchmark disables noise and randomization.")),
     );
     this.frame.setFooter(
       this.state?.active ? button("Cancel", () => { this.picking = false; this.render(); }, { cls: "ghost" }) : h("span.note", run ? run.task : ""),
       h("span.spacer"),
       tensorBoardButton(run),
+      button("Evaluate", async (event) => {
+        const control = event.currentTarget;
+        control.disabled = true;
+        try {
+          const result = await post("/api/runs/evaluate", { run: c.run, checkpoint: c.checkpoint, num_envs: c.num_envs, motion: c.motion });
+          const train = this.app.panes.train;
+          train.openJob = result.job;
+          train.tab = "jobs";
+          await train.loadJobs();
+          this.app.select("train");
+          train.render();
+          toast("Evaluation started", "ok");
+        } catch (error) { toast(error.message, "error"); }
+        finally { control.disabled = c.checkpoint === ZERO; }
+      }, { cls: "ghost", disabled: !run || !c.motion || c.checkpoint === ZERO, title: "Evaluate every clip in the selected library from its first frame using the deterministic benchmark protocol" }),
       button(this.state?.active ? "Apply" : "Load policy", () => this.apply(), { cls: "primary", icon: "play", disabled: !c.motion }),
     );
   }

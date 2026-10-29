@@ -103,6 +103,21 @@ BibTeX entries for method papers
 Related projects
 ----------------
 
+World-model implementation references
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The world-model algorithm follows the SuperMimic paper. Optional integration and
+policy experiments, terminal recording, execution noise, distributed averaging,
+evaluation and validation also draw on the independent
+`CuboiLeo/SuperMimic-Reproduced code
+<https://github.com/CuboiLeo/SuperMimic-Reproduced/tree/ba6105349069bf040f1fdad60873d13138d505a2>`_.
+Cite both when using those additions; the paper and code are separate sources.
+File comments identify upstream paths, and ``THIRD_PARTY_NOTICES`` retains the
+code's MIT copyright and license.
+
+.. bibliography::
+   :filter: key == "supermimic2026" or key == "supermimic_reproduced2026"
+
 Extensions and runtimes in the wbc-mjlab org:
 
 .. list-table::

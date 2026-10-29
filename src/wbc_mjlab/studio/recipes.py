@@ -14,12 +14,15 @@ Built-in recipes: ``ppo`` and ``wm`` (each method with the task's own settings) 
 from __future__ import annotations
 
 import time
+from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from wbc_mjlab.rl.algos import ALGORITHMS, Algo, check_algo, rl_cfg
+from wbc_mjlab.rl.policy import OLD_ACTOR_KEYS, PolicyCfg, migrate_actor_settings
+from wbc_mjlab.rl.wm.config import WmAlgorithmCfg
 
 # Runner config keys a recipe can set (prefixes; the rest is wiring).
 _KEEP = (
@@ -30,15 +33,27 @@ _KEEP = (
   "actor.hidden_dims",
   "actor.activation",
   "critic.hidden_dims",
+) + tuple(
+  "actor." + f.name for f in dataclass_fields(PolicyCfg) if f.metadata.get("setting")
 )
 _SKIP = {"algorithm.class_name", "algorithm.optimizer", "algorithm.share_cnn_encoders"}
 
 ARCHITECTURE = (
-  "actor.hidden_dims",
-  "actor.activation",
-  "critic.hidden_dims",
-  "algorithm.model_hidden_dims",
-  "algorithm.heads_hidden_dims",
+  (
+    "actor.hidden_dims",
+    "actor.activation",
+    "critic.hidden_dims",
+  )
+  + tuple(
+    "actor." + f.name
+    for f in dataclass_fields(PolicyCfg)
+    if f.metadata.get("checkpoint")
+  )
+  + tuple(
+    "algorithm." + f.name
+    for f in dataclass_fields(WmAlgorithmCfg)
+    if f.metadata.get("checkpoint")
+  )
 )
 """Settings a checkpoint fixes: continuing a run keeps that run's values."""
 
@@ -66,6 +81,9 @@ HELP = {
   "algorithm.replay_steps": "steps of every env kept in the replay",
   "algorithm.compile": "torch.compile the update (first update compiles for minutes)",
   "algorithm.cuda_graphs": "run each update as one CUDA graph (with compile)",
+  "algorithm.dynamics_mode": "full state increments, or residuals around velocity integration",
+  "algorithm.separate_action_noise": "keep clean actions in history and smoothing reward; noise only at execution",
+  "algorithm.diagnostic_interval": "updates between independent replay diagnostics; 0 disables",
   "num_steps_per_env": "env steps of every env per iteration",
 }
 
@@ -78,7 +96,7 @@ BUILTIN: dict[str, dict] = {
   },
   "wm": {
     "algo": "wm",
-    "label": "World model · paper",
+    "label": "World model · default",
     "description": "SuperMimic's settings: 4096 imagined rollouts (needs > 24 GB)",
     "settings": {},
   },
@@ -87,6 +105,19 @@ BUILTIN: dict[str, dict] = {
     "label": "World model · 24 GB GPU",
     "description": "2048 imagined rollouts: fits a 24 GB GPU (RTX 4090)",
     "settings": {"algorithm.imagined_rollouts": 2048},
+  },
+  "wm-encoder": {
+    "algo": "wm",
+    "label": "World model · combined experiment",
+    "description": "Optional SuperMimic encoder/decoder and integrated residual experiment",
+    "settings": {
+      "actor.architecture": "motion_encoder",
+      "algorithm.dynamics_mode": "integrated",
+      "algorithm.separate_action_noise": True,
+      "algorithm.imagined_rollouts": 2048,
+      "actor.hidden_dims": [2048, 1024, 512, 256],
+      "actor.activation": "silu",
+    },
   },
 }
 
@@ -112,24 +143,58 @@ def fields(task: str, algo: Algo) -> list[dict]:
   check_algo(algo)
   sections = (*SECTIONS[algo], *_COMMON_SECTIONS)
   out = []
-  for f in _walk_dataclass(rl_cfg(task, algo)):
+  cfg = rl_cfg(task, algo)
+  for f in _walk_dataclass(cfg):
     key = f["key"]
     if key in _SKIP or not any(key == k or key.startswith(k + ".") for k in _KEEP):
       continue
     section = next(title for prefix, title in sections if key.startswith(prefix))
     main = key in ALGORITHMS[algo].settings
-    out.append(f | {"section": section, "main": main, "help": HELP.get(key, "")})
+    if key == "actor.goal_terms":
+      from mjlab.tasks.registry import load_env_cfg
+
+      from wbc_mjlab.rl.policy import goal_term_names
+
+      terms = load_env_cfg(task).observations["actor"].terms
+      try:
+        inferred = ", ".join(goal_term_names(terms))
+      except ValueError:
+        inferred = "select explicit terms for this preset"
+      f["help"] += "; inferred: " + inferred
+    out.append(
+      f | {"section": section, "main": main, "help": HELP.get(key, f.get("help", ""))}
+    )
   order = [title for _, title in sections]
   return sorted(out, key=lambda f: order.index(f["section"]))
 
 
 def check_settings(task: str, algo: Algo, settings: dict | None) -> dict:
   """``settings`` validated against ``algo``'s settings for ``task`` (unknown keys raise)."""
+  settings = migrate_recipe_settings(settings or {})
   known = {f["key"] for f in fields(task, algo)}
   for key in settings or {}:
     if key not in known:
       raise ValueError(f"{key} is not a setting of {ALGORITHMS[algo].label}")
+  actor = rl_cfg(task, algo).actor
+  if settings.get("actor.architecture", actor.architecture) == "motion_encoder":
+    from mjlab.tasks.registry import load_env_cfg
+
+    from wbc_mjlab.rl.policy import goal_term_names
+
+    goal_term_names(
+      load_env_cfg(task).observations["actor"].terms,
+      settings.get("actor.goal_terms", actor.goal_terms),
+    )
   return dict(settings or {})
+
+
+def migrate_recipe_settings(settings):
+  aliases = {"algorithm." + old: "actor." + new for old, new in OLD_ACTOR_KEYS.items()}
+  out = {key: value for key, value in settings.items() if key not in aliases}
+  for old, new in aliases.items():
+    if old in settings:
+      out.setdefault(new, settings[old])
+  return out
 
 
 def architecture_of(run_dir: Path | str) -> dict:
@@ -137,7 +202,7 @@ def architecture_of(run_dir: Path | str) -> dict:
   ``params/agent.yaml`` holds)."""
   from wbc_mjlab.run_params import read_run_params
 
-  agent = read_run_params(run_dir, "agent")
+  agent = migrate_actor_settings(read_run_params(run_dir, "agent"))
   out = {}
   for key in ARCHITECTURE:
     value: Any = agent
@@ -171,7 +236,7 @@ def load(name: str) -> dict:
     "algo": data["algo"],
     "label": name,
     "description": data.get("description", ""),
-    "settings": dict(data.get("settings") or {}),
+    "settings": migrate_recipe_settings(data.get("settings") or {}),
     "builtin": False,
     "updated": data.get("updated", ""),
   }

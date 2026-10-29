@@ -113,6 +113,11 @@ class Job:
         it, total = out["iteration"]
         out["iteration"], out["total"] = int(it), int(total)
         out["fraction"] = (int(it) + 1) / max(1, int(total))
+    elif self.kind == "evaluate":
+      found = re.findall(r"\[EVAL\] clips (\d+)/(\d+)", text)
+      if found:
+        done, total = map(int, found[-1])
+        out.update(done=done, total=total, fraction=done / max(total, 1))
     else:
       p = Path(self.log)
       full = p.read_text(errors="replace") if p.is_file() else ""
@@ -277,21 +282,9 @@ class Run:
   def task_id(self) -> str:
     """Task of the run: the bundled demo is ``Wbc-G1``; a preset run's own snapshot; else
     the task logging into ``<experiment>`` (task ids map 1:1 to experiment names)."""
-    if self.is_demo:
-      return "Wbc-G1"
-    snap = self.preset_snapshot()
-    if snap:
-      from wbc_mjlab.studio.presets import task_id
+    from wbc_mjlab.run_params import run_task_id
 
-      return task_id(snap)
-    from wbc_mjlab.tasks import all_wbc_tasks
-
-    for t in all_wbc_tasks():
-      if t.experiment_name == self.experiment:
-        return t.task_id
-    from wbc_mjlab.studio.presets import task_for_experiment
-
-    return task_for_experiment(self.experiment)
+    return "Wbc-G1" if self.is_demo else run_task_id(self.path)
 
   def robot_id(self) -> str:
     from wbc_mjlab.studio.presets import split_task_id

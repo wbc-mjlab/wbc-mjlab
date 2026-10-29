@@ -128,7 +128,7 @@ export class TrainPane {
   }
 
   async loadJobs() {
-    this.jobs = await api("/api/jobs?kind=train");
+    this.jobs = (await api("/api/jobs")).filter((j) => ["train", "evaluate"].includes(j.kind));
   }
 
   /** The methods, their settings for the chosen preset (defaults differ per preset) and the
@@ -212,6 +212,7 @@ export class TrainPane {
     const f = this.form;
     if (same(v, s.value)) delete f.algo_settings[s.key];
     else f.algo_settings[s.key] = v;
+    if (s.key === "actor.architecture") { this.render(); return; }
     this.renderCmd();
     this.renderRecipeRow();
   }
@@ -342,8 +343,10 @@ export class TrainPane {
       }
       return knob(s, f.algo_settings[s.key], (v) => this.setSetting(s, v), "", { pretty });
     };
-    const main = m.settings.filter((s) => s.main);
-    const rest = m.settings.filter((s) => !s.main);
+    const visible = m.settings.filter((s) => Object.entries(s.visible_if || {}).every(([key, value]) =>
+      (run?.network?.[key] ?? f.algo_settings[key] ?? m.settings.find((x) => x.key === key)?.value) === value));
+    const main = visible.filter((s) => s.main);
+    const rest = visible.filter((s) => !s.main);
     const sections = [...new Set(rest.map((s) => s.section))];
     this.settingsAside = h("span");
     this.renderRecipeRow();
@@ -506,7 +509,8 @@ export class TrainPane {
         h("div.job-head", h("b", `${preset} · ${j.meta.dataset}`), tag(j.status, tone),
           j.status === "running" ? null : iconButton("x", (e) => { e.stopPropagation(); this.forget(j); }, "Remove this job (and, if you choose, its run)")),
         h("div.job-meta",
-          `${METHOD_LABEL[j.meta.algo || "ppo"]}${j.meta.recipe ? ` · ${j.meta.recipe}` : ""} · ${j.started_text} · ${fmtDuration(j.elapsed)}`,
+          `${j.kind === "evaluate" ? "Evaluation" : METHOD_LABEL[j.meta.algo || "ppo"]}${j.meta.recipe ? ` · ${j.meta.recipe}` : ""} · ${j.started_text} · ${fmtDuration(j.elapsed)}`,
+          j.kind === "evaluate" && pr.total ? ` · clips ${pr.done}/${pr.total}` : "",
           pr.iteration !== undefined ? ` · it ${pr.iteration + 1}/${pr.total}` : "",
           pr.mean_reward ? ` · reward ${Number(pr.mean_reward).toFixed(2)}` : "",
           j.status === "running" && pr.phase ? ` · ${pr.phase}` : ""),
@@ -515,9 +519,12 @@ export class TrainPane {
       return card;
     });
     this.frame.setBody(cards.length ? h("div.jobs", cards) : empty("bolt", "No training jobs", "Start one from New run.", button("New run", () => { this.tab = "new"; this.render(); }, { cls: "small" })));
-    const finished = this.jobs.filter((j) => j.status !== "running").length;
     this.frame.setFooter(
-      finished ? button(`Clear finished · ${finished}`, () => clearJobs("train", this.jobs, { onDone: () => this.reloadJobs() }), { cls: "ghost", icon: "trash", title: "Remove every finished, failed and stopped job (and, if you choose, their runs)" }) : null,
+      ...["train", "evaluate"].map((kind) => {
+        const jobs = this.jobs.filter((j) => j.kind === kind);
+        const count = jobs.filter((j) => j.status !== "running").length;
+        return count ? button(`Clear ${kind === "train" ? "training" : "evaluations"} · ${count}`, () => clearJobs(kind, jobs, { onDone: () => this.reloadJobs() }), { cls: "ghost", icon: "trash" }) : null;
+      }),
       button("Runs on disk", () => openStorage({ onChange: () => this.reloadJobs() }), { cls: "ghost", icon: "database", title: "Every run folder with its size: delete runs, prune old checkpoints" }),
       h("span.spacer"),
       linkButton("TensorBoard · all runs", "/tensorboard", { cls: "ghost", icon: "link", title: "Every run under logs/rsl_rl, CLI runs included" }),
@@ -534,6 +541,7 @@ export class TrainPane {
     const d = await api(`/api/jobs/${name}?tail=40`);
     if (this.openJob !== name || this.tab !== "jobs") return;
     const pr = d.progress || {};
+    const evaluation = j.kind === "evaluate";
     const tone = { running: "accent", done: "ok", failed: "bad", stopped: "amber" }[d.status];
     const runLabel = d.run_dir ? d.run_dir.split("/").slice(-2).join("/") : "";
     this.curvesHost ||= h("div.charts");
@@ -543,15 +551,16 @@ export class TrainPane {
           h("button.link", { on: { click: () => { this.openJob = ""; this.render(); } } }, "‹ All jobs"),
           tag(d.status, tone)),
         h("div", { style: { marginTop: "8px", fontWeight: "600", fontSize: "0.95rem" } }, `${j.meta.task} · ${j.meta.dataset}`),
-        h("div.job-meta", `${METHOD_LABEL[j.meta.algo || "ppo"]}${j.meta.recipe ? ` · recipe ${j.meta.recipe}` : ""}${Object.keys(j.meta.algo_settings || {}).length ? ` · ${Object.keys(j.meta.algo_settings).length} setting(s)` : ""} · ${j.started_text} · ${fmtDuration(j.elapsed)} · ${j.meta.num_envs} envs${j.meta.resume ? ` · from ${j.meta.resume}` : ""}`),
-        pr.total ? h("div", { style: { marginTop: "10px" } }, progressBar(pr.fraction), h("div.job-meta", { style: { marginTop: "4px" } }, `iteration ${pr.iteration + 1} of ${pr.total}${pr.mean_reward ? ` · mean reward ${Number(pr.mean_reward).toFixed(2)}` : ""}${pr.eta ? ` · eta ${pr.eta}` : ""}${d.status === "running" && pr.phase ? ` · ${pr.phase}` : ""}`)) : null),
-      group("Curves", { action: seg(["train", "errors", "rewards", "sampling", "loss"], this.curveGroup, (g) => { this.curveGroup = g; this.loadCurves(); }) }, this.curvesHost),
-      group("Log", { collapsible: true, closed: d.status !== "failed", key: "train-log" }, logBlock(name, d.log, { title: `${j.meta.task} · ${j.meta.dataset} · log` }), h("div.cmd", d.command.replace(/^.*python\S* -m /, "python -m "))),
+        h("div.job-meta", `${evaluation ? "Evaluation" : METHOD_LABEL[j.meta.algo || "ppo"]}${j.meta.recipe ? ` · recipe ${j.meta.recipe}` : ""}${Object.keys(j.meta.algo_settings || {}).length ? ` · ${Object.keys(j.meta.algo_settings).length} setting(s)` : ""} · ${j.started_text} · ${fmtDuration(j.elapsed)} · ${j.meta.num_envs} envs${j.meta.resume ? ` · from ${j.meta.resume}` : ""}`),
+        pr.total ? h("div", { style: { marginTop: "10px" } }, progressBar(pr.fraction), h("div.job-meta", { style: { marginTop: "4px" } }, `${evaluation ? `clips ${pr.done}` : `iteration ${pr.iteration + 1}`} of ${pr.total}${pr.mean_reward ? ` · mean reward ${Number(pr.mean_reward).toFixed(2)}` : ""}${pr.eta ? ` · eta ${pr.eta}` : ""}${d.status === "running" && pr.phase ? ` · ${pr.phase}` : ""}`)) : null),
+      evaluation ? null : group("Curves", { action: seg(["train", "errors", "rewards", "sampling", "loss"], this.curveGroup, (g) => { this.curveGroup = g; this.loadCurves(); }) }, this.curvesHost),
+      group("Log", { collapsible: true, closed: !evaluation && d.status !== "failed", key: "train-log" }, logBlock(name, d.log, { title: `${j.meta.task} · ${j.meta.dataset} · log` }), h("div.cmd", d.command.replace(/^.*python\S* -m /, "python -m "))),
     );
-    this.loadCurves();
+    if (!evaluation) this.loadCurves();
     this.frame.setFooter(
       d.status === "running" ? button("Stop", () => post(`/api/jobs/${name}/stop`), { cls: "danger", icon: "stop" }) : iconButton("trash", () => this.forget(j), "Remove this job (and, if you choose, its run)"),
       h("span.spacer"),
+      evaluation && d.status === "done" ? linkButton("Download JSON", `/api/jobs/${name}/result`, { cls: "primary", icon: "download" }) : null,
       runLabel ? linkButton("TensorBoard", `/tensorboard?run=${encodeURIComponent(runLabel.split("/")[1])}`, { cls: "ghost", icon: "link" }) : null,
       runLabel ? button("Play", () => this.app.panes.play.openRun(runLabel), { cls: "primary", icon: "play" }) : null,
     );

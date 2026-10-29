@@ -1004,9 +1004,11 @@ class MotionCommand(TrackingView, CommandTerm):
 
   def _resample_command(self, env_ids: torch.Tensor):
     rsi = self.cfg.rsi
-    if rsi.sampling_mode == "start":
-      self.trajectory_ids[env_ids] = 0
-      self.time_steps[env_ids] = self.motion.segment_start_idx[0]
+    forced = getattr(self, "_forced_start_trajectories", None)
+    if forced is not None or rsi.sampling_mode == "start":
+      trajectories = forced[env_ids] if forced is not None else 0
+      self.trajectory_ids[env_ids] = trajectories
+      self.time_steps[env_ids] = self.motion.segment_start_idx[trajectories]
       self._episode_start_bin[env_ids] = 0
       start_traj = self.trajectory_ids[env_ids]
       start_bins = self._episode_start_bin[env_ids]
@@ -1075,6 +1077,35 @@ class MotionCommand(TrackingView, CommandTerm):
     self._reset_episode_return(env_ids)
     self.update_relative_body_poses()
     self._seed_default_relative_action(env_ids)
+
+  def set_start_trajectories(
+    self, trajectories: torch.Tensor | None, env_ids=None
+  ) -> None:
+    """Force each env's next reset to a clip's first frame (evaluation queue).
+
+    Pass None to return to configured RSI. This changes only reset selection;
+    reference offsets, robot initialization and action warm-start stay shared.
+    """
+    if trajectories is None:
+      self._forced_start_trajectories = None
+      return
+    expected = self.trajectory_ids if env_ids is None else self.trajectory_ids[env_ids]
+    if trajectories.shape != expected.shape:
+      raise ValueError("one start trajectory is required per environment")
+    if ((trajectories < 0) | (trajectories >= self.motion.num_trajectories)).any():
+      raise ValueError("start trajectory is outside the motion library")
+    if env_ids is None:
+      self._forced_start_trajectories = trajectories.to(
+        device=self.device, dtype=torch.long
+      ).clone()
+    else:
+      if self._forced_start_trajectories is None:
+        raise ValueError(
+          "initialize all evaluation trajectories before assigning slots"
+        )
+      self._forced_start_trajectories[env_ids] = trajectories.to(
+        device=self.device, dtype=torch.long
+      )
 
   def _update_reference_offset(self, env_ids: torch.Tensor) -> None:
     """Center the start-frame anchor XY on the env origin (``ground_reference``).

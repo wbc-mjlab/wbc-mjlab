@@ -129,6 +129,8 @@ def _field(key: str, value: Any, *, choices=None) -> dict | None:
     }
   if choices and isinstance(value, str):
     return {"key": key, "kind": "choice", "value": value, "choices": list(choices)}
+  if isinstance(value, (tuple, list)) and all(isinstance(x, str) for x in value):
+    return {"key": key, "kind": "strings", "value": list(value)}
   if isinstance(value, (tuple, list)) and value and all(_num(x) for x in value):
     if len(value) == 2 and not all(isinstance(x, int) for x in value):
       return {"key": key, "kind": "range", "value": [float(x) for x in value]}
@@ -189,7 +191,7 @@ def _walk_dataclass(obj, prefix: str = "", depth: int = 0) -> list[dict]:
       continue
     item = _field(key, value, choices=_literal_choices(type(obj), f.name))
     if item is not None:
-      out.append(item)
+      out.append(item | dict(f.metadata))
   return out
 
 

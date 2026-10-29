@@ -11,11 +11,16 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp.actions import JointPositionAction
 from mjlab.rl.exporter_utils import attach_metadata_to_onnx
 from mjlab.rl.runner import MjlabOnPolicyRunner
-from wbc_mjlab.env.mdp.commands import MotionCommand
-from wbc_mjlab.env.mdp.sampling import load_rsi_bin_stats
 from mjlab.tasks.tracking.rl.runner import MotionTrackingOnPolicyRunner
+from rsl_rl.env import VecEnv
 
 from wbc_mjlab.deploy_paths import PLAY_PARAMS_SUBDIR, PLAY_POLICY_ONNX_NAME
+from wbc_mjlab.env.mdp.commands import MotionCommand
+from wbc_mjlab.env.mdp.sampling import (
+  load_rsi_bin_stats,
+  restore_sampling_state,
+  sampling_state,
+)
 
 
 def _tracking_policy_onnx_metadata(
@@ -66,8 +71,19 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
     device: str = "cpu",
     registry_name: str | None = None,
   ):
+    from wbc_mjlab.rl.policy import actor_options
+
+    train_cfg["actor"] = actor_options(env.unwrapped, train_cfg)
     super().__init__(env, train_cfg, log_dir, device)
     self.registry_name = registry_name
+    if log_dir is not None and int(os.environ.get("RANK", "0")) == 0:
+      import yaml
+
+      params = Path(log_dir) / "params"
+      params.mkdir(parents=True, exist_ok=True)
+      task = getattr(env.unwrapped.cfg, "_wbc_task_id", None)
+      if task:
+        (params / "run.yaml").write_text(yaml.safe_dump({"task_id": task}))
 
   def export_policy_to_onnx(
     self, path: str, filename: str = "policy.onnx", verbose: bool = False
@@ -91,7 +107,9 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
       dynamo=False,
     )
 
-  def build_policy_export_metadata(self, run_path: str) -> dict[str, list | str | float]:
+  def build_policy_export_metadata(
+    self, run_path: str
+  ) -> dict[str, list | str | float]:
     """ONNX metadata (actor obs layout + WBC motion fields)."""
     env = cast(ManagerBasedRlEnv, self.env.unwrapped)
     joint_action = env.action_manager.get_term("joint_pos")
@@ -120,6 +138,10 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
 
   def save(self, path: str, infos=None) -> None:
     """Checkpoint save + policy-only ONNX (not the motion-embedded graph)."""
+    command = self._motion_command()
+    infos = dict(infos or {})
+    if command is not None:
+      infos["motion_sampler"] = sampling_state(command)
     MjlabOnPolicyRunner.save(self, path, infos)
 
     log_dir = Path(path).parent
@@ -155,8 +177,25 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
     strict: bool = True,
     map_location: str | None = None,
   ) -> dict:
-    infos = super().load(path, load_cfg=load_cfg, strict=strict, map_location=map_location)
-    self._maybe_load_rsi_bin_stats(path)
+    from wbc_mjlab.rl.checkpoints import read_checkpoint
+
+    checkpoint = read_checkpoint(path, map_location or self.device)
+    # rsl_rl creates cached normalization buffers during inference-mode collection;
+    # copying into those buffers also needs inference mode when swapping checkpoints.
+    with torch.inference_mode():
+      load_iteration = self.alg.load(checkpoint, load_cfg, strict)
+    if load_iteration:
+      self.current_learning_iteration = checkpoint["iter"]
+    infos = checkpoint.get("infos") or {}
+    if "env_state" in infos:
+      self.env.unwrapped.common_step_counter = infos["env_state"]["common_step_counter"]
+    if load_cfg is None or load_cfg.get("optimizer"):
+      command = self._motion_command()
+      state = infos.get("motion_sampler", checkpoint.get("sampler_state"))
+      if command is not None and state is not None:
+        restore_sampling_state(command, state, strict=True)
+      else:
+        self._maybe_load_rsi_bin_stats(path)
     return infos
 
   def _motion_command(self) -> MotionCommand | None:

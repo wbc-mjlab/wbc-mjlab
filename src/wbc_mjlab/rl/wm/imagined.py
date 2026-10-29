@@ -539,20 +539,11 @@ class Imagination:
     self, action: torch.Tensor, ref: MotionFrame, env_ids: torch.Tensor
   ):
     """PD position targets of a raw action (the action term's processing, encoder bias)."""
-    term = self._action_term
-    scale = (
-      term._scale[env_ids] if isinstance(term._scale, torch.Tensor) else term._scale
-    )
-    offset = (
-      term._offset[env_ids] if isinstance(term._offset, torch.Tensor) else term._offset
-    )
-    target = action * scale + offset
-    if term.cfg.clip is not None:
-      clip = term._clip[env_ids]
-      target = torch.clamp(target, min=clip[..., 0], max=clip[..., 1])
-    if isinstance(term, ReferenceJointPositionAction):
-      tracked = term._command._tracked_joint_ids
-      target = target + (
-        ref.joint_pos if tracked is None else ref.joint_pos[:, tracked]
-      )
-    return target - self.robot.data.encoder_bias[env_ids]
+    from wbc_mjlab.env.mdp.actions import joint_position_target
+
+    reference = ref.joint_pos
+    if isinstance(self._action_term, ReferenceJointPositionAction):
+      tracked = self._action_term._command._tracked_joint_ids
+      if tracked is not None:
+        reference = reference[:, tracked]
+    return joint_position_target(self._action_term, action, reference, env_ids)

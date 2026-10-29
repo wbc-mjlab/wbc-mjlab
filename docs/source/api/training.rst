@@ -24,6 +24,8 @@ Training algorithms
 
 .. autofunction:: wbc_mjlab.rl.algos.run_algo
 
+.. autofunction:: wbc_mjlab.rl.algos.run_rl_cfg
+
 Recipes (Studio)
 ----------------
 
@@ -37,6 +39,28 @@ Recipes (Studio)
 .. autofunction:: wbc_mjlab.studio.recipes.save
 
 .. autofunction:: wbc_mjlab.studio.recipes.architecture_of
+
+Shared policy, saved runs and evaluation
+----------------------------------------
+
+.. autoclass:: wbc_mjlab.rl.policy.PolicyCfg
+   :members:
+   :undoc-members:
+
+.. autofunction:: wbc_mjlab.run_params.load_run_config
+
+.. autofunction:: wbc_mjlab.env.mdp.sampling.sampling_state
+
+.. autofunction:: wbc_mjlab.env.mdp.sampling.restore_sampling_state
+
+.. autoclass:: wbc_mjlab.rl.evaluation.EvaluationConfig
+   :members:
+
+.. autofunction:: wbc_mjlab.rl.evaluation.evaluate_checkpoint
+
+.. autofunction:: wbc_mjlab.rl.evaluation.deterministic_cfg
+
+.. autofunction:: wbc_mjlab.rl.evaluation.run_benchmark
 
 World model (``wm``)
 --------------------

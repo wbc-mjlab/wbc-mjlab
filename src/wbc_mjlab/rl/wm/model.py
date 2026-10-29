@@ -4,6 +4,10 @@ The dynamics predict the change of the state over one control step from the stat
 targets and the domain-randomization context. Inputs and the change are expressed in the
 robot's heading frame (and body frame for rotations), so the model is invariant to where the
 robot stands and which way it faces, as the physics on flat ground is.
+
+Algorithm: SuperMimic (Liao et al., 2026), Eq. 1 / Table A.4,
+https://arxiv.org/abs/2610.28480. Optional integrated residuals and fixed-scale
+diagnostics draw on CuboiLeo/SuperMimic-Reproduced at ba61053 (links below).
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from mjlab.utils.lab_api.math import (
 )
 from torch import nn
 
+from wbc_mjlab.rl.wm.distributed import sum_
 from wbc_mjlab.rl.wm.kinematics import RobotState
 
 
@@ -34,9 +39,9 @@ def update_running_stats(
   """rsl_rl's running mean / variance update, in place (the tensors keep their storage, as
   CUDA graphs need), over the rows of ``x`` with nonzero ``weight``."""
   w = torch.ones(x.shape[0], device=x.device) if weight is None else weight.float()
-  n = w.sum()
-  mean_x = (w[:, None] * x).sum(0) / n.clamp(min=1)
-  var_x = (w[:, None] * (x - mean_x).square()).sum(0) / n.clamp(min=1)
+  n = sum_(w.sum())
+  mean_x = sum_((w[:, None] * x).sum(0)) / n.clamp(min=1)
+  var_x = sum_((w[:, None] * (x - mean_x).square()).sum(0)) / n.clamp(min=1)
   count.add_(n.to(count.dtype))
   rate = n / count.clamp(min=1)
   delta = mean_x - mean
@@ -151,6 +156,65 @@ def state_change(s0: RobotState, s1: RobotState) -> torch.Tensor:
   )
 
 
+def integrate_velocity(s: RobotState, dt: float) -> RobotState:
+  """Constant-velocity prior, with body-frame exponential-map orientation integration.
+
+  Inspired by SuperMimic-Reproduced (ba61053), world_model/state_spec.py:
+  https://github.com/CuboiLeo/SuperMimic-Reproduced/blob/ba6105349069bf040f1fdad60873d13138d505a2/src/supermimic/world_model/state_spec.py
+  Residuals retain this repo's state ordering, frames and running normalization.
+  """
+  quat = quat_mul(
+    s.root_quat, _quat_exp(dt * quat_apply_inverse(s.root_quat, s.root_ang_vel))
+  )
+  return RobotState(
+    s.root_pos + dt * s.root_lin_vel,
+    quat / quat.norm(dim=-1, keepdim=True),
+    s.root_lin_vel,
+    s.root_ang_vel,
+    s.joint_pos + dt * s.joint_vel,
+    s.joint_vel,
+  )
+
+
+def apply_integrated_change(s: RobotState, d: torch.Tensor, dt: float) -> RobotState:
+  """Semi-implicit velocity integration plus pose corrections (reproduction D2).
+
+  Unlike full increments, predicted velocity changes also move the pose through
+  the known dt factor. Tensor ordering remains the repo's [dp, dtheta, dv, dw, dq, dqd].
+  See the SuperMimic-Reproduced state_spec.py link in integrate_velocity.
+  """
+  j = s.joint_pos.shape[-1]
+  heading = yaw_quat(s.root_quat)
+  velocity = s.root_lin_vel + quat_apply(heading, d[:, 6:9])
+  omega = quat_apply_inverse(s.root_quat, s.root_ang_vel) + d[:, 9:12]
+  joint_velocity = s.joint_vel + d[:, 12 + j :]
+  quat = quat_mul(s.root_quat, _quat_exp(dt * omega + d[:, 3:6]))
+  quat = quat / quat.norm(dim=-1, keepdim=True)
+  return RobotState(
+    s.root_pos + dt * velocity + quat_apply(heading, d[:, :3]),
+    quat,
+    velocity,
+    quat_apply(quat, omega),
+    s.joint_pos + dt * joint_velocity + d[:, 12 : 12 + j],
+    joint_velocity,
+  )
+
+
+def nominal_error(pred: RobotState, true: RobotState) -> torch.Tensor:
+  """Fixed-scale squared errors, independent of the training normalizer.
+
+  Nominal scales follow SuperMimic-Reproduced's StateSpecCfg (ba61053), not
+  unpublished paper constants: pos .05 m, rot .1 rad, v .5 m/s, omega 1 rad/s,
+  joint pos .1 rad, joint vel 2 rad/s. These scores are not paper-equivalent.
+  """
+  error = state_change(true, pred)
+  j = true.joint_pos.shape[-1]
+  scales = error.new_tensor(
+    [0.05] * 3 + [0.1] * 3 + [0.5] * 3 + [1.0] * 3 + [0.1] * j + [2.0] * j
+  )
+  return (error / scales).square()
+
+
 class WorldModel(nn.Module):
   """Dynamics ``f(s, u, ξ) → s'`` plus step heads ``h(s, u, g, ξ) → (termination, rewards)``.
 
@@ -168,15 +232,23 @@ class WorldModel(nn.Module):
     num_learned_rewards: int,
     dynamics_hidden: tuple[int, ...],
     heads_hidden: tuple[int, ...],
+    dynamics_mode: str = "increment",
+    step_dt: float = 0.02,
   ):
     super().__init__()
     self.num_joints = num_joints
+    if dynamics_mode not in ("increment", "integrated"):
+      raise ValueError(f"unknown dynamics mode: {dynamics_mode}")
+    self.dynamics_mode, self.step_dt = dynamics_mode, step_dt
     feat, change = feature_dim(num_joints), change_dim(num_joints)
     dyn_in = feat + num_joints + context_dim
     head_in = dyn_in + tracking_dim
     self.dynamics_in = RunningNorm(dyn_in, eps=1e-4)
     self.change_norm = RunningNorm(change, eps=1e-6)
     self.dynamics = mlp(dyn_in, change, dynamics_hidden)
+    if dynamics_mode == "integrated":
+      nn.init.zeros_(self.dynamics[-1].weight)
+      nn.init.zeros_(self.dynamics[-1].bias)
     self.heads_in = RunningNorm(head_in, eps=1e-4)
     self.reward_norm = RunningNorm(num_learned_rewards, eps=1e-4)
     self.heads = mlp(head_in, 1 + num_learned_rewards, heads_hidden)
@@ -190,7 +262,28 @@ class WorldModel(nn.Module):
     self, s: RobotState, setpoint: torch.Tensor, context: torch.Tensor
   ) -> RobotState:
     x = self.dynamics_in(self._dynamics_input(s, setpoint, context))
-    return apply_change(s, self.change_norm.inverse(self.dynamics(x)))
+    change = self.change_norm.inverse(self.dynamics(x))
+    if self.dynamics_mode == "integrated":
+      return apply_integrated_change(s, change, self.step_dt)
+    return apply_change(s, change)
+
+  def target_change(self, s: RobotState, next_state: RobotState) -> torch.Tensor:
+    change = state_change(s, next_state)
+    if self.dynamics_mode != "integrated":
+      return change
+    j, dt = self.num_joints, self.step_dt
+    return torch.cat(
+      [
+        change[:, :3]
+        - dt * quat_apply_inverse(yaw_quat(s.root_quat), next_state.root_lin_vel),
+        change[:, 3:6]
+        - dt * quat_apply_inverse(next_state.root_quat, next_state.root_ang_vel),
+        change[:, 6:12],
+        change[:, 12 : 12 + j] - dt * next_state.joint_vel,
+        change[:, 12 + j :],
+      ],
+      dim=-1,
+    )
 
   def step_heads(
     self,

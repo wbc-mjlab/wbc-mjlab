@@ -33,6 +33,7 @@ class AlgoInfo:
 ALGORITHMS: dict[Algo, AlgoInfo] = {
   "ppo": AlgoInfo(
     id="ppo",
+    settings=("actor.architecture",),
     label="PPO",
     summary=(
       "On-policy RL in the simulator: robust, works with every preset. "
@@ -48,6 +49,7 @@ ALGORITHMS: dict[Algo, AlgoInfo] = {
       "An iteration is 5 env steps and 2 updates."
     ),
     settings=(
+      "actor.architecture",
       "algorithm.imagined_rollouts",
       "algorithm.horizon",
       "algorithm.model_hidden_dims",
@@ -77,7 +79,9 @@ def runner_cfg(ppo_cfg, algo: Algo):
     from wbc_mjlab.rl.wm.config import wm_runner_cfg
 
     return wm_runner_cfg(ppo_cfg)
-  return ppo_cfg
+  from wbc_mjlab.rl.policy import tracking_runner_cfg
+
+  return tracking_runner_cfg(ppo_cfg)
 
 
 def rl_cfg(task_id: str, algo: Algo = "ppo"):
@@ -117,6 +121,20 @@ def run_algo(run_dir: Path | str) -> Algo:
 
   algorithm = read_run_params(run_dir, "agent").get("algorithm") or {}
   return "wm" if algorithm.get("class_name") == WmAlgorithmCfg.class_name else "ppo"
+
+
+def run_rl_cfg(task_id: str, run_dir: Path | str):
+  """Rebuild a run's architecture for Play/evaluation, including optional encoders.
+
+  Apply known dataclass fields only: YAML is data, never imported or evaluated.
+  """
+  from wbc_mjlab.rl.policy import migrate_actor_settings
+  from wbc_mjlab.run_params import read_run_params, restore_config
+
+  cfg = rl_cfg(task_id, run_algo(run_dir))
+
+  restore_config(cfg, migrate_actor_settings(read_run_params(run_dir, "agent")))
+  return cfg
 
 
 def check_env(task_id: str, algo: Algo, motion_file: str, *, num_envs: int = 2) -> dict:
@@ -170,6 +188,7 @@ __all__ = [
   "env_cfg",
   "rl_cfg",
   "run_algo",
+  "run_rl_cfg",
   "runner_cfg",
   "select_algo",
 ]
