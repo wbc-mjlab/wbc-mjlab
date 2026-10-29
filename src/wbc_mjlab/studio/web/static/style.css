@@ -470,11 +470,35 @@ input:focus, select:focus, textarea:focus { border-color: var(--color-accent); b
 .job-head { display: flex; align-items: center; gap: 8px; }
 .job-head b { flex: 1; min-width: 0; font-size: 0.84rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .job-meta { font-size: 0.74rem; color: var(--color-text-muted); }
+.job-head .icon-btn { width: 22px; height: 22px; margin: -4px -6px -4px -2px; }
 pre.log {
   margin: 0; max-height: 240px; overflow: auto; padding: 10px 12px;
   background: var(--color-viewport-bg); border: 1px solid var(--hairline); border-radius: var(--radius-sm);
   font-family: var(--font-mono); font-size: 0.68rem; line-height: 1.5; white-space: pre-wrap; word-break: break-all;
 }
+.log-wrap { position: relative; }
+.log-tools { position: absolute; top: 6px; right: 6px; opacity: 0.75; }
+.log-wrap:hover .log-tools { opacity: 1; }
+.log-tools .icon-btn { background: var(--color-surface); }
+.terminal-modal { height: calc(100vh - 64px); }
+.terminal-modal .modal-body { grid-template-rows: auto 1fr; min-height: 0; flex: 1; overflow: hidden; }
+.terminal-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.terminal-bar .search { flex: 1; min-width: 220px; }
+.terminal-host { position: relative; min-height: 0; }
+pre.terminal {
+  position: absolute; inset: 0; margin: 0; overflow: auto; padding: 10px 14px;
+  background: var(--color-viewport-bg); border: 1px solid var(--hairline); border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 0.74rem; line-height: 1.55; white-space: pre-wrap; word-break: break-all; tab-size: 4;
+}
+pre.terminal.nowrap { white-space: pre; word-break: normal; }
+pre.terminal .ln.bad { color: var(--color-danger); }
+pre.terminal .ln.warn { color: var(--color-amber); }
+pre.terminal .ln.info { color: var(--color-accent); }
+pre.terminal mark { background: color-mix(in srgb, var(--color-amber) 45%, transparent); color: inherit; border-radius: 2px; }
+.terminal-end { position: absolute; right: 18px; bottom: 12px; }
+.terminal-end .btn { background: var(--color-surface); }
+.terminal-count { font-size: 0.74rem; color: var(--color-text-muted); }
+.modal-foot .spacer { flex: 1; }
 .cmd { font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-text-muted); overflow-wrap: anywhere; padding: 8px 10px; background: var(--color-surface-2); border: 1px solid var(--hairline); border-radius: var(--radius-sm); line-height: 1.5; }
 
 /* summary rows that link back to earlier steps */
@@ -519,6 +543,11 @@ pre.log {
 .knob .hint { font-size: 0.68rem; color: var(--color-text-faint); line-height: 1.35; }
 .knob.bool { align-content: end; }
 .knobs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.knob.locked .locked-value { height: 28px; display: flex; align-items: center; padding: 0 8px; font-size: 0.78rem; color: var(--color-text-muted); background: var(--color-surface-2); border: 1px dashed var(--hairline); border-radius: var(--radius-sm); }
+.check { display: flex; align-items: flex-start; gap: 8px; font-size: 0.76rem; line-height: 1.45; color: var(--color-text-muted); }
+.check .dot { margin-top: 5px; }
+.check .dot.accent { animation: blink 1.2s ease-in-out infinite; }
+.check b { color: var(--color-text); font-weight: 600; }
 
 /* modules: reusable pieces switched on per preset */
 .modules-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }

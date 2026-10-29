@@ -3,12 +3,18 @@
 A preset changes what the base task's builder produced, without code:
 
   observations  actor (deployed) / critic terms: remove, add from the robot's term library,
-                noise scale, history, keybody subset; group history / corruption
+                noise scale, history (steps back), frames ahead and their stride (reference
+                terms), keybody subset; group history / corruption
   rewards       weight, numeric params, on / off per term
   terminations  numeric params, on / off per term
   command       reference / RSI / assist knobs of the motion command (``rsi.bin_width_s`` …)
   events        domain-randomization ranges, on / off per event
-  agent         PPO and network knobs (``algorithm.learning_rate``, ``actor.hidden_dims`` …)
+  terrain       procedural terrain knobs (``-Terrain-Scan`` tasks)
+
+How a preset is trained (the method and its settings) is a *recipe*, picked in Train
+(:mod:`wbc_mjlab.studio.recipes`). Presets saved before recipes may still hold PPO settings
+(``agent``): they keep applying to PPO's runner config until moved to a recipe
+(:func:`move_agent_to_recipe`).
 
 *Modules* are reusable partial overrides without a base (``se``: the state-estimation actor
 layout, derived from the built-in ``<task>-SE`` vs ``<task>`` pair; your own in
@@ -46,7 +52,7 @@ GROUPS = (
   "command",
   "events",
   "terrain",
-  "agent",
+  "agent",  # legacy: PPO settings, now recipes
 )
 OBS_GROUPS = ("actor", "critic")
 SNAPSHOT = "studio_preset.yaml"
@@ -78,21 +84,6 @@ _COMMAND_SKIP = {
   "rsi.tracking_reward_prefix",
   "rsi.persist_failure_levels",
 }
-_AGENT_KEEP = (
-  "seed",
-  "num_steps_per_env",
-  "save_interval",
-  "algorithm",
-  "actor.hidden_dims",
-  "actor.activation",
-  "critic.hidden_dims",
-)
-_AGENT_SKIP = {
-  "algorithm.class_name",
-  "algorithm.optimizer",
-  "algorithm.share_cnn_encoders",
-}
-
 HELP = {
   "rsi.sampling_mode": "where episodes start: clip start, uniform, or adaptive (failure-weighted bins)",
   "rsi.strategy": "failure signal for adaptive sampling",
@@ -103,9 +94,6 @@ HELP = {
   "assistive_wrench_enabled": "virtual wrench that helps on hard bins (curriculum)",
   "assistive_beta_max": "max assist gain on the hardest bins",
   "joint_position_range": "noise added to the reference joints at reset",
-  "algorithm.learning_rate": "Adam learning rate",
-  "algorithm.entropy_coef": "exploration bonus",
-  "actor.hidden_dims": "changes the network: checkpoints of other sizes won't load",
 }
 
 
@@ -141,6 +129,8 @@ def _field(key: str, value: Any, *, choices=None) -> dict | None:
     }
   if choices and isinstance(value, str):
     return {"key": key, "kind": "choice", "value": value, "choices": list(choices)}
+  if isinstance(value, (tuple, list)) and all(isinstance(x, str) for x in value):
+    return {"key": key, "kind": "strings", "value": list(value)}
   if isinstance(value, (tuple, list)) and value and all(_num(x) for x in value):
     if len(value) == 2 and not all(isinstance(x, int) for x in value):
       return {"key": key, "kind": "range", "value": [float(x) for x in value]}
@@ -201,7 +191,7 @@ def _walk_dataclass(obj, prefix: str = "", depth: int = 0) -> list[dict]:
       continue
     item = _field(key, value, choices=_literal_choices(type(obj), f.name))
     if item is not None:
-      out.append(item)
+      out.append(item | dict(f.metadata))
   return out
 
 
@@ -210,8 +200,8 @@ def _func_name(term) -> str:
   return getattr(fn, "__name__", type(fn).__name__ if fn is not None else "")
 
 
-def describe(env_cfg, agent_cfg) -> dict:
-  """Every editable knob of a task's configs, with its current (default) value."""
+def describe(env_cfg) -> dict:
+  """Every editable knob of a task's env config, with its current (default) value."""
   rewards = [
     {
       "name": name,
@@ -250,16 +240,9 @@ def describe(env_cfg, agent_cfg) -> dict:
       "value": float(env_cfg.episode_length_s),
     }
   )
-  agent = [
-    f
-    for f in _walk_dataclass(agent_cfg)
-    if f["key"] not in _AGENT_SKIP
-    and any(f["key"] == k or f["key"].startswith(k + ".") for k in _AGENT_KEEP)
-  ]
-  for group in (command, agent):
-    for f in group:
-      if f["key"] in HELP:
-        f["help"] = HELP[f["key"]]
+  for f in command:
+    if f["key"] in HELP:
+      f["help"] = HELP[f["key"]]
   return {
     "terrain": _describe_terrain(env_cfg),
     "observations": _describe_observations(env_cfg),
@@ -267,7 +250,6 @@ def describe(env_cfg, agent_cfg) -> dict:
     "terminations": terminations,
     "command": command,
     "events": events,
-    "agent": agent,
   }
 
 
@@ -442,16 +424,16 @@ def _obs_dim(
       d = tracking
     else:
       return None
-  return d * max(1, int(getattr(term, "history_length", 0) or 0))
+  frames = int((term.params or {}).get("frames", 1))
+  return d * frames * max(1, int(getattr(term, "history_length", 0) or 0))
 
 
 def deployable(name: str) -> bool:
   """Actor terms the exporter (``tracking_params.yaml``) knows how to rebuild on the robot."""
   from wbc_mjlab.export.tracking_params_yaml import _observation_dim
 
-  if (
-    name == "height_scan"
-  ):  # exported with its grid layout (elevation map on the robot)
+  # height_scan: exported with its grid layout (elevation map on the robot)
+  if name == "height_scan":
     return True
 
   try:
@@ -474,6 +456,8 @@ def _robot_sizes(env_cfg) -> tuple[int, int, list[str]]:
 
 
 def _describe_observations(env_cfg) -> dict:
+  from wbc_mjlab.env.mdp.observations import takes_frames
+
   joints, nbodies, bodies = _robot_sizes(env_cfg)
   tracking = sum(n.startswith("motion_") for n in env_cfg.rewards)
   groups = []
@@ -492,6 +476,9 @@ def _describe_observations(env_cfg) -> dict:
           "dim": _obs_dim(name, t, joints, nbodies, tracking, env_cfg),
           "noise": _noise_text(t.noise),
           "history_length": int(t.history_length or 0),
+          "frames": int((t.params or {}).get("frames", 1)),
+          "stride": int((t.params or {}).get("stride", 1)),
+          "takes_frames": takes_frames(t),
           "bodies": list(sub) if sub else None,
           "takes_bodies": _takes_bodies(t),
           "deployable": deployable(name) if g == "actor" else True,
@@ -543,6 +530,8 @@ def library(
   """The term library as rows for the UI (``dim`` when known; ``bodies`` = keybody subset
   of the variant a preset gets when it adds the term to the actor; ``requires``: a scene
   sensor ``env_cfg`` lacks, e.g. the height scan of the ``-Terrain-Scan`` tasks)."""
+  from wbc_mjlab.env.mdp.observations import takes_frames
+
   out = []
   for name, v in sorted(_library(robot_id).items()):
     term = v.get("actor") or next(iter(v.values()))
@@ -554,6 +543,7 @@ def library(
         "dim": _obs_dim(name, term, joints, bodies, env_cfg=env_cfg),
         "requires": _missing_sensor(term, env_cfg),
         "takes_bodies": _takes_bodies(term),
+        "takes_frames": takes_frames(term),
         "bodies": list(sub) if sub else None,
         "func": _func_name(term),
         "deployable": deployable(name),
@@ -574,6 +564,8 @@ def _new_term(robot_id: str, name: str, group: str):
 
 
 def _apply_observations(env_cfg, ov: dict, robot_id: str | None) -> None:
+  from wbc_mjlab.env.mdp.observations import look_ahead, takes_frames
+
   for g, o in (ov or {}).items():
     grp = env_cfg.observations.get(g)
     if grp is None or not isinstance(o, dict):
@@ -604,6 +596,11 @@ def _apply_observations(env_cfg, ov: dict, robot_id: str | None) -> None:
         term.noise = _scale_noise(term.noise, float(t["noise_scale"]))
       if "history_length" in t:
         term.history_length = int(t["history_length"])
+      if ("frames" in t or "stride" in t) and takes_frames(term):
+        p = term.params or {}
+        term = grp.terms[name] = look_ahead(
+          term, t.get("frames", p.get("frames", 1)), t.get("stride", p.get("stride", 1))
+        )
       if "bodies" in t and _takes_bodies(term):
         term.params = dict(term.params or {})
         if t["bodies"]:
@@ -700,6 +697,7 @@ def apply(env_cfg, agent_cfg, overrides: dict, robot_id: str | None = None) -> N
       _set_path(env_cfg, key[4:], value)
     elif motion is not None:
       _set_path(motion, key, value)
+  # legacy PPO settings (now recipes); the world model's runner config derives from PPO's
   if agent_cfg is not None:
     for key, value in (ov.get("agent") or {}).items():
       _set_path(agent_cfg, key, value)
@@ -794,6 +792,28 @@ def save(
 
 def delete(name: str) -> None:
   _path(name).unlink(missing_ok=True)
+
+
+def move_agent_to_recipe(name: str) -> dict:
+  """Move preset ``name``'s PPO settings (``agent``, from before recipes) to a PPO recipe of
+  the same name; returns the recipe."""
+  from wbc_mjlab.studio import recipes
+
+  preset = load(name)
+  settings = preset["overrides"].pop("agent", None) or {}
+  if not settings:
+    raise ValueError(f"preset {name!r} has no PPO settings")
+  recipe = recipes.save(
+    name, "ppo", settings, f"PPO settings of preset {name}, from before recipes"
+  )
+  save(
+    name,
+    preset["base"],
+    preset["overrides"],
+    preset.get("description", ""),
+    preset["modules"],
+  )
+  return recipe
 
 
 # ---------------------------------------------------------------------- modules
@@ -1026,6 +1046,7 @@ __all__ = [
   "list_presets",
   "load",
   "load_module",
+  "move_agent_to_recipe",
   "observation_diff",
   "register",
   "resolve",

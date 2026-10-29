@@ -5,6 +5,7 @@ Usage::
   wbc-mjlab-train --task Wbc-G1 --dataset lafan
   wbc-mjlab-train --task Wbc-G1-Zest --dataset lafan
   wbc-mjlab-train --task Wbc-G1 --dataset lafan --cache-motion-bundle
+  wbc-mjlab-train --task Wbc-G1 --dataset lafan --algo wm   # world-model training
 """
 
 from __future__ import annotations
@@ -14,12 +15,12 @@ import sys
 
 import mjlab.utils.os as _mjlab_os
 
-from wbc_mjlab.tasks import prepare_wbc_run
 from wbc_mjlab.scripts.wbc_cli import (
   apply_dataset_motion_file,
   ensure_task_id,
   parse_wbc_argv,
 )
+from wbc_mjlab.tasks import prepare_wbc_run
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +68,20 @@ def _apply_motion_file_shortcut(argv: list[str]) -> list[str]:
   return out
 
 
+def _pop_algo(argv: list[str]) -> tuple[list[str], str]:
+  """``--algo ppo|wm`` (default ``ppo``): the training algorithm (:mod:`wbc_mjlab.rl.algos`)."""
+  out, algo, i = [], "ppo", 0
+  while i < len(argv):
+    if argv[i].startswith("--algo="):
+      algo = argv[i].split("=", 1)[1]
+    elif argv[i] == "--algo" and i + 1 < len(argv):
+      algo, i = argv[i + 1], i + 1
+    else:
+      out.append(argv[i])
+    i += 1
+  return out, algo
+
+
 def _apply_default_logger(argv: list[str], *, use_wandb: bool) -> list[str]:
   if use_wandb or _has_explicit_agent_logger(argv):
     return argv
@@ -74,8 +89,9 @@ def _apply_default_logger(argv: list[str], *, use_wandb: bool) -> list[str]:
 
 
 def _safe_dump_yaml(filename, data, sort_keys: bool = False) -> None:
-  import yaml
   from pathlib import Path
+
+  import yaml
 
   def _sanitize(obj):
     if isinstance(obj, dict):
@@ -111,6 +127,71 @@ def main() -> None:
   if legacy:
     log.warning("Legacy task id mapped to --task / --no-state-estimation")
   prepare_wbc_run(task_id=task_id)
+  explicit_algo = any(a == "--algo" or a.startswith("--algo=") for a in rest)
+  rest, algo = _pop_algo(rest)
+  from wbc_mjlab.rl.algos import ALGOS, select_algo
+
+  if algo not in ALGOS:
+    raise SystemExit(f"--algo {algo!r}: choose from {', '.join(ALGOS)}")
+
+  # One compatibility mapping for old WM-owned actor flags. New runs store them
+  # under actor, where both PPO and WM can use the same model.
+  from wbc_mjlab.rl.policy import OLD_ACTOR_KEYS
+
+  aliases = {
+    f"--agent.algorithm.{old.replace('_', '-')}": f"--agent.actor.{new.replace('_', '-')}"
+    for old, new in OLD_ACTOR_KEYS.items()
+  }
+  rest = [
+    aliases.get(arg.split("=", 1)[0], arg.split("=", 1)[0])
+    + ("=" + arg.split("=", 1)[1] if "=" in arg else "")
+    if arg.startswith("--")
+    else arg
+    for arg in rest
+  ]
+
+  def option(name, default):
+    for i, value in enumerate(rest):
+      if value == name and i + 1 < len(rest):
+        return rest[i + 1]
+      if value.startswith(name + "="):
+        return value.split("=", 1)[1]
+    return default
+
+  if option("--agent.resume", "False").lower() == "true":
+    from dataclasses import replace
+    from pathlib import Path
+
+    from mjlab.tasks import registry
+    from mjlab.utils.os import get_checkpoint_path, get_wandb_checkpoint_path
+
+    from wbc_mjlab.rl.algos import run_algo
+    from wbc_mjlab.run_params import load_run_config
+
+    entry = registry._REGISTRY[task_id]
+    log_root = Path(option("--log-root", "logs/rsl_rl")) / option(
+      "--agent.experiment-name", entry.rl_cfg.experiment_name
+    )
+    wandb_path = option("--wandb-run-path", "")
+    if wandb_path:
+      checkpoint, _ = get_wandb_checkpoint_path(
+        log_root, Path(wandb_path), option("--wandb-checkpoint-name", None)
+      )
+    else:
+      checkpoint = get_checkpoint_path(
+        log_root,
+        option("--agent.load-run", ".*"),
+        option("--agent.load-checkpoint", "model_.*.pt"),
+      )
+    saved_algo = run_algo(checkpoint.parent)
+    if explicit_algo and algo != saved_algo:
+      raise ValueError(f"run uses {saved_algo}; resume with that algorithm")
+    run = load_run_config(checkpoint.parent, task_id, play=False)
+    registry._REGISTRY[task_id] = replace(
+      registry._REGISTRY[task_id], env_cfg=run.env, rl_cfg=run.agent
+    )
+  else:
+    select_algo(task_id, algo)
 
   rest, use_wandb = _filter_argv_for_wandb_flag(rest)
   rest = apply_dataset_motion_file(

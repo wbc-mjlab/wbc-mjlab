@@ -667,9 +667,37 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
   def jobs(kind: str = ""):
     return core.training.jobs(kind or None)
 
+  @app.post("/api/runs/evaluate")
+  def runs_evaluate(
+    run: str = Body(),
+    checkpoint: str = Body(""),
+    num_envs: int = Body(128),
+    motion: str = Body(""),
+  ):
+    job = guard(core.training.evaluate, run, checkpoint, num_envs, motion)
+    return ok(job=job.name)
+
+  @app.delete("/api/jobs")
+  def jobs_clear(kind: str = "", robot: str = "", runs: bool = False):
+    return guard(core.training.clear, kind or None, robot or None, runs)
+
   @app.get("/api/jobs/{name}")
   def job_detail(name: str, tail: int = 60):
     return guard(core.training.job_detail, name, tail)
+
+  @app.get("/api/jobs/{name}/log")
+  def job_log(name: str, lines: int = 5000):
+    return guard(core.training.job_log, name, lines)
+
+  @app.get("/api/jobs/{name}/result")
+  def evaluation_result(name: str):
+    path = guard(core.training.evaluation_result, name)
+    return FileResponse(path, media_type="application/json", filename=path.name)
+
+  @app.get("/api/jobs/{name}/log.txt")
+  def job_log_file(name: str):
+    path = guard(core.training.job_log_path, name)
+    return FileResponse(path, media_type="text/plain", filename=f"{name}.log")
 
   @app.post("/api/jobs/{name}/stop")
   def job_stop(name: str):
@@ -677,9 +705,20 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     return ok()
 
   @app.delete("/api/jobs/{name}")
-  def job_delete(name: str):
-    guard(core.training.delete, name)
-    return ok()
+  def job_delete(name: str, run: bool = False):
+    return {"freed": guard(core.training.delete, name, run)}
+
+  @app.get("/api/storage")
+  def storage():
+    return core.training.storage()
+
+  @app.post("/api/runs/delete")
+  def runs_delete(labels: list[str] = Body(embed=True)):
+    return {"freed": guard(core.training.delete_runs, labels)}
+
+  @app.post("/api/runs/prune")
+  def runs_prune(labels: list[str] = Body(), every: int = Body(0)):
+    return {"freed": guard(core.training.prune_runs, labels, every)}
 
   @app.post("/api/train/launch")
   def train_launch(
@@ -693,6 +732,9 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     logger: str = Body("tensorboard"),
     mirror: bool = Body(False),
     debias_z: bool = Body(False),
+    algo: str = Body("ppo"),
+    algo_settings: dict = Body({}),
+    recipe: str = Body(""),
     extra: str = Body(""),
   ):
     job = guard(
@@ -707,9 +749,47 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
       logger=logger,
       mirror=mirror,
       debias_z=debias_z,
+      algo=algo,
+      algo_settings=algo_settings,
+      recipe=recipe,
       extra=extra,
     )
     return ok(job=job.name)
+
+  @app.get("/api/train/methods")
+  def train_methods(task: str = ""):
+    return guard(core.training.methods, task)
+
+  @app.get("/api/train/timing")
+  def train_timing(algo: str):
+    return guard(core.training.iteration_time, algo)
+
+  # -------------------------------------------------------------- recipes
+  @app.put("/api/recipes/{name}")
+  def recipes_put(
+    name: str,
+    algo: str = Body(),
+    settings: dict = Body({}),
+    description: str = Body(""),
+  ):
+    from wbc_mjlab.studio import recipes
+
+    out = guard(recipes.save, name, algo, settings, description)
+    core.log(f"recipe {name} saved ({len(settings)} setting(s))", "ok")
+    core.emit("recipes", name=name)
+    return out
+
+  @app.delete("/api/recipes/{name}")
+  def recipes_delete(name: str):
+    from wbc_mjlab.studio import recipes
+
+    guard(recipes.delete, name)
+    core.emit("recipes", name=name)
+    return ok()
+
+  @app.post("/api/train/check")
+  def train_check(task: str = Body(), algo: str = Body(), dataset: str = Body()):
+    return guard(core.training.check, task, algo, dataset)
 
   # -------------------------------------------------------------- presets
   schema_cache: dict = {}
@@ -725,8 +805,8 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     resolved = presets.module_overrides(list(modules), robot)
     key = (base, json.dumps(resolved, sort_keys=True))
     if key not in schema_cache:
-      env_cfg, agent_cfg = presets.build(base, {}, modules=resolved)
-      out = presets.describe(env_cfg, agent_cfg)
+      env_cfg, _ = presets.build(base, {}, modules=resolved)
+      out = presets.describe(env_cfg)
       obs = out["observations"]
       obs["library"] = presets.library(
         robot, obs["joints"], len(obs["bodies"]), env_cfg
@@ -781,6 +861,16 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     )
     presets_changed(name)
     return out
+
+  @app.post("/api/presets/{name}/move-agent")
+  def presets_move_agent(name: str):
+    from wbc_mjlab.studio import presets
+
+    recipe = guard(presets.move_agent_to_recipe, name)
+    core.log(f"preset {name}: PPO settings moved to recipe {recipe['name']}", "ok")
+    presets_changed(name)
+    core.emit("recipes", name=recipe["name"])
+    return recipe
 
   @app.delete("/api/presets/{name}")
   def presets_delete(name: str):

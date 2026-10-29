@@ -102,6 +102,44 @@ def _slerp(q0: np.ndarray, q1: np.ndarray, b: float) -> np.ndarray:
   return out / np.linalg.norm(out)
 
 
+def test_small_rotation_resamplers_match_scipy():
+  """Regression motivated by SuperMimic-Reproduced's conversion tests (ba61053)."""
+  from scipy.spatial.transform import Rotation, Slerp
+
+  from wbc_mjlab.motion.library import _slerp as online
+  from wbc_mjlab.motion.motion_formats import _batched_quat_slerp as offline
+
+  angles = np.array([0.0, 1e-7, 1e-4, 0.2, 3.0])
+  q0 = np.tile([1.0, 0.0, 0.0, 0.0], (len(angles), 1))
+  q1 = np.stack(
+    [
+      np.cos(angles / 2),
+      np.zeros_like(angles),
+      np.sin(angles / 2),
+      np.zeros_like(angles),
+    ],
+    -1,
+  )
+  tau = 0.7
+  expected = np.stack(
+    [
+      Slerp([0, 1], Rotation.from_quat(np.stack([a, b])[:, [1, 2, 3, 0]]))(
+        [tau]
+      ).as_quat()[0, [3, 0, 1, 2]]
+      for a, b in zip(q0, q1, strict=True)
+    ]
+  )
+  # Sign flips represent the same rotation and must take the shortest arc.
+  q1[::2] *= -1
+  for sampler in (online, offline):
+    actual = sampler(
+      torch.tensor(q0, dtype=torch.float32),
+      torch.tensor(q1, dtype=torch.float32),
+      torch.full((len(angles), 1), tau),
+    )
+    np.testing.assert_allclose(actual.numpy(), expected, atol=1e-7)
+
+
 def _reference_mujoco(t: float, raw, model, bodies: list[int], fps_out: float) -> tuple:
   """Ground truth for one frame: numpy interpolation + central differences + CPU MuJoCo."""
   n = raw.base_pos.shape[0]
@@ -211,6 +249,47 @@ def test_debias_puts_the_lowest_foot_on_the_sole() -> None:
   lowest = float(log["body_pos_w"][:, feet, 2].min())
   # min over the source frames is the sole height; baked frames sit between them
   assert spec.foot_sole_z - 1e-5 <= lowest <= spec.foot_sole_z + 5e-3
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_source_pass_is_batched_wide_whatever_the_env_count(monkeypatch) -> None:
+  """Play's few worlds run the pass over every source frame in wide batches (not one
+  launch per few frames), with the same tables as a pass at training width."""
+  from wbc_mjlab.motion import library as lib
+  from wbc_mjlab.motion.robot_assets import get_robot_motion_spec
+
+  _, spec = get_robot_motion_spec("g1")
+  model, names = _scene_model(), _joint_names()
+  packed = lib.load_dataset(SAMPLES, names, cache=False)
+  bodies = ["pelvis", *spec.foot_body_names]
+  launches = 0
+  launch = lib._FkBatch.launch
+
+  def counted(self, device):
+    nonlocal launches
+    launches += 1
+    launch(self, device)
+
+  monkeypatch.setattr(lib._FkBatch, "launch", counted)
+  tables = []
+  for nworld in (2, lib.SOURCE_BATCH):
+    library = lib.MotionLibrary(packed, device="cuda:0")
+    kin = lib.RobotKinematics(
+      model,
+      joint_names=names,
+      body_names=bodies,
+      root_body="pelvis",
+      nworld=nworld,
+      device="cuda:0",
+    )
+    launches = 0
+    library.source_pass(kin, anchor=0, feet=[1, 2], foot_sole_z=spec.foot_sole_z)
+    assert launches == -(-packed.num_frames // lib.SOURCE_BATCH)
+    tables.append((library.z_shift, library.acc_table))
+  (z_a, acc_a), (z_b, acc_b) = tables
+  torch.testing.assert_close(z_a, z_b)
+  # accelerations are FK velocity differences × the source rate: float32 noise, amplified
+  torch.testing.assert_close(acc_a, acc_b, atol=1e-3, rtol=1e-4)
 
 
 # ---------------------------------------------------------------------------------- training

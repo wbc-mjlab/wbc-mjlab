@@ -87,9 +87,10 @@ def list_robot_ids_from_tasks() -> list[str]:
 def _rl_cfg_for_task(task: WbcTaskConfig):
   from mjlab.rl import RslRlOnPolicyRunnerCfg
 
+  from wbc_mjlab.rl.policy import tracking_runner_cfg
   from wbc_mjlab.robots.env import make_wbc_rl_cfg
 
-  cfg: RslRlOnPolicyRunnerCfg = make_wbc_rl_cfg(task.robot_id)
+  cfg: RslRlOnPolicyRunnerCfg = tracking_runner_cfg(make_wbc_rl_cfg(task.robot_id))
   cfg.experiment_name = task.experiment_name
   return cfg
 
@@ -98,13 +99,16 @@ def register_wbc_task(task: WbcTaskConfig) -> None:
   """Register one task with mjlab (env, play env, RL cfg, runner)."""
   from mjlab.tasks.registry import register_mjlab_task
 
-  from wbc_mjlab.robots.env import make_wbc_env_cfg
   from wbc_mjlab.rl.runner import PolicyOnlyMotionTrackingRunner
+  from wbc_mjlab.robots.env import make_wbc_env_cfg
 
+  training = make_wbc_env_cfg(task.robot_id, task_id=task.task_id)
+  playing = make_wbc_env_cfg(task.robot_id, play=True, task_id=task.task_id)
+  training._wbc_task_id = playing._wbc_task_id = task.task_id
   register_mjlab_task(
     task_id=task.task_id,
-    env_cfg=make_wbc_env_cfg(task.robot_id, task_id=task.task_id),
-    play_env_cfg=make_wbc_env_cfg(task.robot_id, play=True, task_id=task.task_id),
+    env_cfg=training,
+    play_env_cfg=playing,
     rl_cfg=_rl_cfg_for_task(task),
     runner_cls=PolicyOnlyMotionTrackingRunner,
   )
@@ -174,8 +178,7 @@ def robot_id_for_run(
     rid = resolve_robot_id(robot_id or "g1")
     if task.robot_id != rid:
       raise ValueError(
-        f"Task {task.task_id!r} is for robot {task.robot_id!r}, "
-        f"but --robot is {rid!r}."
+        f"Task {task.task_id!r} is for robot {task.robot_id!r}, but --robot is {rid!r}."
       )
     return rid
   return task.robot_id

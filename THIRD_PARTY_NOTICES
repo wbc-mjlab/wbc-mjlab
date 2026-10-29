@@ -1,0 +1,42 @@
+SuperMimic-Reproduced
+====================
+
+The optional world-model integration prior, motion encoder design, terminal-state
+recording, execution-only noise, distributed gradient averaging, evaluation/drift
+protocol and numerical validation ideas were adapted from or informed by:
+
+  CuboiLeo/SuperMimic-Reproduced
+  https://github.com/CuboiLeo/SuperMimic-Reproduced
+  Reference commit: ba6105349069bf040f1fdad60873d13138d505a2
+
+These features implement or extend the method described in:
+
+  Qiayuan Liao et al. (2026), SuperMimic: Scaling Humanoid Whole-Body Control
+  with One Differentiable World Model. https://arxiv.org/abs/2610.28480
+
+The reproduced code is an independent implementation, not the paper authors'
+official code. File-level comments identify the relevant upstream source paths.
+The upstream license notice is preserved below. The rest of wbc-mjlab remains
+under its existing Apache-2.0 license.
+
+MIT License
+
+Copyright (c) 2026 Yuxi Liu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -59,20 +59,24 @@ class Session:
   ):
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
-    from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
+    from mjlab.tasks.registry import load_env_cfg, load_runner_cls
 
-    from wbc_mjlab.motion.library import apply_run_motion_options
+    from wbc_mjlab.rl.algos import rl_cfg
+    from wbc_mjlab.run_params import load_run_config
     from wbc_mjlab.studio.presets import register, split_task_id
     from wbc_mjlab.tasks import prepare_wbc_run
 
-    if split_task_id(task_id):  # a run's snapshot when it has one, else the preset file
-      register(split_task_id(task_id)[1], snapshot=preset)
-    prepare_wbc_run(task_id=task_id)
-    env_cfg = load_env_cfg(task_id, play=True)
-    agent_cfg = load_rl_cfg(task_id)
+    if run_dir is not None and checkpoint is not None:
+      run = load_run_config(run_dir, task_id)
+      env_cfg, agent_cfg = run.env, run.agent
+    else:
+      if split_task_id(task_id):
+        register(split_task_id(task_id)[1], snapshot=preset)
+      prepare_wbc_run(task_id=task_id)
+      env_cfg = load_env_cfg(task_id, play=True)
+      agent_cfg = rl_cfg(task_id)
     motion = env_cfg.commands["motion"]
     motion.motion_file = motion_file
-    apply_run_motion_options(motion, run_dir)  # mirror / debias as trained
     motion.rsi.sampling_mode = "uniform"
     env_cfg.scene.num_envs = num_envs
     self.task = task_id

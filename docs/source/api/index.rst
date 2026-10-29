@@ -19,4 +19,5 @@ surface.
    presets
    mdp
    export
+   training
    studio
