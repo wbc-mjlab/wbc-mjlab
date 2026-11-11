@@ -37,6 +37,8 @@ import json
 import os
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -239,6 +241,9 @@ def load_dataset(
   file's name, size and mtime, the joint list and the format options, so editing, adding or
   removing a clip rebuilds it. Older cache files of the dataset are removed.
   """
+  import time
+
+  started = time.perf_counter()
   root = Path(root).expanduser().resolve()
   files = list_source_files(root, format_name=format_name)
   if not files:
@@ -257,7 +262,7 @@ def load_dataset(
       if verbose:
         print(
           f"[INFO] Motion library: {packed.num_clips} clips, {packed.num_frames} frames "
-          f"(cache {path.name})"
+          f"(cache {path.name}, {time.perf_counter() - started:.2f}s)"
         )
       return packed
     except (OSError, ValueError, KeyError) as e:
@@ -276,6 +281,11 @@ def load_dataset(
         old.unlink(missing_ok=True)
   except OSError as e:  # read-only dataset: run without a cache
     print(f"[WARN] Could not write motion cache {path}: {e}")
+  if verbose:
+    print(
+      f"[INFO] Motion library: source packing ready in {time.perf_counter() - started:.2f}s",
+      flush=True,
+    )
   return packed
 
 
@@ -776,6 +786,44 @@ def _grid_lengths(lib: MotionLibrary, step_dt: float) -> torch.Tensor:
   return counts[lib.segment_clip]
 
 
+# Explicit, construction-scoped sharing for independent curriculum simulators.
+# Only immutable source/derived tables are shared; FK scratch space and CUDA graphs
+# always belong to the new environment and its stream.
+
+_shared_online_motion = ContextVar("shared_online_motion", default=None)
+
+
+@contextmanager
+def reuse_online_motion(motion):
+  token = _shared_online_motion.set(
+    motion if isinstance(motion, OnlineMotion) else None
+  )
+  try:
+    yield
+  finally:
+    _shared_online_motion.reset(token)
+
+
+def _kinematic_signature(model):
+  import hashlib
+
+  digest = hashlib.sha256()
+  for name in (
+    "body_parentid",
+    "body_pos",
+    "body_quat",
+    "jnt_type",
+    "jnt_bodyid",
+    "jnt_qposadr",
+    "jnt_dofadr",
+    "jnt_pos",
+    "jnt_axis",
+    "qpos0",
+  ):
+    digest.update(getattr(model, name).tobytes())
+  return digest.digest()
+
+
 class OnlineMotion:
   """Motion source of the training command, computed from the raw clips each step.
 
@@ -818,11 +866,41 @@ class OnlineMotion:
     missing = [n for n in joint_names if n not in qpos_names]
     if missing:
       raise ValueError(f"joints {missing} are not in the model")
-    packed = load_dataset(
-      source, qpos_names, format_name=format_name, input_fps=input_fps, cache=cache
+    self._data_key = (
+      self.motion_source,
+      tuple(qpos_names),
+      tuple(body_names),
+      anchor_body,
+      root_body,
+      self.step_dt,
+      str(self.device),
+      robot_id,
+      entity_name,
+      mirror,
+      debias_z,
+      debias_foot_sole_z,
+      storage,
+      format_name,
+      input_fps,
+      _kinematic_signature(mj_model),
     )
-    spec = mirror_spec_for(robot_id, qpos_names) if mirror else None
-    self.library = MotionLibrary(packed, device=device, storage=storage, mirror=spec)
+    shared = _shared_online_motion.get()
+    if shared is not None and shared._data_key != self._data_key:
+      raise ValueError(
+        "Cannot share motion data across different source/kinematic settings"
+      )
+    if shared is None:
+      packed = load_dataset(
+        source, qpos_names, format_name=format_name, input_fps=input_fps, cache=cache
+      )
+      spec = mirror_spec_for(robot_id, qpos_names) if mirror else None
+      self.library = MotionLibrary(packed, device=device, storage=storage, mirror=spec)
+    else:
+      self.library = shared.library
+      packed = self.library.packed
+      print(
+        "[INFO] Online motion: reusing immutable training source tables", flush=True
+      )
 
     feet: list[str] = []
     sole_z = None
@@ -845,12 +923,23 @@ class OnlineMotion:
       device=device,
       entity_name=entity_name,
     )
-    self.library.source_pass(
-      self.kin,
-      anchor=bodies.index(anchor_body),
-      feet=[bodies.index(f) for f in feet],
-      foot_sole_z=sole_z,
-    )
+    if shared is None:
+      import time
+
+      started = time.perf_counter()
+      print(
+        f"[INFO] Online motion: source FK pass ({packed.num_frames} frames)", flush=True
+      )
+      self.library.source_pass(
+        self.kin,
+        anchor=bodies.index(anchor_body),
+        feet=[bodies.index(f) for f in feet],
+        foot_sole_z=sole_z,
+      )
+      print(
+        f"[INFO] Online motion: source FK ready in {time.perf_counter() - started:.2f}s",
+        flush=True,
+      )
     self._use_graphs = self.device.type == "cuda" and storage == "device"
     self._graphs: dict[int, tuple] = {}
     self._joint_perm = (
@@ -889,7 +978,10 @@ class OnlineMotion:
     m = int(steps.shape[0])
     if not self._use_graphs or m == 0 or m > self.kin.nworld:
       return self._frame(steps)
-    batch = self.kin.batch_for(m)
+    return self._frame_graph(steps, self.kin.batch_for(m))
+
+  def _frame_graph(self, steps, batch):
+    m = int(steps.shape[0])
     pre, post, buf, out = self._graphs_for(batch)
     buf[:m] = steps
     if m < batch.nworld:
@@ -1105,3 +1197,52 @@ def apply_run_motion_options(motion_cfg, run_dir: Path | str | None) -> dict:
   if options:
     print(f"[INFO] Motion options of the run: {options}")
   return options
+
+
+@torch.no_grad()
+def contact_floors(motion, body_indices, quantile, batch_size=SOURCE_BATCH):
+  """Exact per-segment foot-height quantiles, with FK batched across clip boundaries.
+
+  BlinkMimic motion.py's contact floor, evaluated on our resampled motion grid.
+  Only selected heights live on the CPU (two floats/frame for two feet), never
+  the full body trajectories. Reuses the online FK graphs at a fixed batch width.
+  """
+  import time
+
+  started = time.perf_counter()
+  print("[INFO] Motion contacts: computing batched reference floors", flush=True)
+  # Preprocessing width is independent of Play/probe environment count.
+  batch = (
+    motion.kin.wide_batch(batch_size) if isinstance(motion, OnlineMotion) else None
+  )
+  width = batch.nworld if batch is not None else batch_size
+  heights = np.empty((motion.time_step_total, len(body_indices)), dtype=np.float32)
+  device = motion.segment_start_idx.device
+  for a in range(0, len(heights), width):
+    b = min(a + width, len(heights))
+    steps = torch.arange(a, b, device=device)
+    if batch is not None:
+      if motion._use_graphs:
+        positions = motion._frame_graph(steps, batch).body_pos_w
+      else:
+        seg, t = motion.locate(steps)
+        q, qv = motion.library.state_at(seg, t, motion.step_dt)
+        positions = motion.kin.fk(q, qv, batch)[0]
+    else:
+      positions = motion.frame(steps).body_pos_w
+    heights[a:b] = positions[:, body_indices, 2].cpu().numpy()
+  if batch is not None and batch not in motion.kin._batches:
+    motion._graphs.pop(batch.nworld, None)  # release one-off preprocessing graphs
+  floors = np.stack(
+    [
+      np.quantile(heights[a:b], quantile, axis=0)
+      for a, b in zip(
+        motion.segment_start_idx.tolist(), motion.segment_end_idx.tolist(), strict=True
+      )
+    ]
+  )
+  print(
+    f"[INFO] Motion contacts: floors ready in {time.perf_counter() - started:.2f}s",
+    flush=True,
+  )
+  return torch.as_tensor(floors, dtype=torch.float32, device=device)

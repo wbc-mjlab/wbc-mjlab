@@ -29,6 +29,11 @@ def clip_finished(env, command_name: str = "motion") -> torch.Tensor:
 
 def deterministic_cfg(cfg):
   """Keep preset terms/weights, disable noise, randomization and external events."""
+  cfg.rewards = {
+    name: term
+    for name, term in cfg.rewards.items()
+    if not getattr(term.func, "training_only", False)
+  }
   cfg.seed = 0
   cfg.episode_length_s = 1e9
   cfg.curriculum = {}
@@ -96,12 +101,29 @@ def reward_upper_bound(cfg, step_dt: float) -> float | None:
     for name, func in vars(rewards).items()
     if name.startswith("motion_") and name.endswith("_exp") and callable(func)
   }
-  penalties = {mdp.action_rate_l2, mdp.joint_pos_limits, rewards.action_rate_l1}
+  # These costs are nonnegative even when their simulator-only inputs require
+  # learned reward heads in imagination. Negative weights contribute at most zero.
+  penalties = {
+    mdp.action_rate_l2,
+    mdp.joint_pos_limits,
+    rewards.action_rate_l1,
+    rewards.joint_acc_l1,
+    rewards.anti_shake_ang_vel_l2,
+    rewards.actuator_torque_soft_limit,
+    rewards.angular_momentum_penalty,
+    rewards.self_collision_cost,
+    rewards.mechanical_power_l1,
+    rewards.negative_mechanical_power_l2,
+    rewards.torque_envelope_violation_l2,
+    rewards.feet_slip,
+  }
   bound = 0.0
   for term in cfg.rewards.values():
     if not term.weight:
       continue
-    if term.func in kernels and term.params.get("kappa", 1.0) >= 0:
+    if hasattr(term.func, "upper_bound"):
+      bound += max(term.weight, 0.0) * term.func.upper_bound
+    elif term.func in kernels and term.params.get("kappa", 1.0) >= 0:
       bound += max(term.weight, 0.0)
     elif term.func is mdp.is_alive:
       bound += max(term.weight, 0.0)

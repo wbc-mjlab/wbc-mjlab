@@ -119,6 +119,23 @@ def _safe_dump_yaml(filename, data, sort_keys: bool = False) -> None:
 _mjlab_os.dump_yaml = _safe_dump_yaml
 
 
+def _pop_recipe(argv):
+  out, name, i = [], None, 0
+  while i < len(argv):
+    value = argv[i]
+    if value.startswith("--recipe="):
+      name = value.split("=", 1)[1]
+    elif value == "--recipe":
+      if i + 1 == len(argv):
+        raise ValueError("--recipe requires a name")
+      i += 1
+      name = argv[i]
+    else:
+      out.append(value)
+    i += 1
+  return out, name
+
+
 def main() -> None:
   prog = sys.argv[0]
   rest, robot, task_id, no_se, legacy, dataset, dataset_path, cache_motion_bundle = (
@@ -129,6 +146,16 @@ def main() -> None:
   prepare_wbc_run(task_id=task_id)
   explicit_algo = any(a == "--algo" or a.startswith("--algo=") for a in rest)
   rest, algo = _pop_algo(rest)
+  rest, recipe_name = _pop_recipe(rest)
+  recipe = None
+  if recipe_name:
+    from wbc_mjlab.studio.recipes import check_settings, load
+
+    recipe = load(recipe_name)
+    if explicit_algo and algo != recipe["algo"]:
+      raise ValueError("--algo conflicts with the recipe's method")
+    algo = recipe["algo"]
+    check_settings(task_id, algo, recipe["settings"])
   from wbc_mjlab.rl.algos import ALGOS, select_algo
 
   if algo not in ALGOS:
@@ -159,6 +186,8 @@ def main() -> None:
     return default
 
   if option("--agent.resume", "False").lower() == "true":
+    if recipe is not None:
+      raise ValueError("resume restores the saved recipe; omit --recipe")
     from dataclasses import replace
     from pathlib import Path
 
@@ -192,6 +221,13 @@ def main() -> None:
     )
   else:
     select_algo(task_id, algo)
+    if recipe is not None:
+      from mjlab.tasks import registry
+
+      from wbc_mjlab.studio.presets import _set_path
+
+      for key, value in recipe["settings"].items():
+        _set_path(registry._REGISTRY[task_id].rl_cfg, key, value)
 
   rest, use_wandb = _filter_argv_for_wandb_flag(rest)
   rest = apply_dataset_motion_file(

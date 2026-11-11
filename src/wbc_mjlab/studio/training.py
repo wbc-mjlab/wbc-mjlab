@@ -291,6 +291,15 @@ class TrainingService:
         )
       # its checkpoint fixes the networks: build them as the run did
       settings |= recipes.architecture_of(run.path)
+    if recipe and run is None:
+      selected = recipes.load(recipe)
+      if selected["algo"] != algo:
+        raise ValueError("recipe does not match the selected method")
+      # Resolve missing defaults in the fresh worker, even if the Studio/browser has
+      # cached an older recipe. Explicit edits still take precedence; resume uses YAML.
+      args += ["--recipe", recipe]
+      if settings == recipes.check_settings(cfg.task_id, algo, selected["settings"]):
+        settings = {}  # an unedited form snapshot is not an explicit override
     for key, value in settings.items():
       args += [f"--agent.{key.replace('_', '-')}", *_cli_values(value)]
     if mirror:

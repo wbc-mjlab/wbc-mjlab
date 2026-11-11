@@ -22,6 +22,38 @@ motion encoder keeps the same observation-to-action interface. Every built-in G1
 trains with it except ``Wbc-G1-Terrain-Scan``, whose height scan is not part of the imagined
 state.
 
+Recipes and presets
+-------------------
+
+All five world-model recipes (``wm``, ``wm-24gb``, ``wm-encoder``, ``wm-blink``
+and ``wm-supermimic``) compose with the flat-ground motion presets: WBC, Zest,
+BinaryFailure, Lookahead, Blink, EE and their SE variants. The preset supplies
+observations, history, reference frames, action semantics and rewards; the recipe
+supplies the learner. Selecting an encoder recipe does not add joint lookahead or
+replace end-effector references.
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-train --task Wbc-G1-EE --dataset samples --recipe wm-blink
+   uv run wbc-mjlab-train --task Wbc-G1-Zest-SE --dataset samples --recipe wm-supermimic
+
+In Studio, choose the preset and recipe independently. Custom presets use the
+same observation reconstruction and action adapters. Encoders infer reference
+terms from ``ref_*`` names or multi-frame terms; set ``actor.goal_terms`` explicitly
+when using different names. Unsupported sensors, dynamics context or unknown
+reward bounds still produce errors rather than changing the task silently.
+Terrain-Scan requires terrain-conditioned dynamics and imagined scan reconstruction
+and is not supported by this recipe refactor.
+
+Blink's next-frame joint-reference shortcut and mirrored dynamics windows are
+separate opt-ins (``actor.reference_residual`` and ``algorithm.mirror_probability``).
+Their compatibility checks remain active. Known nonnegative tracking penalties
+contribute zero to a reward upper bound when negatively weighted, so the bounded
+critic works with WBC and Zest regularizers as well as Lookahead rewards.
+
+Training evidence
+-----------------
+
 .. admonition:: Experimental
    :class: warning
 
@@ -107,7 +139,13 @@ At start, each nonzero reward term is classified and logged:
   the simulator's accelerations): ``actuator_torque_soft_limit``, ``joint_acc``,
   ``foot_slip``, … A head of the world model predicts it, trained on the env's own values.
 
-Terminations are always learned (a probability per step), so any termination set works.
+By default, terminations are learned (a probability per step), so any termination
+set works. The optional ``termination_mode=hybrid`` also evaluates differentiable
+anchor tracking errors using the task's thresholds, following BlinkMimic/xMimic.
+It bounds the learned prediction from below and excludes terminated imagination
+tails from critic fitting; unsupported failure terms retain the learned head.
+The ``wm-blink`` recipe enables this option. See :doc:`../tasks/wbc-g1-blink`
+for attribution, limitations and optional recorded velocity kicks.
 
 What changes, what is refused
 -----------------------------
@@ -237,6 +275,77 @@ execution-only noise, 2048 imagined rollouts), not a measured improvement over
 ``wm`` or ``wm-24gb``. Play and evaluation reconstruct actor sizes and these settings
 from the run's ``params/agent.yaml``. Existing flat-actor checkpoints remain loadable.
 
+Official SuperMimic options
+---------------------------
+
+The official `HybridRobotics implementation
+<https://github.com/HybridRobotics/supermimic/tree/abc124c1bd5976341034668af3d12c087f2f1f55>`_
+(Apache-2.0), together with the original paper :cite:p:`supermimic2026`, informs
+these optional components. They use the same trainer, replay, task rewards,
+checkpoint loader and deployment path. Existing ``wm`` and ``wm-blink`` recipes
+retain their settings. These are experimental combinations, not measured paper
+reproductions or a demonstrated cure for training divergence.
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-train --task Wbc-G1-Lookahead --dataset samples \
+     --recipe wm-supermimic \
+     --env.commands.motion.rsi.strategy visited_return
+
+``wm-supermimic`` combines velocity-only dynamics, physical loss scaling, a
+structured LayerNorm/GELU critic, a motion encoder and Muon, retaining bounded
+bootstrap, hybrid termination and finite-update guards. The sampler remains a
+task option, explicitly selected above. Each component can also be selected
+independently using the flags below.
+In Studio, select the task and recipe in Train. The sampling strategy belongs to
+the preset's motion settings, keeping task curricula separate from learner recipes.
+
+* ``--agent.algorithm.dynamics-mode velocity`` predicts only root linear/angular
+  and joint velocity deltas: ``6 + joints`` outputs (35 for G1). Both root deltas
+  are expressed in the current body frame; world-frame velocities are preserved
+  across the orientation update. Pose follows integration with no independent
+  correction. ``--agent.algorithm.velocity-blend None`` derives the substep
+  coefficient ``(n+1)/(2n)``. Use ``physical`` or ``increment`` loss scaling with
+  this mode; output scaling has a different dimension and is rejected.
+* ``--agent.algorithm.dynamics-loss-scale physical`` uses fixed tolerances ordered
+  as root position, orientation, linear velocity, angular velocity, joint position,
+  joint velocity. ``--agent.algorithm.physical-error-scales`` defaults to
+  ``(0.01, 0.02, 0.5, 1.0, 0.1, 3.14)`` in SI/radian units. Pose/joint tolerances
+  follow official ``wm_learner.py``. Our rotation-vector metric and explicit root
+  velocity supervision differ from their matrix-rotation/pose-only root loss.
+  Input/output normalization still learns running statistics; these loss weights do not.
+* ``--agent.algorithm.critic-inputs structured`` separates physical state, tracking,
+  context and clean reference goals from the actor's proprioceptive observations.
+  All policy history and previous actions are retained through a learned 64-wide
+  bottleneck. ``--agent.algorithm.critic-layer-norm True`` and
+  ``--agent.algorithm.critic-activation gelu`` are independent options. The existing
+  ``actor`` layout remains the default.
+* ``--env.commands.motion.rsi.strategy visited_return`` estimates discounted
+  returns at every visited segment-local bin, using a pre-reset observer so terminal
+  rewards are included. ``return-horizon`` (20) and ``return-memory`` (256) control
+  its update window and effective sample memory. Falls bootstrap zero, timeouts
+  bootstrap the next bin, and clip ends bootstrap the mean valid-bin value without
+  crossing into a neighbouring clip. A simultaneous failure and timeout counts as
+  a failure. Sampling uses the existing uniform/focus/memory mixture; memory
+  accumulates squared focus so previously difficult bins retain practice. This
+  strategy uses ``temperature-base`` directly, ignoring ``temperature-scale-by-bins``.
+  Value/count/effort estimates resume through the shared sampler checkpoint; partial
+  rollout windows restart with the simulator. It works with PPO as well as WM.
+
+CUDA update/collection graphs now validate captured parameter, buffer and optimizer
+storage before replay. Replacing or resizing a referenced tensor produces an explicit
+error rather than silently using obsolete storage. Checkpoint loading resets the
+graphs; normal updates copy into existing buffers. The guard does not synchronize
+the GPU. New dynamics modes and critic layouts require a fresh run, while old
+checkpoints retain their original architectures and loss behavior.
+Finite-update gating with CUDA graphs automatically selects fused Adam so the
+skip decision remains on the device during capture.
+
+Validate additions one at a time with fixed seeds, clips and training budgets.
+Compare simulator tracking/termination, raw critic extremes, physical model errors,
+and steady-state update time separately from compilation. A finite short smoke run
+does not establish long-run convergence on the full dataset.
+
 Distributed training
 --------------------
 
@@ -365,3 +474,12 @@ wbc-mjlab's own implementation.
    - :doc:`../workflows/training` — launching and resuming runs
    - :doc:`presets_and_tasks` — what a preset configures
    - :doc:`../research` — the SuperMimic paper
+
+BlinkMimic recipe
+-----------------
+
+The experimental ``wm-blink`` recipe adds structured dynamics, independent loss
+normalization, Muon/Adam, EMA deployment, failure-directed probes and execution
+optimizations, with optional reference-action residuals and mirrored dynamics windows, to this
+same trainer. See :doc:`../tasks/wbc-g1-blink` for launch commands, compatibility,
+checkpoint semantics, benchmark differences and upstream citations.

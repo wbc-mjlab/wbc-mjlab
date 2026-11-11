@@ -233,7 +233,7 @@ def test_play_env_has_no_external_forces():
       for name, ev in cfg.events.items()
       if ev.mode in ("interval", "step") and ev.params.get("enabled", True)
     ]
-    assert active == [], active
+    assert active == ["visited_returns"], active  # observer, not a physical disturbance
 
   from wbc_mjlab.rl.evaluation import deterministic_cfg
 
@@ -540,7 +540,14 @@ def test_encoder_noise_terminal_resume_and_export(tmp_path):
 
 @pytest.fixture
 def overfit_env():
-  _, env = _env("Wbc-G1-Lookahead", num_envs=32, noise=False)
+  # This is a numerical learning check: pin both sampled motion starts and model
+  # initialization so unrelated tests consuming RNG cannot change its difficulty.
+  _, env = _env(
+    "Wbc-G1-Lookahead",
+    num_envs=32,
+    noise=False,
+    edit=lambda cfg: setattr(cfg, "seed", 0),
+  )
   env.reset()
   yield env
   env.close()

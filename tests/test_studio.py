@@ -293,7 +293,15 @@ def test_recipes_train_any_preset_with_either_method(preset_dir) -> None:
     "wm",
     "wm-24gb",
     "wm-encoder",
+    "wm-blink",
+    "wm-supermimic",
   }
+  blink = recipes.load("wm-blink")["settings"]
+  assert recipes.check_settings("Wbc-G1-Blink", "wm", blink) == blink
+  assert blink["clip_actions"] == 20.0
+  assert blink["light_checkpoints"] is False
+  official = recipes.load("wm-supermimic")["settings"]
+  assert recipes.check_settings("Wbc-G1-Lookahead", "wm", official) == official
   recipes.save("zz_fast", "wm", {"algorithm.horizon": 16}, "short horizon")
   r = recipes.load("zz_fast")
   assert r["algo"] == "wm" and r["settings"] == {"algorithm.horizon": 16}
@@ -364,10 +372,24 @@ def test_launch_passes_the_method_and_its_settings(monkeypatch, tmp_path) -> Non
   )
   args = launched["args"]
   assert args[args.index("--algo") + 1] == "wm"
+  assert args[args.index("--recipe") + 1] == "wm-24gb"
   assert args[args.index("--agent.algorithm.imagined-rollouts") + 1] == "2048"
   # mjlab's CLI takes tuples as Python literals
   assert args[args.index("--agent.algorithm.model-hidden-dims") + 1] == "(512, 512)"
   assert launched["meta"]["algo"] == "wm" and launched["meta"]["recipe"] == "wm-24gb"
+  # Legacy browser snapshots still work; unedited defaults are resolved by the
+  # fresh worker, rather than pinned by a long-running Studio process.
+  from wbc_mjlab.studio import recipes
+
+  t.launch(
+    "Wbc-G1",
+    "samples",
+    algo="wm",
+    recipe="wm-24gb",
+    algo_settings=recipes.load("wm-24gb")["settings"],
+  )
+  assert "--recipe" in launched["args"]
+  assert "--agent.algorithm.imagined-rollouts" not in launched["args"]
   with pytest.raises(ValueError, match="not a setting"):
     t.launch("Wbc-G1", "samples", algo="ppo", algo_settings={"algorithm.horizon": 8})
   with pytest.raises(ValueError, match="unknown algorithm"):

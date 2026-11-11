@@ -26,6 +26,7 @@ from mjlab.viewer import ViewerConfig
 from wbc_mjlab.env.mdp.assistive_wrench import AssistiveWrenchEvent
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.env.mdp.sampling import AdaptiveSimilarityTermCfg, RsiCfg
+from wbc_mjlab.env.mdp.return_sampling import record_visited_returns
 
 import wbc_mjlab.env.mdp as mdp
 
@@ -270,6 +271,7 @@ def make_base_wbc_env_cfg(
   }
 
   events: dict[str, EventTermCfg] = {
+    "visited_returns": EventTermCfg(func=record_visited_returns, mode="step"),
     "assistive_wrench": EventTermCfg(
       func=AssistiveWrenchEvent,
       mode="step",

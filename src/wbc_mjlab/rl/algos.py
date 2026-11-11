@@ -58,7 +58,8 @@ ALGORITHMS: dict[Algo, AlgoInfo] = {
     iterations=(5000, 20000, 60000, 160000),
     notes=(
       "Pushes, pulls and the assistive wrench are off (a deterministic model cannot "
-      "predict them). The first update compiles for a few minutes."
+      "predict them). Optional recorded velocity kicks train recovery. "
+      "The first update compiles for a few minutes."
     ),
   ),
 }

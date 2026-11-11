@@ -33,7 +33,7 @@ AdaptiveSimilarityTerm = Literal[
 ]
 
 AdaptiveSamplingStrategy = Literal[
-  "binary_failure", "similarity_ema", "discounted_return"
+  "binary_failure", "similarity_ema", "discounted_return", "visited_return"
 ]
 
 DEFAULT_SIMILARITY_STDS: dict[AdaptiveSimilarityTerm, float] = {
@@ -97,12 +97,22 @@ class RsiCfg:
   similarity_from_rewards: bool = False
   tracking_reward_prefix: str = "motion_"
   return_gamma: float = 0.99
-  """``discounted_return``: discount of the episode return."""
+  """Discount for discounted_return and visited_return."""
+  return_horizon: int = 20
+  return_memory: int = 256
+  """Visited-bin return window and effective sample memory; visited_return only."""
   temperature_scale_by_bins: bool = True
   """Softmax temperature ``temperature_base / log(1 + bins)``; False: ``temperature_base``."""
   memory_ratio: float = 0.0
   """Share of starts drawn in proportion to each bin's running-average softmax weight, so a
   hard bin keeps some practice after it is learned (SuperMimic: 0.1)."""
+  recent_failure_share: float = 0.0
+  recent_failure_lookback_s: float = 1.0
+  recent_failure_decay: float = 0.7
+  probe_share: float = 0.0
+  probe_lookback_s: float = 10.0
+  probe_decay: float = 0.7
+  """Blink reset mixtures: base RSI, recent failures, then independent policy probes."""
   memory_alpha: float = 0.001
   """Rate of that running average, per sampling call."""
 
@@ -325,7 +335,11 @@ def bin_probabilities(
   softmax = torch.softmax(levels / temperature, dim=0)
   probs = (1.0 - uniform_ratio - memory_ratio) * softmax + uniform_ratio / num_valid
   if memory is not None and memory_ratio > 0.0:
-    probs = probs + memory_ratio * memory / memory.sum().clamp(min=1.0e-12)
+    total = memory.sum()
+    keep = torch.where(
+      total > 0, memory / total.clamp_min(1e-12), torch.full_like(memory, 1 / num_valid)
+    )
+    probs = probs + memory_ratio * keep.to(probs.dtype)
   return probs, softmax
 
 
@@ -425,17 +439,84 @@ def rsi_failure_signal_label(
     return "EMA(1 if early terminated)"
   if strategy == "discounted_return":
     return "EMA(1 − discounted return / attainable)"
+  if strategy == "visited_return":
+    return "1 − visited-bin bootstrapped return / reward ceiling"
   if similarity_from_rewards:
     return "EMA(1 − mean motion-reward similarity)"
   return "EMA(1 − mean tracking similarity)"
 
 
+def failure_counts(shape, trajectories, bins, weights):
+  """Accumulate duplicate failure bins without index-put races (BlinkMimic d264658)."""
+  out = weights.new_zeros(shape)
+  index = trajectories * shape[1] + bins.clamp(0, shape[1] - 1)
+  out.flatten().scatter_add_(0, index, weights)
+  return out
+
+
+def failure_mixture(base, counts, valid, share, lookback_bins=0):
+  """Mix a failure distribution into base RSI; spread only within the same clip.
+
+  BlinkMimic d264658 env.py/train.py, MIT; see THIRD_PARTY_NOTICES and
+  https://github.com/fuyichen0725/blinkmimic/tree/d264658d6c9ce61fb52f9f0f8985a369f3ccc409
+  Empty distributions preserve the base exactly. All arithmetic stays on device.
+  """
+  if not 0 <= share <= 1 or lookback_bins < 0:
+    raise ValueError("invalid failure mixture share/window")
+  focus = counts.clone()
+  for lag in range(1, min(lookback_bins + 1, counts.shape[1])):
+    focus[:, :-lag] += counts[:, lag:]
+  focus = focus[valid[:, 0], valid[:, 1]]
+  total = focus.sum()
+  mixed = (1 - share) * base + share * focus / total.clamp_min(1e-12)
+  return torch.where(total > 0, mixed, base)
+
+
+def curriculum_probabilities(command, base):
+  rsi, valid = command.cfg.rsi, command._valid_bin_indices
+  if rsi.recent_failure_share:
+    base = failure_mixture(
+      base, command._recent_failures, valid, rsi.recent_failure_share
+    )
+  if rsi.probe_share:
+    base = failure_mixture(
+      base,
+      command._probe_failures,
+      valid,
+      rsi.probe_share,
+      math.ceil(rsi.probe_lookback_s / rsi.bin_width_s),
+    )
+  return base
+
+
 def sampling_state(command: MotionCommand) -> dict:
   """One state schema for PPO/WM checkpoints and exported RSI sidecars."""
   return {
-    "schema": 1,
+    "schema": 3,
+    "strategy": getattr(command.cfg.rsi, "strategy", ""),
     "failure_levels": command.bin_failure_levels.detach().clone(),
     "memory": command._bin_memory.detach().clone(),
+    **(
+      {
+        "return_values": command._visited_returns.value.clone(),
+        "return_counts": command._visited_returns.count.clone(),
+        "return_config": (
+          command._visited_returns.gamma,
+          command._visited_returns.horizon,
+          command._visited_returns.memory,
+        ),
+      }
+      if getattr(command, "_visited_returns", None) is not None
+      else {}
+    ),
+    **(
+      {
+        "recent_failures": command._recent_failures.detach().clone(),
+        "probe_failures": command._probe_failures.detach().clone(),
+      }
+      if hasattr(command, "_recent_failures")
+      else {}
+    ),
     "valid_mask": command.bin_valid_mask.detach().clone(),
     "visit_counts": command.bin_visit_counts.detach().clone(),
     "segment_names": tuple(command.motion.segment_names),
@@ -456,6 +537,23 @@ def restore_sampling_state(command: MotionCommand, state, *, strict=False) -> bo
   def tensor(value, target):
     return torch.as_tensor(value, dtype=target.dtype, device=target.device)
 
+  if state.get("strategy", "") and str(state["strategy"]) != getattr(
+    command.cfg.rsi, "strategy", ""
+  ):
+    return fail("sampling strategy differs")
+  if getattr(command, "_visited_returns", None) is not None and not {
+    "return_values",
+    "return_counts",
+  }.issubset(state):
+    return fail("visited-return estimates are missing")
+  sampler = getattr(command, "_visited_returns", None)
+  if sampler is not None and tuple(state.get("return_config", ())) != (
+    sampler.gamma,
+    sampler.horizon,
+    sampler.memory,
+  ):
+    return fail("visited-return discount, horizon or memory differs")
+
   if "segment_names" in state and tuple(state["segment_names"]) != tuple(
     command.motion.segment_names
   ):
@@ -475,6 +573,22 @@ def restore_sampling_state(command: MotionCommand, state, *, strict=False) -> bo
   targets = {
     "failure_levels": command.bin_failure_levels,
     "memory": command._bin_memory,
+    **(
+      {
+        "return_values": command._visited_returns.value,
+        "return_counts": command._visited_returns.count,
+      }
+      if getattr(command, "_visited_returns", None) is not None
+      else {}
+    ),
+    **(
+      {
+        "recent_failures": command._recent_failures,
+        "probe_failures": command._probe_failures,
+      }
+      if hasattr(command, "_recent_failures")
+      else {}
+    ),
     "valid_mask": command.bin_valid_mask,
     "visit_counts": command.bin_visit_counts,
   }
@@ -487,6 +601,8 @@ def restore_sampling_state(command: MotionCommand, state, *, strict=False) -> bo
     if name in values:
       target.copy_(tensor(values[name], target))
   command._valid_bin_indices = command.bin_valid_mask.nonzero(as_tuple=False)
+  if getattr(command, "_visited_returns", None) is not None:
+    command._visited_returns.step = 0  # replay windows do not cross a process restart
   return True
 
 

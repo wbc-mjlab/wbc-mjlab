@@ -48,13 +48,15 @@ def _rank_worker(rank, rendezvous):
     assert torch.allclose(norm.var, expected.var(0, unbiased=False))
     # The critic must issue four gradient collectives on every rank even when
     # clip-end masking leaves one rank with fewer than four training rows.
-    from types import SimpleNamespace
+    from types import MethodType, SimpleNamespace
 
     from wbc_mjlab.rl.wm.algorithm import WorldModelRL
 
     critic = torch.nn.Linear(2, 1)
     broadcast(critic)
     owner = SimpleNamespace(
+      skip_nonfinite_updates=False,
+      value_upper_bound=None,
       gamma=0.99,
       lam=0.95,
       critic=critic,
@@ -65,6 +67,8 @@ def _rank_worker(rank, rendezvous):
       max_grad_norm=1.0,
       critic_optimizer=torch.optim.SGD(critic.parameters(), lr=0.01),
     )
+    owner._bootstrap_value = MethodType(WorldModelRL._bootstrap_value, owner)
+    owner._critic_loss = MethodType(WorldModelRL._critic_loss, owner)
     inputs = torch.randn(4, 2, 2)
     mask = torch.ones(3, 2, dtype=torch.bool)
     if rank == 0:
@@ -72,7 +76,7 @@ def _rank_worker(rank, rendezvous):
     loss = WorldModelRL._update_critic(
       owner, inputs, torch.zeros(4, 2), torch.ones(3, 2), torch.zeros(3, 2), mask
     )
-    assert torch.isfinite(torch.tensor(loss))
+    assert torch.isfinite(loss)
     weight = critic.weight.detach().clone()
     dist.broadcast(weight, src=0)
     assert torch.allclose(critic.weight, weight)

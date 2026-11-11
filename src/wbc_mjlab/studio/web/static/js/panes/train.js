@@ -136,6 +136,7 @@ export class TrainPane {
   async loadMethods() {
     const task = this.form.task;
     if (!task || task === this.methodsTask) return;
+    const unedited = this.recipe() && !this.modified() && !this.resumed();
     const d = await api(`/api/train/methods?task=${encodeURIComponent(task)}`);
     this.methods = d.methods;
     this.recipes = d.recipes;
@@ -144,6 +145,7 @@ export class TrainPane {
     const f = this.form;
     if (!this.method()) f.algo = "ppo";
     if (!this.recipe()) this.useRecipe(this.method().default_recipe);
+    else if (unedited) this.useRecipe(this.form.recipe);
     // a preset change can drop settings the other preset had
     const known = new Set(this.method().settings.map((s) => s.key));
     for (const k of Object.keys(f.algo_settings)) if (!known.has(k)) delete f.algo_settings[k];
@@ -479,7 +481,9 @@ export class TrainPane {
     parts.push(`--dataset ${f.dataset}`, `--env.scene.num-envs ${f.num_envs}`, `--agent.max-iterations ${f.max_iterations}`);
     if (f.algo !== "ppo") parts.push(`--algo ${f.algo}`);
     const settings = { ...this.ownSettings(), ...(run?.network || {}) };
-    for (const [k, v] of Object.entries(run ? settings : f.algo_settings)) parts.push(`--agent.${k.replace(/_/g, "-")} ${Array.isArray(v) ? `"(${v.join(", ")}${v.length === 1 ? "," : ""})"` : v}`);
+    const namedRecipe = !run && this.recipe() && !this.modified();
+    if (namedRecipe) parts.push(`--recipe ${f.recipe}`);
+    for (const [k, v] of Object.entries(namedRecipe ? {} : (run ? settings : f.algo_settings))) parts.push(`--agent.${k.replace(/_/g, "-")} ${Array.isArray(v) ? `"(${v.join(", ")}${v.length === 1 ? "," : ""})"` : v}`);
     if (f.mirror) parts.push("--mirror");
     if (f.debias_z) parts.push("--debias-z");
     if (f.run_name) parts.push(`--agent.run-name ${f.run_name}`);
@@ -491,7 +495,8 @@ export class TrainPane {
 
   async launch() {
     const f = this.form;
-    const r = await post("/api/train/launch", { ...f, algo_settings: this.ownSettings(), recipe: this.recipe() && !this.modified() ? f.recipe : "" });
+    const namedRecipe = !this.resumed() && this.recipe() && !this.modified();
+    const r = await post("/api/train/launch", { ...f, algo_settings: this.ownSettings(), recipe: namedRecipe ? f.recipe : "" });
     toast(`training started`, "ok");
     this.openJob = r.job;
     this.tab = "jobs";

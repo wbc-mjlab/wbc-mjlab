@@ -190,6 +190,8 @@ def _walk_dataclass(obj, prefix: str = "", depth: int = 0) -> list[dict]:
       ]
       continue
     item = _field(key, value, choices=_literal_choices(type(obj), f.name))
+    if item is None and value is None and f.metadata.get("nullable"):
+      item = {"key": key, "kind": f.metadata["kind"], "value": None}
     if item is not None:
       out.append(item | dict(f.metadata))
   return out
@@ -625,6 +627,8 @@ def observation_diff(a, b) -> dict:
 
 # ---------------------------------------------------------------------- apply
 def _coerce(old: Any, new: Any) -> Any:
+  if new is None:
+    return None
   if isinstance(old, bool):
     return bool(new)
   if isinstance(old, int) and not isinstance(old, bool):

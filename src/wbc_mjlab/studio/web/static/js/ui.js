@@ -356,6 +356,7 @@ export function knob(f, ov, onChange, prefix = "", { pretty = (k) => k.replace(/
     } else {
       control = input(cur, { type: "number", step: f.kind === "int" ? 1 : stepFor(f.value), min: f.kind === "int" && f.key.includes("history") ? 0 : undefined });
       control.addEventListener("input", () => {
+        if (f.nullable && control.value === "") { emit(null); return; }
         const v = Number(control.value);
         if (control.value !== "" && Number.isFinite(v)) emit(f.kind === "int" ? Math.max(0, Math.round(v)) : v);
       });

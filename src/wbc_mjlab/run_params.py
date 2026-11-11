@@ -226,7 +226,7 @@ def load_run_config(
     cfg.episode_length_s = 1e9
     cfg.curriculum = {}
     cfg.observations["actor"].enable_corruption = False
-    for name in ("push_robot", "pull_robot", "assistive_wrench"):
+    for name in ("push_robot", "pull_robot", "assistive_wrench", "wm_velocity_kick"):
       cfg.events.pop(name, None)
     command = cfg.commands["motion"]
     command.pose_range = {}

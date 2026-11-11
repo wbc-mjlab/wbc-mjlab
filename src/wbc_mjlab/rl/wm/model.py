@@ -6,7 +6,9 @@ robot's heading frame (and body frame for rotations), so the model is invariant 
 robot stands and which way it faces, as the physics on flat ground is.
 
 Algorithm: SuperMimic (Liao et al., 2026), Eq. 1 / Table A.4,
-https://arxiv.org/abs/2610.28480. Optional integrated residuals and fixed-scale
+https://arxiv.org/abs/2610.28480. Blink velocity blending and loss scaling:
+https://github.com/fuyichen0725/blinkmimic/blob/d264658d6c9ce61fb52f9f0f8985a369f3ccc409/src/blinkmimic/networks.py
+Optional integrated residuals and fixed-scale
 diagnostics draw on CuboiLeo/SuperMimic-Reproduced at ba61053 (links below).
 """
 
@@ -39,11 +41,13 @@ def update_running_stats(
   """rsl_rl's running mean / variance update, in place (the tensors keep their storage, as
   CUDA graphs need), over the rows of ``x`` with nonzero ``weight``."""
   w = torch.ones(x.shape[0], device=x.device) if weight is None else weight.float()
+  # Excluded tail rows must not poison moments (0 * inf is NaN).
+  x = torch.where(w[:, None] > 0, x, torch.zeros_like(x))
   n = sum_(w.sum())
-  mean_x = sum_((w[:, None] * x).sum(0)) / n.clamp(min=1)
-  var_x = sum_((w[:, None] * (x - mean_x).square()).sum(0)) / n.clamp(min=1)
+  mean_x = sum_((w[:, None] * x).sum(0)) / n.clamp(min=1e-8)
+  var_x = sum_((w[:, None] * (x - mean_x).square()).sum(0)) / n.clamp(min=1e-8)
   count.add_(n.to(count.dtype))
-  rate = n / count.clamp(min=1)
+  rate = n / count.clamp(min=1e-8)
   delta = mean_x - mean
   mean.add_(rate * delta)
   var.add_(rate * (var_x - var + delta * (mean_x - mean)))
@@ -176,7 +180,9 @@ def integrate_velocity(s: RobotState, dt: float) -> RobotState:
   )
 
 
-def apply_integrated_change(s: RobotState, d: torch.Tensor, dt: float) -> RobotState:
+def apply_integrated_change(
+  s: RobotState, d: torch.Tensor, dt: float, velocity_blend: float = 1.0
+) -> RobotState:
   """Semi-implicit velocity integration plus pose corrections (reproduction D2).
 
   Unlike full increments, predicted velocity changes also move the pose through
@@ -188,15 +194,47 @@ def apply_integrated_change(s: RobotState, d: torch.Tensor, dt: float) -> RobotS
   velocity = s.root_lin_vel + quat_apply(heading, d[:, 6:9])
   omega = quat_apply_inverse(s.root_quat, s.root_ang_vel) + d[:, 9:12]
   joint_velocity = s.joint_vel + d[:, 12 + j :]
-  quat = quat_mul(s.root_quat, _quat_exp(dt * omega + d[:, 3:6]))
+  # BlinkMimic d264658 networks.py: (n+1)/(2n) for n semi-implicit substeps.
+  # Blend angular velocities in the old body frame; retain this repo's state frames.
+  drift_v = torch.lerp(s.root_lin_vel, velocity, velocity_blend)
+  drift_w = torch.lerp(
+    quat_apply_inverse(s.root_quat, s.root_ang_vel), omega, velocity_blend
+  )
+  drift_qd = torch.lerp(s.joint_vel, joint_velocity, velocity_blend)
+  quat = quat_mul(s.root_quat, _quat_exp(dt * drift_w + d[:, 3:6]))
   quat = quat / quat.norm(dim=-1, keepdim=True)
   return RobotState(
-    s.root_pos + dt * velocity + quat_apply(heading, d[:, :3]),
+    s.root_pos + dt * drift_v + quat_apply(heading, d[:, :3]),
     quat,
     velocity,
     quat_apply(quat, omega),
-    s.joint_pos + dt * joint_velocity + d[:, 12 : 12 + j],
+    s.joint_pos + dt * drift_qd + d[:, 12 : 12 + j],
     joint_velocity,
+  )
+
+
+def apply_velocity_change(
+  s: RobotState, delta: torch.Tensor, dt: float, blend: float
+) -> RobotState:
+  """Velocity-only integration; no independently predicted pose corrections.
+
+  Adapted from official SuperMimic GenCoordRepresentation (Apache-2.0),
+  abc124c1bd5976341034668af3d12c087f2f1f55, representations.py; Liao et al.,
+  https://arxiv.org/abs/2610.28480. Both root deltas use the CURRENT body frame.
+  Store the resulting twist in world coordinates, without rotating it a second
+  time with the successor orientation.
+  """
+  dv, dw, dq = delta[:, :3], delta[:, 3:6], delta[:, 6:]
+  dv_w, dw_w = quat_apply(s.root_quat, dv), quat_apply(s.root_quat, dw)
+  omega = quat_apply_inverse(s.root_quat, s.root_ang_vel) + blend * dw
+  quat = quat_mul(s.root_quat, _quat_exp(dt * omega))
+  return RobotState(
+    s.root_pos + dt * (s.root_lin_vel + blend * dv_w),
+    quat / quat.norm(dim=-1, keepdim=True),
+    s.root_lin_vel + dv_w,
+    s.root_ang_vel + dw_w,
+    s.joint_pos + dt * (s.joint_vel + blend * dq),
+    s.joint_vel + dq,
   )
 
 
@@ -234,19 +272,44 @@ class WorldModel(nn.Module):
     heads_hidden: tuple[int, ...],
     dynamics_mode: str = "increment",
     step_dt: float = 0.02,
+    velocity_blend: float = 1.0,
+    loss_scale: str = "output",
+    physical_error_scales: tuple[float, ...] = (0.01, 0.02, 0.5, 1.0, 0.1, 3.14),
   ):
     super().__init__()
     self.num_joints = num_joints
-    if dynamics_mode not in ("increment", "integrated"):
+    if dynamics_mode not in ("increment", "integrated", "velocity"):
       raise ValueError(f"unknown dynamics mode: {dynamics_mode}")
     self.dynamics_mode, self.step_dt = dynamics_mode, step_dt
+    if not 0 <= velocity_blend <= 1 or loss_scale not in (
+      "output",
+      "increment",
+      "physical",
+    ):
+      raise ValueError("invalid velocity blend or dynamics loss scale")
+    import math
+
+    if len(physical_error_scales) != 6 or any(
+      not math.isfinite(v) or v <= 0 for v in physical_error_scales
+    ):
+      raise ValueError("physical_error_scales needs six finite positive tolerances")
+    if dynamics_mode == "velocity" and loss_scale == "output":
+      raise ValueError("velocity dynamics needs increment or physical loss scaling")
+    self.physical_error_scales = tuple(physical_error_scales)
+    self.velocity_blend, self.loss_scale = velocity_blend, loss_scale
     feat, change = feature_dim(num_joints), change_dim(num_joints)
     dyn_in = feat + num_joints + context_dim
     head_in = dyn_in + tracking_dim
     self.dynamics_in = RunningNorm(dyn_in, eps=1e-4)
-    self.change_norm = RunningNorm(change, eps=1e-6)
-    self.dynamics = mlp(dyn_in, change, dynamics_hidden)
-    if dynamics_mode == "integrated":
+    output = 6 + num_joints if dynamics_mode == "velocity" else change
+    self.change_norm = RunningNorm(output, eps=1e-6)
+    # BlinkMimic separates residual output statistics from physical error scales.
+    # Optional so existing checkpoints retain their exact parameter/buffer schema.
+    self.increment_norm = (
+      RunningNorm(change, eps=1e-4) if loss_scale == "increment" else None
+    )
+    self.dynamics = mlp(dyn_in, output, dynamics_hidden)
+    if dynamics_mode in ("integrated", "velocity"):
       nn.init.zeros_(self.dynamics[-1].weight)
       nn.init.zeros_(self.dynamics[-1].bias)
     self.heads_in = RunningNorm(head_in, eps=1e-4)
@@ -263,11 +326,22 @@ class WorldModel(nn.Module):
   ) -> RobotState:
     x = self.dynamics_in(self._dynamics_input(s, setpoint, context))
     change = self.change_norm.inverse(self.dynamics(x))
+    if self.dynamics_mode == "velocity":
+      return apply_velocity_change(s, change, self.step_dt, self.velocity_blend)
     if self.dynamics_mode == "integrated":
-      return apply_integrated_change(s, change, self.step_dt)
+      return apply_integrated_change(s, change, self.step_dt, self.velocity_blend)
     return apply_change(s, change)
 
   def target_change(self, s: RobotState, next_state: RobotState) -> torch.Tensor:
+    if self.dynamics_mode == "velocity":
+      return torch.cat(
+        [
+          quat_apply_inverse(s.root_quat, next_state.root_lin_vel - s.root_lin_vel),
+          quat_apply_inverse(s.root_quat, next_state.root_ang_vel - s.root_ang_vel),
+          next_state.joint_vel - s.joint_vel,
+        ],
+        dim=-1,
+      )
     change = state_change(s, next_state)
     if self.dynamics_mode != "integrated":
       return change
@@ -275,11 +349,21 @@ class WorldModel(nn.Module):
     return torch.cat(
       [
         change[:, :3]
-        - dt * quat_apply_inverse(yaw_quat(s.root_quat), next_state.root_lin_vel),
+        - dt
+        * quat_apply_inverse(
+          yaw_quat(s.root_quat),
+          torch.lerp(s.root_lin_vel, next_state.root_lin_vel, self.velocity_blend),
+        ),
         change[:, 3:6]
-        - dt * quat_apply_inverse(next_state.root_quat, next_state.root_ang_vel),
+        - dt
+        * torch.lerp(
+          quat_apply_inverse(s.root_quat, s.root_ang_vel),
+          quat_apply_inverse(next_state.root_quat, next_state.root_ang_vel),
+          self.velocity_blend,
+        ),
         change[:, 6:12],
-        change[:, 12 : 12 + j] - dt * next_state.joint_vel,
+        change[:, 12 : 12 + j]
+        - dt * torch.lerp(s.joint_vel, next_state.joint_vel, self.velocity_blend),
         change[:, 12 + j :],
       ],
       dim=-1,
@@ -327,4 +411,21 @@ class WorldModel(nn.Module):
 
   def change_error(self, pred: RobotState, true: RobotState) -> torch.Tensor:
     """Squared error of ``pred`` vs ``true`` in units of the typical one-step change."""
-    return (state_change(true, pred) / (self.change_norm.std + 1e-6)).square()
+    if self.loss_scale == "physical":
+      # Bryson-style fixed physical weighting, inspired by official wm_learner.py.
+      # Retain our rotation-vector metric and supervise root velocities explicitly.
+      p, r, v, w, q, qd = self.physical_error_scales
+      j = self.num_joints
+      scale = pred.root_pos.new_tensor(
+        [p] * 3 + [r] * 3 + [v] * 3 + [w] * 3 + [q] * j + [qd] * j
+      )
+    elif self.increment_norm is None:
+      scale = self.change_norm.std + 1e-6
+    else:
+      j = self.num_joints
+      # Per-component floors from BlinkMimic train.py; physical SI/radian units.
+      floor = pred.root_pos.new_tensor(
+        [0.003] * 3 + [0.005] * 3 + [0.02] * 3 + [0.05] * 3 + [0.003] * j + [0.05] * j
+      )
+      scale = self.increment_norm.std.clamp_min(floor)
+    return (state_change(true, pred) / scale).square()

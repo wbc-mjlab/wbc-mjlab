@@ -2,12 +2,14 @@
 settings — saved by name, independent of any preset.
 
 A preset is the task (what the policy sees, how it is rewarded, where episodes start); a recipe
-is how it is trained. Train picks one of each, so any recipe trains any preset. A job passes
-the recipe as ``--algo <method> --agent.<key> <value>`` to ``wbc-mjlab-train``: the command
-alone reproduces the run.
+is how it is trained. Train picks one of each; world-model recipes share the
+trainer's observation, action and environment support constraints.
+An unedited fresh job passes ``--recipe <name>`` to resolve defaults in the worker;
+custom edits use ``--agent.<key> <value>``. Resolved configs are saved in the run
+for reproducibility and resume.
 
-Built-in recipes: ``ppo`` and ``wm`` (each method with the task's own settings) and
-``wm-24gb`` (2048 imagined rollouts, what fits a 24 GB GPU). Yours live in
+Built-in recipes: ``ppo`` and ``wm`` (task defaults), ``wm-24gb`` (2048 imagined
+rollouts), ``wm-encoder`` and ``wm-blink`` (optional experiments). Yours live in
 ``<config dir>/recipes/<name>.yaml`` (:func:`wbc_mjlab.studio.presets.config_dir`).
 """
 
@@ -29,6 +31,8 @@ _KEEP = (
   "seed",
   "num_steps_per_env",
   "save_interval",
+  "light_checkpoints",
+  "clip_actions",
   "algorithm",
   "actor.hidden_dims",
   "actor.activation",
@@ -68,7 +72,7 @@ _COMMON_SECTIONS = (
 )
 
 HELP = {
-  "algorithm.learning_rate": "Adam learning rate",
+  "algorithm.learning_rate": "base learning rate (actor multiplier configured separately)",
   "algorithm.entropy_coef": "exploration bonus",
   "actor.hidden_dims": "the policy both methods train and export; checkpoints of other sizes won't load",
   "critic.hidden_dims": "value network",
@@ -81,13 +85,86 @@ HELP = {
   "algorithm.replay_steps": "steps of every env kept in the replay",
   "algorithm.compile": "torch.compile the update (first update compiles for minutes)",
   "algorithm.cuda_graphs": "run each update as one CUDA graph (with compile)",
-  "algorithm.dynamics_mode": "full state increments, or residuals around velocity integration",
+  "algorithm.dynamics_mode": "full state increments, integrated pose residuals, or velocity-only integration",
   "algorithm.separate_action_noise": "keep clean actions in history and smoothing reward; noise only at execution",
   "algorithm.diagnostic_interval": "updates between independent replay diagnostics; 0 disables",
   "num_steps_per_env": "env steps of every env per iteration",
 }
 
+_OFFICIAL_OPTIONS = {
+  "algorithm.dynamics_mode": "velocity",
+  "algorithm.velocity_blend": None,
+  "algorithm.dynamics_loss_scale": "physical",
+  "algorithm.critic_inputs": "structured",
+  "algorithm.critic_layer_norm": True,
+  "algorithm.critic_activation": "gelu",
+  "algorithm.critic_norm_eps": 0.01,
+  "algorithm.bound_critic": True,
+  "algorithm.termination_mode": "hybrid",
+  "algorithm.skip_nonfinite_updates": True,
+  "algorithm.model_optimizer": "muon",
+  "algorithm.actor_optimizer": "muon",
+  "algorithm.fused_optimizer": True,
+  "actor.architecture": "motion_encoder",
+  "actor.reference_residual": False,
+  "actor.hidden_dims": [2048, 1024, 512, 256],
+  "actor.activation": "gelu",
+  "algorithm.imagined_rollouts": 2048,
+  "clip_actions": 20.0,
+  "save_interval": 250,
+  "light_checkpoints": False,
+}
+
 BUILTIN: dict[str, dict] = {
+  "wm-supermimic": {
+    "algo": "wm",
+    "label": "World model · official-inspired",
+    "description": "Experimental velocity-only dynamics, fixed physical loss and structured critic. Shares the existing trainer; not a paper reproduction.",
+    "settings": dict(_OFFICIAL_OPTIONS),
+  },
+  "wm-blink": {
+    "algo": "wm",
+    "label": "World model · BlinkMimic",
+    "description": "Experimental BlinkMimic learner for motion presets. Optional joint-reference shortcut and symmetry augmentation; use Wbc-G1-Blink for contact shaping. Single GPU.",
+    "settings": {
+      "algorithm.model_hidden_dims": [1024, 1024, 1024],
+      "algorithm.model_steps": 5,
+      "algorithm.imagined_rollouts": 2048,
+      "algorithm.dynamics_mode": "integrated",
+      "algorithm.velocity_blend": None,
+      "algorithm.dynamics_loss_scale": "increment",
+      "algorithm.model_optimizer": "muon",
+      "algorithm.actor_optimizer": "muon",
+      "algorithm.fused_optimizer": True,
+      "algorithm.skip_nonfinite_updates": True,
+      "algorithm.policy_ema": 0.995,
+      "algorithm.critic_norm_eps": 0.01,
+      "algorithm.bound_critic": True,
+      "algorithm.termination_mode": "hybrid",
+      "clip_actions": 20.0,
+      "algorithm.mirror_probability": 0.0,
+      "algorithm.learning_rate": 4e-4,
+      "algorithm.actor_lr_multiplier": 4.0,
+      "algorithm.actor_lr_decay_start": 1400,
+      "algorithm.actor_lr_decay_updates": 300,
+      "algorithm.actor_lr_return_threshold": 0.75,
+      "algorithm.recent_failure_share": 0.3,
+      "algorithm.probe_interval": 125,
+      "algorithm.probe_start": 1000,
+      "algorithm.probe_share": 0.15,
+      "algorithm.compile_collection": True,
+      "algorithm.collection_cuda_graphs": True,
+      "algorithm.probe_cuda_graphs": True,
+      "actor.architecture": "motion_encoder",
+      # Task-dependent features remain explicit opt-ins: EE observations need no
+      # joint reference, and custom robots need not define a reflection mapping.
+      "actor.reference_residual": False,
+      "actor.hidden_dims": [2048, 1024, 512, 256],
+      "actor.activation": "silu",
+      "save_interval": 250,
+      "light_checkpoints": False,
+    },
+  },
   "ppo": {
     "algo": "ppo",
     "label": "PPO",
@@ -176,7 +253,8 @@ def check_settings(task: str, algo: Algo, settings: dict | None) -> dict:
     if key not in known:
       raise ValueError(f"{key} is not a setting of {ALGORITHMS[algo].label}")
   actor = rl_cfg(task, algo).actor
-  if settings.get("actor.architecture", actor.architecture) == "motion_encoder":
+  architecture = settings.get("actor.architecture", actor.architecture)
+  if architecture == "motion_encoder":
     from mjlab.tasks.registry import load_env_cfg
 
     from wbc_mjlab.rl.policy import goal_term_names
@@ -185,6 +263,26 @@ def check_settings(task: str, algo: Algo, settings: dict | None) -> dict:
       load_env_cfg(task).observations["actor"].terms,
       settings.get("actor.goal_terms", actor.goal_terms),
     )
+  if settings.get("actor.reference_residual", actor.reference_residual):
+    from mjlab.tasks.registry import load_env_cfg
+
+    from wbc_mjlab.env.mdp.actions import ReferenceJointPositionActionCfg
+    from wbc_mjlab.env.mdp.observations import ref_joint_pos
+
+    env = load_env_cfg(task)
+    terms = [
+      t
+      for t in env.observations["actor"].terms.values()
+      if t is not None and t.func is ref_joint_pos
+    ]
+    if (
+      len(terms) != 1
+      or terms[0].params.get("frames", 1) < 2
+      or isinstance(env.actions.get("joint_pos"), ReferenceJointPositionActionCfg)
+    ):
+      raise ValueError(
+        "reference residual policy requires joint lookahead and default-relative actions"
+      )
   return dict(settings or {})
 
 

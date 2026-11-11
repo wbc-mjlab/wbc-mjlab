@@ -53,6 +53,11 @@ Five steps — **Robot → Data → Preset → Train → Play**: pick or [add a 
 # resampled, mirrored and run through FK on the GPU while training — nothing to convert
 uv run wbc-mjlab-train --task Wbc-G1 --dataset samples --mirror
 
+# BlinkMimic-inspired task and modular world-model recipe (experimental, one GPU)
+# Optional recovery kicks: add --env.events.wm-velocity-kick.params.enabled True
+uv run wbc-mjlab-train --task Wbc-G1-Blink --dataset samples --recipe wm-blink
+uv run wbc-mjlab-train --task Wbc-G1-Lookahead --dataset samples --recipe wm-supermimic
+
 # the same task through a learned world model instead of PPO (one GPU)
 uv run wbc-mjlab-train --task Wbc-G1 --dataset samples --algo wm
 

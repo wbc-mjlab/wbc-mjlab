@@ -22,6 +22,8 @@ def test_saved_run_restores_behavior_and_old_actor_keys(tmp_path, monkeypatch, a
 
   register_all_wbc_tasks()
   cfg = env_cfg(load_env_cfg("Wbc-G1-Lookahead"), algo)
+  if algo == "wm":
+    cfg.events["wm_velocity_kick"].params["enabled"] = True
   name = next(iter(cfg.rewards))
   cfg.rewards[name].weight = 1.234
   removed = next(reversed(cfg.rewards))
@@ -41,6 +43,8 @@ def test_saved_run_restores_behavior_and_old_actor_keys(tmp_path, monkeypatch, a
   ):
     _safe_dump_yaml(tmp_path / "params" / kind, value)
   restored = load_run_config(tmp_path, play=False)
+  if algo == "wm":
+    assert restored.env.events["wm_velocity_kick"].params["enabled"] is True
   assert restored.env.rewards[name].weight == 1.234
   assert removed not in restored.env.rewards
   assert list(restored.env.rewards) == list(cfg.rewards)
@@ -56,6 +60,7 @@ def test_saved_run_restores_behavior_and_old_actor_keys(tmp_path, monkeypatch, a
   played = load_run_config(tmp_path)
   assert played.env.rewards[name].weight == 1.234
   assert played.env.commands["motion"].pose_range == {}
+  assert "wm_velocity_kick" not in played.env.events
 
   # Resume hands the same defaults to tyro, which can then apply explicit CLI flags.
   import sys

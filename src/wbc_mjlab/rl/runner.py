@@ -76,14 +76,43 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
     train_cfg["actor"] = actor_options(env.unwrapped, train_cfg)
     super().__init__(env, train_cfg, log_dir, device)
     self.registry_name = registry_name
+    if train_cfg.get("light_checkpoints") and hasattr(self.alg, "world_model"):
+      print(
+        "[WARN] wm: light_checkpoints=True saves policy-only periodic checkpoints; "
+        "a failed run cannot resume its world model or optimizers from those files. "
+        "Use --agent.light-checkpoints False for resumable periodic saves."
+      )
     if log_dir is not None and int(os.environ.get("RANK", "0")) == 0:
       import yaml
 
       params = Path(log_dir) / "params"
       params.mkdir(parents=True, exist_ok=True)
-      task = getattr(env.unwrapped.cfg, "_wbc_task_id", None)
+      from wbc_mjlab.tasks import last_registered_task_id
+
+      task = (
+        getattr(env.unwrapped.cfg, "_wbc_task_id", None) or last_registered_task_id()
+      )
       if task:
         (params / "run.yaml").write_text(yaml.safe_dump({"task_id": task}))
+
+  def learn(self, num_learning_iterations, *args, **kwargs):
+    self._last_save_iteration = (
+      self.current_learning_iteration + num_learning_iterations - 1
+    )
+    self._checkpoint_writer = None
+    self._checkpoint_future = None
+    try:
+      return super().learn(num_learning_iterations, *args, **kwargs)
+    finally:
+      try:
+        if self._checkpoint_writer is not None:
+          self._checkpoint_writer.shutdown(wait=True)
+          if self._checkpoint_future is not None:
+            self._checkpoint_future.result()
+      finally:
+        close = getattr(self.alg, "close", None)
+        if close is not None:
+          close()
 
   def export_policy_to_onnx(
     self, path: str, filename: str = "policy.onnx", verbose: bool = False
@@ -138,6 +167,32 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
 
   def save(self, path: str, infos=None) -> None:
     """Checkpoint save + policy-only ONNX (not the motion-embedded graph)."""
+    if self.cfg.get("light_checkpoints") and self.current_learning_iteration < getattr(
+      self, "_last_save_iteration", -1
+    ):
+      from concurrent.futures import ThreadPoolExecutor
+
+      from wbc_mjlab.rl.checkpoints import atomic_save
+
+      if self._checkpoint_future is not None:
+        self._checkpoint_future.result()
+      if self._checkpoint_writer is None:
+        self._checkpoint_writer = ThreadPoolExecutor(max_workers=1)
+      # Clone before handing off: live CUDA graph buffers must never reach the writer.
+      snapshot = {
+        "actor_state_dict": {
+          k: v.detach().cpu().clone()
+          for k, v in self.alg.get_policy().state_dict().items()
+        },
+        "iter": self.current_learning_iteration,
+        "checkpoint_kind": "policy",
+      }
+      self._checkpoint_future = self._checkpoint_writer.submit(
+        atomic_save, snapshot, path
+      )
+      return
+    if getattr(self, "_checkpoint_future", None) is not None:
+      self._checkpoint_future.result()
     command = self._motion_command()
     infos = dict(infos or {})
     if command is not None:

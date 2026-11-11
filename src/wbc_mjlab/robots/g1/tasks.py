@@ -6,6 +6,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.presets.binary_failure import apply_binary_failure
+from wbc_mjlab.presets.blink import apply_blink
 from wbc_mjlab.presets.end_effector import apply_end_effector
 from wbc_mjlab.presets.lookahead import apply_lookahead
 from wbc_mjlab.presets.se_actor import apply_se_actor
@@ -82,6 +83,16 @@ def g1_wbc_lookahead_env_cfg() -> ManagerBasedRlEnvCfg:
   return cfg
 
 
+def g1_wbc_blink_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_base_cfg()
+  apply_blink(
+    cfg,
+    root_body="pelvis",
+    foot_bodies=("left_ankle_roll_link", "right_ankle_roll_link"),
+  )
+  return cfg
+
+
 def g1_wbc_ee_env_cfg() -> ManagerBasedRlEnvCfg:
   cfg = g1_wbc_env_cfg()
   apply_end_effector(cfg, body_names=G1_ENDEFFECTOR_BODY_NAMES)
@@ -96,6 +107,13 @@ def g1_wbc_ee_se_env_cfg() -> ManagerBasedRlEnvCfg:
 
 
 G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
+  WbcTaskConfig(
+    task_id="Wbc-G1-Blink",
+    robot_id="g1",
+    description="BlinkMimic-inspired Lookahead task: pelvis anchor and training-only contact shaping; pair with wm-blink.",
+    experiment_name="wbc_g1_blink",
+    build_env_cfg=g1_wbc_blink_env_cfg,
+  ),
   WbcTaskConfig(
     task_id="Wbc-G1",
     robot_id="g1",

@@ -34,6 +34,8 @@ from wbc_mjlab.env.mdp.sampling import (
   compile_similarity_terms,
   compute_assist_gain_matrix,
   compute_sampling_prob_matrix,
+  curriculum_probabilities,
+  failure_counts,
   resolve_tracking_reward_indices,
   rsi_failure_signal_label,
   sample_adaptive_bins,
@@ -607,6 +609,16 @@ class MotionCommand(TrackingView, CommandTerm):
       dtype=torch.float,
       device=self.device,
     )
+    self._recent_failures = torch.zeros_like(self.bin_failure_levels)
+    self._probe_failures = torch.zeros_like(self.bin_failure_levels)
+    for share in (
+      cfg.rsi.recent_failure_share,
+      cfg.rsi.probe_share,
+      cfg.rsi.recent_failure_decay,
+      cfg.rsi.probe_decay,
+    ):
+      if not 0 <= share <= 1:
+        raise ValueError("failure curriculum shares/decays must be in [0,1]")
     self.bin_visit_counts = torch.zeros(
       self.motion.num_trajectories,
       self.bins_per_trajectory,
@@ -635,6 +647,22 @@ class MotionCommand(TrackingView, CommandTerm):
       1.0 / self._valid_bin_indices.shape[0],
       device=self.device,
     )
+    self._visited_returns = None
+    if cfg.rsi.strategy == "visited_return":
+      from wbc_mjlab.env.mdp.return_sampling import VisitedReturns
+
+      if cfg.rsi.temperature_base <= 0:
+        raise ValueError("visited-return temperature must be positive")
+      self._visited_returns = VisitedReturns(
+        self.bin_failure_levels.shape,
+        self.bin_valid_mask,
+        self.num_envs,
+        cfg.rsi.return_horizon,
+        cfg.rsi.return_memory,
+        cfg.rsi.return_gamma,
+        self.device,
+      )
+      self._bin_memory = torch.zeros_like(self._bin_memory, dtype=torch.float64)
     self.episode_assist_gain = torch.zeros(self.num_envs, device=self.device)
     self.assist_force_w = torch.zeros(self.num_envs, 3, device=self.device)
     self.assist_torque_w = torch.zeros(self.num_envs, 3, device=self.device)
@@ -727,6 +755,24 @@ class MotionCommand(TrackingView, CommandTerm):
 
     rsi = self.cfg.rsi
     strategy = rsi.strategy
+    if rsi.recent_failure_share:
+      trajectories = self.trajectory_ids[env_ids]
+      starts = self.motion.segment_start_idx[trajectories]
+      before = (
+        self.time_steps[env_ids]
+        - starts
+        - math.ceil(rsi.recent_failure_lookback_s / self._env.step_dt)
+      ).clamp_min(0)
+      bins = (before // self.bin_width_frames).clamp_max(self.bins_per_trajectory - 1)
+      counts = failure_counts(
+        self._recent_failures.shape,
+        trajectories,
+        bins,
+        self._env.termination_manager.terminated[env_ids].float(),
+      )
+      self._recent_failures.mul_(rsi.recent_failure_decay).add_(counts)
+    if strategy == "visited_return":
+      return  # the pre-reset step event already recorded every visited bin
     update_failure_ema(
       self.bin_failure_levels,
       strategy=strategy,
@@ -779,11 +825,15 @@ class MotionCommand(TrackingView, CommandTerm):
       self.bin_failure_levels[valid[:, 0], valid[:, 1]],
       temperature_base=rsi.temperature_base,
       uniform_ratio=rsi.uniform_ratio,
-      temperature_scale_by_bins=rsi.temperature_scale_by_bins,
+      temperature_scale_by_bins=rsi.temperature_scale_by_bins
+      if self._visited_returns is None
+      else False,
       memory=self._bin_memory,
       memory_ratio=rsi.memory_ratio,
     )
-    self._bin_memory.lerp_(softmax, rsi.memory_alpha)
+    if self._visited_returns is None:
+      self._bin_memory.lerp_(softmax, rsi.memory_alpha)
+    probs_valid = curriculum_probabilities(self, probs_valid)
     traj_ids, bins, time_steps = sample_adaptive_bins(
       probs_valid,
       valid,
@@ -803,11 +853,11 @@ class MotionCommand(TrackingView, CommandTerm):
     num_valid = max(1, probs_valid.shape[0])
     H = -(probs_valid * (probs_valid + 1e-12).log()).sum()
     self.metrics["sampling_entropy"][:] = (
-      float(H / math.log(num_valid)) if num_valid > 1 else 1.0
+      H / math.log(num_valid) if num_valid > 1 else 1.0
     )
     pmax, imax = probs_valid.max(dim=0)
-    self.metrics["sampling_top1_prob"][:] = float(pmax)
-    self.metrics["sampling_top1_bin"][:] = float(imax) / float(num_valid)
+    self.metrics["sampling_top1_prob"][:] = pmax
+    self.metrics["sampling_top1_bin"][:] = imax / num_valid
 
   def _uniform_sampling(self, env_ids: torch.Tensor):
     traj_ids = torch.randint(
@@ -1008,8 +1058,15 @@ class MotionCommand(TrackingView, CommandTerm):
     if forced is not None or rsi.sampling_mode == "start":
       trajectories = forced[env_ids] if forced is not None else 0
       self.trajectory_ids[env_ids] = trajectories
-      self.time_steps[env_ids] = self.motion.segment_start_idx[trajectories]
-      self._episode_start_bin[env_ids] = 0
+      forced_frames = getattr(self, "_forced_start_frames", None)
+      self.time_steps[env_ids] = (
+        forced_frames[env_ids]
+        if forced_frames is not None
+        else self.motion.segment_start_idx[trajectories]
+      )
+      self._episode_start_bin[env_ids] = self._bin_index_for_frame(
+        self.trajectory_ids[env_ids], self.time_steps[env_ids]
+      )
       start_traj = self.trajectory_ids[env_ids]
       start_bins = self._episode_start_bin[env_ids]
       self._set_episode_similarity_denom(env_ids, start_traj, self.time_steps[env_ids])
@@ -1086,6 +1143,7 @@ class MotionCommand(TrackingView, CommandTerm):
     Pass None to return to configured RSI. This changes only reset selection;
     reference offsets, robot initialization and action warm-start stay shared.
     """
+    self._forced_start_frames = None
     if trajectories is None:
       self._forced_start_trajectories = None
       return
@@ -1106,6 +1164,19 @@ class MotionCommand(TrackingView, CommandTerm):
       self._forced_start_trajectories[env_ids] = trajectories.to(
         device=self.device, dtype=torch.long
       )
+
+  def set_start_frames(self, trajectories: torch.Tensor, frames: torch.Tensor) -> None:
+    """Force probe reset frames; share the normal reset and action-history lifecycle."""
+    self.set_start_trajectories(trajectories)
+    starts, ends = (
+      self.motion.segment_start_idx[trajectories],
+      self.motion.segment_end_idx[trajectories],
+    )
+    if (
+      frames.shape != trajectories.shape or ((frames < starts) | (frames >= ends)).any()
+    ):
+      raise ValueError("probe start frame lies outside its clip")
+    self._forced_start_frames = frames.to(device=self.device, dtype=torch.long).clone()
 
   def _update_reference_offset(self, env_ids: torch.Tensor) -> None:
     """Center the start-frame anchor XY on the env origin (``ground_reference``).
@@ -1180,8 +1251,11 @@ class MotionCommand(TrackingView, CommandTerm):
     self._viewer_task_id = task_id
 
   def _record_bin_visits(self, traj_ids: torch.Tensor, bins: torch.Tensor) -> None:
-    for traj_id, bin_id in zip(traj_ids.tolist(), bins.tolist(), strict=True):
-      self.bin_visit_counts[int(traj_id), int(bin_id)] += 1.0
+    self.bin_visit_counts.flatten().scatter_add_(
+      0,
+      traj_ids * self.bins_per_trajectory + bins,
+      torch.ones_like(bins, dtype=torch.float),
+    )
 
   def _rsi_view_tensors(
     self,
@@ -1193,9 +1267,15 @@ class MotionCommand(TrackingView, CommandTerm):
       self.bin_valid_mask,
       temperature_base=rsi.temperature_base,
       uniform_ratio=rsi.uniform_ratio,
-      temperature_scale_by_bins=rsi.temperature_scale_by_bins,
+      temperature_scale_by_bins=rsi.temperature_scale_by_bins
+      if self._visited_returns is None
+      else False,
       memory=self._bin_memory,
       memory_ratio=rsi.memory_ratio,
+    )
+    valid = self._valid_bin_indices
+    prob[valid[:, 0], valid[:, 1]] = curriculum_probabilities(
+      self, prob[valid[:, 0], valid[:, 1]]
     )
     assist = compute_assist_gain_matrix(
       failure,

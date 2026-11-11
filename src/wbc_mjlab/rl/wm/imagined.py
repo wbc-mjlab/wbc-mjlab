@@ -375,6 +375,9 @@ class Imagination:
 
   def _read_context(self) -> tuple[list[str], torch.Tensor]:
     """Per-env domain-randomization values (sampled once, at startup)."""
+    from wbc_mjlab.env.mdp.return_sampling import record_visited_returns
+    from wbc_mjlab.rl.wm.perturbations import inter_step_velocity_kick
+
     env, idx = self.env, self.robot.indexing
     names, cols = [], []
     for mode in env.event_manager.available_modes:
@@ -384,6 +387,10 @@ class Imagination:
         strict=True,
       ):
         func = cfg.func
+        if func is record_visited_returns:
+          continue  # read-only curriculum observer; never changes physical state
+        if func is inter_step_velocity_kick and mode == "step":
+          continue  # successor capture + replay cuts explicitly account for this event
         if mode in ("interval", "step") and cfg.params.get("enabled", True):
           raise ValueError(
             f"event {name!r} ({mode}) acts on the robot during episodes: the world model "
@@ -488,7 +495,7 @@ class Imagination:
     return self._sensors[sensor_name]
 
   def actor_obs(
-    self, env: ImaginedEnv, past: torch.Tensor | None = None
+    self, env: ImaginedEnv, past: torch.Tensor | None = None, *, corruption: bool = True
   ) -> tuple[torch.Tensor, torch.Tensor]:
     """The actor observation group (noise as configured, clip, scale) and the history.
 
@@ -498,7 +505,7 @@ class Imagination:
     values: dict[str, torch.Tensor] = {}
     for name, cfg, noise in self._obs_terms:
       obs = call_term(cfg, env)
-      if noise is not None:
+      if noise is not None and corruption:
         obs = noise.apply(obs)
       if cfg.clip:
         obs = obs.clamp(min=cfg.clip[0], max=cfg.clip[1])

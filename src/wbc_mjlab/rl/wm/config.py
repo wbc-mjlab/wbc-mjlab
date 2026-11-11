@@ -28,10 +28,75 @@ class WmAlgorithmCfg:
     default=(512, 256), metadata={"checkpoint": True}
   )
   """Step heads (termination, learned reward terms)."""
-  dynamics_mode: Literal["increment", "integrated"] = field(
+  dynamics_mode: Literal["increment", "integrated", "velocity"] = field(
     default="increment", metadata={"checkpoint": True}
   )
-  """Full increments (existing model) or corrections around constant-velocity integration."""
+  """Full increments, integrated pose residuals, or velocity-only integration."""
+  velocity_blend: float | None = field(
+    default=1.0, metadata={"checkpoint": True, "nullable": True, "kind": "number"}
+  )
+  """Integrated pose prior: new-velocity share; None derives (n+1)/(2n) from decimation."""
+  dynamics_loss_scale: Literal["output", "increment", "physical"] = field(
+    default="output", metadata={"checkpoint": True}
+  )
+  """Loss units: output statistics, full increment statistics, or fixed physical tolerances."""
+  physical_error_scales: tuple[float, ...] = field(
+    default=(0.01, 0.02, 0.5, 1.0, 0.1, 3.14), metadata={"checkpoint": True}
+  )
+  """Fixed tolerances: root m/rad/m/s/rad/s, joint rad/rad/s; physical loss only.
+
+  Pose/joint tolerances follow official SuperMimic; explicit root velocity supervision
+  is our extension. Scales never change with replay statistics.
+  """
+  critic_inputs: Literal["actor", "structured"] = field(
+    default="actor", metadata={"checkpoint": True}
+  )
+  """Structured: physical state/tracking/context, clean goals and policy history."""
+  critic_layer_norm: bool = field(default=False, metadata={"checkpoint": True})
+  critic_activation: Literal["task", "elu", "gelu", "silu"] = field(
+    default="task", metadata={"checkpoint": True}
+  )
+  model_optimizer: Literal["adam", "muon"] = "adam"
+  actor_optimizer: Literal["adam", "muon"] = "adam"
+  fused_optimizer: bool = False
+  skip_nonfinite_updates: bool = False
+  critic_norm_eps: float = 1e-4
+  """Minimum critic input scale; Blink uses 0.01 to limit near-constant-feature gain."""
+  bound_critic: bool = False
+  """Cap bootstrap values at the task reward upper bound / (1-gamma)."""
+  termination_mode: Literal["learned", "hybrid"] = "learned"
+  """Hybrid uses task tracking thresholds as a lower bound on imagined termination."""
+  policy_ema: float = 0.0
+  """Deployment policy exponential average; zero disables. Live weights resume training."""
+  mirror_probability: float = 0.0
+  """Share of dynamics windows reflected using robot symmetry; step heads remain unmirrored."""
+  actor_lr_multiplier: float = 1.0
+  actor_lr_decay_start: int = 1400
+  actor_lr_decay_updates: int = 300
+  actor_lr_return_threshold: float | None = field(
+    default=None, metadata={"kind": "number", "nullable": True}
+  )
+  """Start multiplier decay at this normalized simulator reward, or the update deadline."""
+  recent_failure_share: float | None = field(
+    default=None, metadata={"kind": "number", "nullable": True}
+  )
+  """Override the task's recent-failure reset mixture when set."""
+  probe_share: float = 0.15
+  collection_cuda_graphs: bool = False
+  probe_cuda_graphs: bool = False
+  """Capture policy inference; physics graphs remain owned by mjlab."""
+  probe_interval: int = 0
+  """Actor updates between curriculum probe batches; zero disables."""
+  probe_start: int = 1000
+  probe_num_envs: int = 128
+  probe_tile_s: float = 6.0
+  probe_lead_s: tuple[float, float] = (4.0, 9.0)
+  probe_steps_per_iteration: int = 20
+  """Bounded probe work per runner iteration; zero completes a sweep synchronously."""
+  probe_async: bool = False
+  """Run probe chunks on a CUDA side stream with explicit snapshot/event ownership."""
+  compile_collection: bool = False
+  """Compile the collection actor and critic loss; simulation uses mjlab's own graphs."""
   separate_action_noise: bool = False
   """Exploration only in execution; observations and action-rate reward use clean actions."""
   scale_lr_by_world_size: bool = True
@@ -115,8 +180,10 @@ def wm_runner_cfg(ppo: RslRlOnPolicyRunnerCfg) -> WmRunnerCfg:
 
 
 def wm_env_cfg(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
-  """The env for world-model training: without the external forces a deterministic model
-  of the robot cannot predict (velocity pushes, pulls, the assistive wrench), as in Play."""
+  """Remove unobserved ongoing forces; offer optional, explicitly recorded velocity kicks.
+
+  Kicks preserve a pre-disturbance target and cut model windows (perturbations.py).
+  """
   removed = [
     name for name in ("push_robot", "pull_robot") if cfg.events.pop(name, None)
   ]
@@ -128,6 +195,35 @@ def wm_env_cfg(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
     cfg.events["assistive_wrench"].params["enabled"] = False
   if removed:
     print(f"[INFO] wm: off for world-model training: {', '.join(removed)}")
+  # Constraint capacity is a method-wide safety margin, including Lookahead + wm-blink.
+  cfg.sim.njmax = max(cfg.sim.njmax or 0, 512)
+  cfg.sim.contact_sensor_maxmatch = max(cfg.sim.contact_sensor_maxmatch or 0, 128)
+  from mjlab.managers.event_manager import EventTermCfg
+
+  from wbc_mjlab.rl.wm.perturbations import EVENT, inter_step_velocity_kick
+
+  cfg.events.setdefault(
+    EVENT,
+    EventTermCfg(
+      func=inter_step_velocity_kick,
+      mode="step",
+      params={
+        "enabled": False,
+        "interval_range_s": (5.0, 10.0),
+        "velocity_ranges": (
+          (-0.5, 0.5),
+          (-0.5, 0.5),
+          (0.0, 0.0),
+          (-0.25, 0.25),
+          (-0.25, 0.25),
+          (0.0, 0.0),
+        ),
+        "initial_scale": 0.2,
+        "ramp_duration_s": 60.0,
+        "clean_episode_fraction": 0.2,
+      },
+    ),
+  )
   # Pre-reset capture retains the state reached by a terminal action; see recording.py
   # for SuperMimic / SuperMimic-Reproduced provenance.
   from mjlab.envs.mdp.actions import JointPositionActionCfg

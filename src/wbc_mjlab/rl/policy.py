@@ -21,6 +21,31 @@ from torch import nn
 class PolicyCfg(RslRlModelCfg):
   """Policy architecture, independent of the optimizer used to train it."""
 
+  activation: Literal[
+    "elu",
+    "selu",
+    "relu",
+    "crelu",
+    "lrelu",
+    "tanh",
+    "sigmoid",
+    "softplus",
+    "gelu",
+    "swish",
+    "silu",
+    "mish",
+    "identity",
+  ] = "elu"
+
+  reference_residual: bool = field(
+    default=False,
+    metadata={
+      "setting": True,
+      "checkpoint": True,
+      "help": "add the next reference joint target inside the policy; requires unscaled lookahead joint observations and default-relative actions",
+    },
+  )
+
   architecture: Literal["mlp", "motion_encoder"] = field(
     default="mlp",
     metadata={
@@ -58,6 +83,11 @@ class PolicyCfg(RslRlModelCfg):
 
 @dataclass
 class TrackingRunnerCfg(RslRlOnPolicyRunnerCfg):
+  clip_actions: float | None = field(
+    default=None, metadata={"nullable": True, "kind": "number"}
+  )
+  light_checkpoints: bool = False
+  """Periodic actor-only checkpoints; the final checkpoint always includes training state."""
   actor: PolicyCfg = field(default_factory=PolicyCfg)
 
 
@@ -162,6 +192,8 @@ def goal_observation_indices(env, names=()) -> list[int]:
 def actor_options(env, cfg):
   """Resolve the actor once for the upstream PPO runner, WM and actor-only inference."""
   options = dict(cfg["actor"])
+  if options.get("activation") == "silu":
+    options["activation"] = "swish"  # rsl_rl names torch.nn.SiLU swish
   for key in ("cnn_cfg", "distribution_cfg"):
     if options.get(key) is None:
       options.pop(key, None)
@@ -179,8 +211,11 @@ def actor_options(env, cfg):
       "std_type": "scalar",
       "learn_std": False,
     }
-  if "goal_indices" in options:
+  if "goal_indices" in options or "reference_skip" in options:
     return options  # already resolved by the common runner
+  residual = options.pop("reference_residual", False)
+  if residual:
+    options["reference_skip"] = reference_skip_options(env)
   architecture = options.pop("architecture", "mlp")
   encoder_hidden = options.pop("encoder_hidden_dims", (2048, 1024, 512, 256))
   latent = options.pop("latent_dim", 32)
@@ -192,6 +227,8 @@ def actor_options(env, cfg):
       encoder_hidden_dims=encoder_hidden,
       latent_dim=latent,
     )
+  elif architecture == "mlp" and residual:
+    options["class_name"] = "wbc_mjlab.rl.policy:ReferenceResidualModel"
   elif architecture != "mlp":
     raise ValueError(f"unknown policy architecture: {architecture}")
   return options
@@ -210,6 +247,7 @@ class MotionEncoderModel(MLPModel):
     goal_indices,
     encoder_hidden_dims=(2048, 1024, 512, 256),
     latent_dim=32,
+    reference_skip=None,
     **options,
   ):
     super().__init__(obs, obs_groups, obs_set, output_dim, **options)
@@ -222,6 +260,99 @@ class MotionEncoderModel(MLPModel):
       latent_dim,
       options.get("activation", "elu"),
     )
+
+    if reference_skip is not None:
+      self.mlp = ReferenceResidualHead(self.mlp, self.obs_normalizer, **reference_skip)
+
+
+def reference_skip_options(env):
+  """Resolve Blink's next-frame skip from the actual observation/action contract.
+
+  BlinkMimic d264658, networks.Policy; SuperMimic arXiv:2610.28480.
+  https://github.com/fuyichen0725/blinkmimic/blob/d264658d6c9ce61fb52f9f0f8985a369f3ccc409/src/blinkmimic/networks.py
+  """
+  from wbc_mjlab.env.mdp.observations import ref_joint_pos
+
+  action = env.action_manager.get_term("joint_pos")
+  command = env.command_manager.get_term("motion")
+  if getattr(action, "reference_relative", False) or action.cfg.clip is not None:
+    raise ValueError("reference skip needs unclipped default-relative joint actions")
+  ids = action._target_ids.tolist()
+  if ids != (
+    command._tracked_joint_ids.tolist()
+    if command._tracked_joint_ids is not None
+    else list(range(len(command.robot.joint_names)))
+  ):
+    raise ValueError("reference skip needs tracked joints in action order")
+  om = env.observation_manager
+  offset, indices = 0, None
+  for cfg, shape in zip(
+    om._group_obs_term_cfgs["actor"], om._group_obs_term_dim["actor"], strict=True
+  ):
+    width = int(torch.tensor(shape).prod())
+    if cfg.func is ref_joint_pos:
+      if (
+        cfg.params.get("frames", 1) < 2
+        or cfg.params.get("stride", 1) != 1
+        or cfg.noise is not None
+        or cfg.scale is not None
+        or cfg.clip is not None
+        or cfg.history_length > 1
+      ):
+        raise ValueError(
+          "reference skip needs clean, unscaled joint lookahead including frame +1"
+        )
+      indices = list(range(offset + len(ids), offset + 2 * len(ids)))
+    offset += width
+  if indices is None:
+    raise ValueError("reference skip requires the ref_joint_pos lookahead observation")
+
+  def vector(value):
+    value = torch.as_tensor(value, device=env.device).expand(env.num_envs, len(ids))
+    if not torch.allclose(value, value[:1].expand_as(value)):
+      raise ValueError(
+        "reference skip needs the same action scale/offset in every environment"
+      )
+    return value[0].tolist()
+
+  scale = vector(action._scale)
+  if any(v == 0 for v in scale):
+    raise ValueError("reference skip action scale must be nonzero")
+  return dict(indices=indices, offset=vector(action._offset), scale=scale)
+
+
+class ReferenceResidualHead(nn.Module):
+  """Exportable skip around any shared policy head; undo observation normalization."""
+
+  def __init__(self, head, normalizer, indices, offset, scale):
+    super().__init__()
+    self.head, self.normalizer = head, normalizer
+    self.register_buffer("indices", torch.tensor(indices, dtype=torch.long))
+    self.register_buffer("offset", torch.tensor(offset))
+    self.register_buffer("scale", torch.tensor(scale))
+
+  def forward(self, obs):
+    ref = obs[..., self.indices]
+    if hasattr(self.normalizer, "_mean"):
+      ref = (
+        ref * (self.normalizer._std[..., self.indices] + self.normalizer.eps)
+        + self.normalizer._mean[..., self.indices]
+      )
+    return self.head(obs) + (ref - self.offset) / self.scale
+
+
+class ReferenceResidualModel(MLPModel):
+  def __init__(self, *args, reference_skip, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.mlp = ReferenceResidualHead(self.mlp, self.obs_normalizer, **reference_skip)
+
+
+def policy_mlps(actor):
+  """Independent encoder/decoder MLP boundaries for optimizer parameter grouping."""
+  head = actor.mlp
+  if isinstance(head, ReferenceResidualHead):
+    head = head.head
+  return [head.encoder, head.decoder] if isinstance(head, MotionDecoder) else [head]
 
 
 def build_actor(obs, env, cfg):
