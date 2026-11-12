@@ -123,22 +123,26 @@ Train on several GPUs
 ---------------------
 
 mjlab launches **one process per GPU** via ``torchrunx`` when more than one GPU is
-selected. Each worker gets a subset of parallel envs on its device; gradients are
+selected. Each worker creates the configured number of parallel envs on its device; gradients are
 synchronized by RSL-RL.
 
 .. code-block:: bash
 
    # four GPUs on one machine
-   uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids 0 1 2 3
+   uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids "[0, 1, 2, 3]"
 
    # all visible GPUs (respects CUDA_VISIBLE_DEVICES)
    uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids all
 
    # restrict visible devices first
-   CUDA_VISIBLE_DEVICES=2,3 uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids 0 1
+   CUDA_VISIBLE_DEVICES=2,3 uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids "[0, 1]"
 
 ``--gpu-ids`` indices are **into** ``CUDA_VISIBLE_DEVICES``, not necessarily physical
-GPU ids. Single-GPU (default ``--gpu-ids 0``) runs in-process without torchrunx.
+GPU ids. Single-GPU (default ``--gpu-ids "[0]"``) runs in-process without torchrunx.
+Even one explicit GPU needs a list, for example ``--gpu-ids "[2]"``; a bare
+``--gpu-ids 2`` is not accepted by the current parser. The quotes keep the list
+as one shell argument. See mjlab's
+`distributed training guide <https://mujocolab.github.io/mjlab/main/source/training/distributed_training.html>`_.
 
 Worker logs go to ``<run_dir>/torchrunx/`` unless overridden with ``--torchrunx-log-dir``.
 

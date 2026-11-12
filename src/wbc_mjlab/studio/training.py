@@ -330,7 +330,8 @@ class TrainingService:
             raise ValueError("Multi-GPU training requires algorithm.probe_interval=0")
       if any(x.startswith(("--gpu-ids", "--gpu_ids")) for x in extra.split()):
         raise ValueError("Choose GPUs in the picker instead of overriding --gpu-ids")
-      args += ["--gpu-ids", *map(str, indices)]
+      # mjlab/tyro expects one list literal, including for a single GPU.
+      args += ["--gpu-ids", json.dumps(indices)]
     job = jobmod.launch(
       "train",
       args,

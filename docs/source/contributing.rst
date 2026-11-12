@@ -135,6 +135,9 @@ correctly become ``cuda:0`` in a restricted container. Built-in presets can trai
 on multiple GPUs. Custom Studio presets currently support one; world-model
 curriculum probes must be disabled for multi-GPU training. Unsupported combinations
 are rejected at launch. Per-job UUIDs are saved with the job metadata.
+For direct training commands, pass a quoted list: ``--gpu-ids "[2]"`` for one
+visible GPU, or ``--gpu-ids "[0, 2]"`` for two. This training flag differs from the
+Docker picker's host-index shortcut ``make docker-gpus GPU_IDS=0,2``.
 
 Remote GPU development in VS Code or Cursor
 -------------------------------------------

@@ -118,7 +118,19 @@ def test_training_launch_uses_selected_cuda_ordinal(core, monkeypatch):
 
   monkeypatch.setattr(jobs, "launch", launch)
   core.training.launch("Wbc-G1", "samples", gpu_uuids=["GPU-b"])
-  assert captured["args"][-2:] == ["--gpu-ids", "1"]
+  assert captured["args"][-2:] == ["--gpu-ids", "[1]"]
+  # Exercise the upstream parser, not just our command string expectations.
+  import mjlab
+  import tyro
+  from mjlab.scripts.train import TrainConfig
+
+  parsed = tyro.cli(
+    TrainConfig,
+    default=TrainConfig.from_task("Wbc-G1"),
+    args=captured["args"][-2:],
+    config=mjlab.TYRO_FLAGS,
+  )
+  assert parsed.gpu_ids == [1]
   assert captured["meta"]["gpu_uuids"] == ["GPU-b"]
   with pytest.raises(ValueError, match="instead of overriding"):
     core.training.launch("Wbc-G1", "samples", gpu_uuids=["GPU-b"], extra="--gpu-ids 0")
@@ -130,7 +142,61 @@ def test_training_launch_uses_selected_cuda_ordinal(core, monkeypatch):
       {"uuid": "GPU-b", "cuda_index": 1},
     ],
   )
+  core.training.launch("Wbc-G1", "samples", gpu_uuids=["GPU-a", "GPU-b"])
+  parsed = tyro.cli(
+    TrainConfig,
+    default=TrainConfig.from_task("Wbc-G1"),
+    args=captured["args"][-2:],
+    config=mjlab.TYRO_FLAGS,
+  )
+  assert parsed.gpu_ids == [0, 1]
   with pytest.raises(ValueError, match="probe_interval=0"):
     core.training.launch(
       "Wbc-G1", "samples", algo="wm", recipe="wm-blink", gpu_uuids=["GPU-a", "GPU-b"]
     )
+
+
+@pytest.mark.parametrize(
+  "argument,expected",
+  [("[2]", [2]), ("[0, 2]", [0, 2]), ("all", "all"), ("None", None)],
+)
+def test_world_model_cli_parses_gpu_selection(monkeypatch, argument, expected):
+  """Parse the reported command end to end without starting a simulator or workers."""
+  import sys
+
+  import mjlab.scripts.train as upstream
+
+  from wbc_mjlab.scripts.train import main
+
+  captured = {}
+  monkeypatch.setattr(
+    upstream, "launch_training", lambda **kwargs: captured.update(kwargs)
+  )
+  monkeypatch.setattr(
+    sys,
+    "argv",
+    [
+      "wbc-mjlab-train",
+      "--task",
+      "Wbc-G1-Lookahead",
+      "--dataset",
+      "samples",
+      "--env.scene.num-envs",
+      "16384",
+      "--agent.max-iterations",
+      "30000",
+      "--algo",
+      "wm",
+      "--recipe",
+      "wm-supermimic",
+      "--env.commands.motion.mirror",
+      "True",
+      "--gpu-ids",
+      argument,
+    ],
+  )
+  main()
+  assert captured["task_id"] == "Wbc-G1-Lookahead"
+  assert captured["args"].gpu_ids == expected
+  assert captured["args"].env.scene.num_envs == 16384
+  assert captured["args"].agent.algorithm.dynamics_mode == "velocity"

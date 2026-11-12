@@ -352,7 +352,7 @@ Distributed training
 .. code-block:: bash
 
    uv run wbc-mjlab-train --task Wbc-G1-Lookahead --dataset lafan_seed --algo wm \
-     --gpu-ids 0 1 --agent.algorithm.imagined-rollouts 2048
+     --gpu-ids "[0, 1]" --agent.algorithm.imagined-rollouts 2048
 
 Batch sizes and environment counts are per GPU. The configured learning rate is
 multiplied by the square root of the number of ranks, following Appendix D of

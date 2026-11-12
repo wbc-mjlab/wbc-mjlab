@@ -551,7 +551,7 @@ export class TrainPane {
     if (run) parts.push(`--agent.resume True --agent.load-run ${run.name}`, f.resume_checkpoint ? `--agent.load-checkpoint ${f.resume_checkpoint}` : "");
     if (f.extra) parts.push(f.extra);
     if (f.gpu_uuids?.length) parts.unshift(`CUDA_VISIBLE_DEVICES=${f.gpu_uuids.join(",")}`);
-    if (f.gpu_uuids?.length) parts.push(`--gpu-ids ${f.gpu_uuids.map((_, i) => i).join(" ")}`);
+    if (f.gpu_uuids?.length) parts.push(`--gpu-ids '${JSON.stringify(f.gpu_uuids.map((_, i) => i))}'`);
     this.cmdEl.textContent = parts.filter(Boolean).join(" ");
   }
 
