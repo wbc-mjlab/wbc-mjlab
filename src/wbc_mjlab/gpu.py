@@ -105,6 +105,13 @@ def training_gpu_indices(uuids: list[str], rows: list[dict]) -> list[int]:
   return [by_uuid[uuid] for uuid in uuids]
 
 
+def resolve_device(gpu_uuid: str | None, default: str) -> str:
+  """One device for playback/evaluation; None preserves the caller's default."""
+  if gpu_uuid is None:
+    return default
+  return f"cuda:{training_gpu_indices([gpu_uuid], visible_gpus())[0]}"
+
+
 def label(row: dict) -> str:
   free = "?" if row["free_mib"] is None else f"{row['free_mib'] / 1024:.1f}"
   total = "?" if row["total_mib"] is None else f"{row['total_mib'] / 1024:.1f}"

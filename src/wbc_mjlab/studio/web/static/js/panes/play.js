@@ -2,6 +2,7 @@
 // motion library. Clip / env / push live on the stage; this pane picks the policy and shows the
 // focused env's reward terms.
 import { openStorage } from "../storage.js";
+import { GpuPicker } from "../gpu_picker.js";
 import { PaneFrame, api, bars, button, empty, field, group, h, help, iconButton, input, linkButton, listRow, post, seg, select, switchEl, tag, toast } from "../ui.js";
 
 const ENVS = ["1", "4", "16", "64"];
@@ -38,7 +39,9 @@ export class PlayPane {
     this.state = null;
     this.runs = [];
     this.libs = [];
-    this.choice = { run: "", checkpoint: "", motion: "", num_envs: 16, terminations: false };
+    this.choice = { run: "", checkpoint: "", motion: "", num_envs: 16, terminations: false, gpu_uuid: null };
+    this.gpuSelector = new GpuPicker({ onChange: (value) => { this.choice.gpu_uuid = value; },
+      help: "One GPU for Play or Evaluate. Apply rebuilds playback if its GPU changes; evaluation starts a separate job." });
     this.picking = false;
     this.pendingClip = null;
   }
@@ -53,10 +56,11 @@ export class PlayPane {
     [this.state, this.runs] = await Promise.all([api("/api/play"), api("/api/play/runs")]);
     const s = this.state;
     if (s.active && !this.picking) {
-      Object.assign(this.choice, { run: s.run, checkpoint: s.checkpoint === s.zero ? ZERO : s.checkpoint, motion: s.motion, num_envs: s.num_envs, terminations: s.terminations });
+      Object.assign(this.choice, { run: s.run, checkpoint: s.checkpoint === s.zero ? ZERO : s.checkpoint, motion: s.motion, num_envs: s.num_envs, terminations: s.terminations, gpu_uuid: s.gpu_uuid ?? null });
     }
     if (!this.runs.some((r) => r.label === this.choice.run)) this.choice.run = this.runs.find((r) => !r.demo)?.label || this.runs[0]?.label || "";
-    await this.loadLibraries();
+    this.gpuSelector.setValue(this.choice.gpu_uuid);
+    await Promise.all([this.loadLibraries(), this.gpuSelector.refresh()]);
     this.render();
   }
 
@@ -73,6 +77,10 @@ export class PlayPane {
     if (topic === "play") {
       const was = this.state?.active;
       this.state = payload;
+      if (payload.active && !this.picking) {
+        this.choice.gpu_uuid = payload.gpu_uuid ?? null;
+        this.gpuSelector.setValue(this.choice.gpu_uuid);
+      }
       if (this.pendingClip && payload.active && !this.app.state.task) {
         const clip = this.pendingClip;
         this.pendingClip = null;
@@ -156,6 +164,7 @@ export class PlayPane {
           field("Checkpoint", select([...ckpts.map((x) => ({ value: x, label: x })), { value: ZERO, label: "Zero action · PD on the reference" }], c.checkpoint, (v) => { c.checkpoint = v; this.render(); })),
           field("Motion library", select(this.libs.length ? this.libs : [{ value: "", label: "add a dataset in Data first" }], c.motion, (v) => (c.motion = v))),
           field("Environments", envPicker(c.num_envs, (n) => (c.num_envs = n))),
+          field("GPU · Play and evaluation", this.gpuSelector.element()),
           switchEl("Terminations — falls end episodes", c.terminations, (v) => (c.terminations = v))),
         help("Evaluate uses the selected library and environment count, with the run's saved rewards and failure conditions. The benchmark disables noise and randomization.")),
     );
@@ -167,7 +176,7 @@ export class PlayPane {
         const control = event.currentTarget;
         control.disabled = true;
         try {
-          const result = await post("/api/runs/evaluate", { run: c.run, checkpoint: c.checkpoint, num_envs: c.num_envs, motion: c.motion });
+          const result = await post("/api/runs/evaluate", { run: c.run, checkpoint: c.checkpoint, num_envs: c.num_envs, motion: c.motion, gpu_uuid: c.gpu_uuid });
           const train = this.app.panes.train;
           train.openJob = result.job;
           train.tab = "jobs";
@@ -196,7 +205,7 @@ export class PlayPane {
     const s = this.state;
     const c = Object.assign(this.choice, {
       run: s.run, checkpoint: s.checkpoint === s.zero ? ZERO : s.checkpoint, motion: s.motion,
-      num_envs: s.num_envs, terminations: s.terminations, ...patch,
+      num_envs: s.num_envs, terminations: s.terminations, gpu_uuid: s.gpu_uuid ?? null, ...patch,
     });
     const r = await post("/api/play/configure", { ...c, checkpoint: c.checkpoint === ZERO ? "" : c.checkpoint });
     if (r.result === "rebuilding") toast(`Rebuilding the session for ${c.num_envs} envs…`, "info");
@@ -213,7 +222,7 @@ export class PlayPane {
         h("div.list", listRow({
           lead: run?.demo ? "bolt" : "layers",
           title: run?.demo ? "Bundled demo" : (s.task.includes("--") ? s.task.split("--").pop() : s.task),
-          sub: `${run?.algo === "wm" ? "world model · " : ""}${run?.updated_text || ""} · ${s.checkpoint === s.zero ? "zero action" : s.checkpoint} · ${lib} · ${s.num_envs} envs`,
+          sub: `${run?.algo === "wm" ? "world model · " : ""}${run?.updated_text || ""} · ${s.checkpoint === s.zero ? "zero action" : s.checkpoint} · ${lib} · ${s.num_envs} envs · ${s.device}`,
           trail: tag(s.playing ? "live" : "paused", s.playing ? "accent" : "amber"),
           active: true,
         }))),

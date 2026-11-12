@@ -177,6 +177,7 @@ class PlayService:
     self.motion = ""  # motion library (dataset folder or bundle) of the session
     self.num_envs = 1
     self.terminations = False
+    self.gpu_uuid: str | None = None
     self.robot = ""
     self.playing = False
     self.speed = 1.0
@@ -246,6 +247,8 @@ class PlayService:
       "task": s.task if s else "",
       "clips_loaded": len(s.clip_names()) if s else 0,
       "zero": ZERO,
+      "gpu_uuid": self.gpu_uuid,
+      "device": s.device if s else self.c.device,
     }
 
   # ------------------------------------------------------------------ session
@@ -257,6 +260,7 @@ class PlayService:
     motion: str = "",
     num_envs: int = 1,
     terminations: bool = False,
+    gpu_uuid: str | None = None,
   ) -> str:
     """Apply a run / checkpoint / library / env count / terminations choice.
 
@@ -266,7 +270,11 @@ class PlayService:
     num_envs = int(num_envs)
     if not 1 <= num_envs <= MAX_ENVS:
       raise ValueError(f"environments: 1 to {MAX_ENVS}, not {num_envs}")
+    from wbc_mjlab.gpu import resolve_device
+
     s = self.session
+    # Resolve before closing the old session; invalid/stale GPUs leave it intact.
+    device = resolve_device(gpu_uuid, self.c.device)
     r = jobmod.find_run(run)
     if r is None:
       raise ValueError("pick a run")
@@ -276,11 +284,15 @@ class PlayService:
       or run != self.run_label
       or motion != self.motion
       or num_envs > s.num_envs
+      or device != s.device
     ):
-      ok = self._rebuild(run, checkpoint, motion, num_envs, bool(terminations))
+      ok = self._rebuild(
+        run, checkpoint, motion, num_envs, bool(terminations), device, gpu_uuid
+      )
       return "rebuilding" if ok else "busy"
     changed = []
     with self._lock:
+      self.gpu_uuid = gpu_uuid
       if (checkpoint or ZERO) != self.checkpoint:
         s.load_policy(None if checkpoint in ("", ZERO) else r.path / checkpoint)
         self.checkpoint = checkpoint or ZERO
@@ -311,7 +323,14 @@ class PlayService:
     return pref["value"]
 
   def _rebuild(
-    self, run: str, checkpoint: str, motion: str, num_envs: int, terminations: bool
+    self,
+    run: str,
+    checkpoint: str,
+    motion: str,
+    num_envs: int,
+    terminations: bool,
+    device: str,
+    gpu_uuid: str | None,
   ) -> bool:
     def job():
       r = jobmod.find_run(run)
@@ -339,7 +358,7 @@ class PlayService:
         ckpt,
         motion,
         num_envs=capacity,
-        device=self.c.device,
+        device=device,
         terminations=terminations,
         preset=r.preset_snapshot(),
         run_dir=r.path,
@@ -353,6 +372,7 @@ class PlayService:
       recorder = PlayRecorder(session, self.c.model, fps=CONTROL_FPS)
       with self._lock:
         self.session = session
+        self.gpu_uuid = gpu_uuid
         self.recorder = recorder
         self.robot, self.run_label, self.checkpoint = robot, run, checkpoint or ZERO
         self.motion, self.num_envs, self.terminations = motion, num_envs, terminations
@@ -365,7 +385,7 @@ class PlayService:
         self.playing = True
       self.c.log(
         f"play {task}: {ckpt.name if ckpt else 'zero action'}, {num_envs} env(s) of "
-        f"{capacity}, {len(names)} clip(s)",
+        f"{capacity}, {len(names)} clip(s) on {device}",
         "ok",
       )
       self.c.emit("play", **self.state())
@@ -378,10 +398,13 @@ class PlayService:
     self.recorder = None
     self.c.scene.set_terrain(None)
     if self.session is not None:
+      device = self.session.device
       self.session.close()
       self.session = None
-      if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+      if device.startswith("cuda") and torch.cuda.is_available():
+        with torch.cuda.device(device):
+          torch.cuda.empty_cache()
+    self.gpu_uuid = None
     self.playing = False
     self._last = None
 

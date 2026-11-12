@@ -149,14 +149,21 @@ def test_play_session_pins_and_loops() -> None:
 
   if not torch.cuda.is_available():
     pytest.skip("needs CUDA")
+  from wbc_mjlab.gpu import visible_gpus
   from wbc_mjlab.studio.core import StudioCore
 
-  c = StudioCore(robot="g1", device="cuda:0")
+  uuid = next(row["uuid"] for row in visible_gpus() if row["cuda_index"] == 0)
+  c = StudioCore(robot="g1", device="cpu")
   if jobmod.find_run(jobmod.DEMO_LABEL) is None:
     pytest.skip("needs the demo checkpoint")
-  c.play.configure(jobmod.DEMO_LABEL, "model.pt", motion=str(SAMPLES), num_envs=2)
+  c.play.configure(
+    jobmod.DEMO_LABEL, "model.pt", motion=str(SAMPLES), num_envs=2, gpu_uuid=uuid
+  )
   while c.busy:
     time.sleep(0.2)
+  assert c.play.session is not None, list(c.logs)[-5:]
+  assert c.play.session.device == "cuda:0" and c.device == "cpu"
+  assert c.play.state()["gpu_uuid"] == uuid
   for _ in range(
     5
   ):  # steps before pinning: pin() then writes buffers the steps created
@@ -178,7 +185,7 @@ def test_play_session_pins_and_loops() -> None:
   c.play.step_once()
   assert not tm.dones.any() and not tm.get_term("anchor_pos").any()
   args = (jobmod.DEMO_LABEL, "model.pt")
-  live = {"motion": str(SAMPLES), "num_envs": 2}
+  live = {"motion": str(SAMPLES), "num_envs": 2, "gpu_uuid": uuid}
   assert c.play.configure(*args, **live, terminations=True) == "terminations"
   assert c.play.session is s and c.play.state()["terminations"]
   c.play.step_once()
@@ -465,6 +472,23 @@ def test_evaluate_saved_checkpoint_job_and_download(core, monkeypatch, tmp_path)
   args = launched["args"]
   assert args[args.index("--dataset-path") + 1] == "/tmp/chosen-clips"
   assert args[args.index("--num-envs") + 1] == "4"
+  from wbc_mjlab import gpu
+
+  monkeypatch.setattr(gpu, "visible_gpus", lambda: [{"uuid": "GPU-b", "cuda_index": 2}])
+  response = client.post(
+    "/api/runs/evaluate",
+    json={"run": run.label, "gpu_uuid": "GPU-b"},
+  )
+  assert response.status_code == 200
+  assert launched["args"][launched["args"].index("--device") + 1] == "cuda:2"
+  assert launched["meta"]["gpu_uuid"] == "GPU-b"
+  assert launched["meta"]["device"] == "cuda:2"
+  assert core.device == "cpu"
+  response = client.post(
+    "/api/runs/evaluate",
+    json={"run": run.label, "gpu_uuid": "GPU-gone"},
+  )
+  assert response.status_code == 400
   response = client.get("/api/jobs/evaluation/result")
   assert response.status_code == 200
   assert response.json()["summary"]["clips"] == 3

@@ -63,6 +63,75 @@ def test_selection_uses_cuda_ordinals_not_host_indices(monkeypatch):
       gpu.training_gpu_indices(chosen, rows)
 
 
+def test_single_device_resolution_keeps_default_and_checks_visibility(monkeypatch):
+  monkeypatch.setattr(gpu, "visible_gpus", lambda: [{"uuid": "GPU-b", "cuda_index": 2}])
+  assert gpu.resolve_device(None, "cpu") == "cpu"
+  assert gpu.resolve_device(None, "cuda:1") == "cuda:1"
+  assert gpu.resolve_device("GPU-b", "cpu") == "cuda:2"
+  for invalid in ("GPU-gone", ""):
+    with pytest.raises(ValueError):
+      gpu.resolve_device(invalid, "cpu")
+
+
+def test_play_gpu_switch_rebuilds_without_changing_core_device(core, monkeypatch):
+  from wbc_mjlab.studio import jobs, play
+
+  monkeypatch.setattr(
+    gpu,
+    "visible_gpus",
+    lambda: [
+      {"uuid": "GPU-a", "cuda_index": 0},
+      {"uuid": "GPU-b", "cuda_index": 2},
+    ],
+  )
+  monkeypatch.setattr(
+    jobs, "find_run", lambda run: SimpleNamespace(motion_source=lambda: "clips")
+  )
+  s = core.play
+  s.session = SimpleNamespace(
+    device="cuda:0",
+    num_envs=16,
+    task="task",
+    clip_names=lambda: ["clip"],
+    cmd=SimpleNamespace(trajectory_ids=[0]),
+  )
+  s.run_label, s.motion, s.checkpoint = "run", "clips", play.ZERO
+  monkeypatch.setattr(s, "_render", lambda: None)
+  rebuilt = []
+  monkeypatch.setattr(s, "_rebuild", lambda *args: rebuilt.append(args) or True)
+  try:
+    original = s.session
+    assert s.configure("run", "", motion="clips", gpu_uuid="GPU-a") == "unchanged"
+    assert not rebuilt and s.gpu_uuid == "GPU-a"
+    assert s.configure("run", "", motion="clips", gpu_uuid="GPU-b") == "rebuilding"
+    assert rebuilt[-1][-2:] == ("cuda:2", "GPU-b")
+    assert core.device == "cpu" and s.session is original
+    with pytest.raises(ValueError, match="no longer visible"):
+      s.configure("run", "", motion="clips", gpu_uuid="GPU-gone")
+    assert s.session is original
+  finally:
+    s.session = None  # the session above is a lightweight mock
+
+
+def test_play_api_forwards_gpu_choice(core, monkeypatch):
+  from fastapi.testclient import TestClient
+
+  from wbc_mjlab.studio.web.server import create_app
+
+  captured = {}
+  monkeypatch.setattr(
+    core.play,
+    "configure",
+    lambda *args, **kwargs: captured.update(kwargs) or "unchanged",
+  )
+  response = TestClient(create_app(core), client=("127.0.0.1", 1234)).post(
+    "/api/play/configure",
+    json={"run": "run", "gpu_uuid": "GPU-b"},
+  )
+  assert response.status_code == 200
+  assert captured["gpu_uuid"] == "GPU-b"
+
+
 def test_docker_selection_preserves_env_and_refuses_running_workspace(
   tmp_path, monkeypatch
 ):

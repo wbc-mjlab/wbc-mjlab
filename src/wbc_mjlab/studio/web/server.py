@@ -673,8 +673,9 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     checkpoint: str = Body(""),
     num_envs: int = Body(128),
     motion: str = Body(""),
+    gpu_uuid: str | None = Body(None),
   ):
-    job = guard(core.training.evaluate, run, checkpoint, num_envs, motion)
+    job = guard(core.training.evaluate, run, checkpoint, num_envs, motion, gpu_uuid)
     return ok(job=job.name)
 
   @app.delete("/api/jobs")
@@ -960,6 +961,7 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     motion: str = Body(""),
     num_envs: int = Body(1),
     terminations: bool = Body(False),
+    gpu_uuid: str | None = Body(None),
   ):
     result = guard(
       core.play.configure,
@@ -968,6 +970,7 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
       motion=motion,
       num_envs=num_envs,
       terminations=terminations,
+      gpu_uuid=gpu_uuid,
     )
     if result == "busy":
       raise HTTPException(409, f"busy with {core.task!r}")

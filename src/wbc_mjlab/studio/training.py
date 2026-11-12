@@ -361,7 +361,12 @@ class TrainingService:
     return job
 
   def evaluate(
-    self, run: str, checkpoint: str = "", num_envs: int = 128, motion: str = ""
+    self,
+    run: str,
+    checkpoint: str = "",
+    num_envs: int = 128,
+    motion: str = "",
+    gpu_uuid: str | None = None,
   ):
     """Launch the common deterministic benchmark for a saved checkpoint."""
     saved = jobmod.find_run(run)
@@ -377,6 +382,9 @@ class TrainingService:
       raise ValueError("select a saved checkpoint to evaluate")
     if not 1 <= num_envs <= 4096:
       raise ValueError("evaluation needs 1–4096 environments")
+    from wbc_mjlab.gpu import resolve_device
+
+    device = resolve_device(gpu_uuid, self.c.device)
     args = [
       "wbc_mjlab.scripts.evaluate",
       "--checkpoint-file",
@@ -384,7 +392,7 @@ class TrainingService:
       "--num-envs",
       str(num_envs),
       "--device",
-      self.c.device,
+      device,
     ]
     if motion:
       args += ["--dataset-path", motion]
@@ -398,6 +406,8 @@ class TrainingService:
         "checkpoint": str(selected),
         "dataset": motion or saved.motion_source(),
         "num_envs": num_envs,
+        "gpu_uuid": gpu_uuid,
+        "device": device,
       },
     )
     self.c.emit("jobs")

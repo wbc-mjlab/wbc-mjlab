@@ -128,7 +128,10 @@ In **Studio → Train → GPUs**, open the dropdown and toggle training GPUs. Ea
 shows its name, utilization, free/total GiB and a colored status. Values refresh
 every three seconds while open, and keyboard focus stays on the checkbox. Studio
 only offers devices visible to CUDA inside its container. Changing this per-job
-selection leaves existing jobs alone; playback continues on Studio's own device.
+selection leaves existing jobs alone. **Play → Setup → GPU · Play and evaluation**
+uses the same live picker with a single device. Apply rebuilds playback when its
+GPU changes; Evaluate launches an independent job on the chosen device. Leaving
+**Studio default device** selected preserves the launch device, including CPU mode.
 
 GPU UUIDs are resolved to CUDA ordinals at launch, so a host GPU numbered 3 can
 correctly become ``cuda:0`` in a restricted container. Built-in presets can train

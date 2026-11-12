@@ -239,10 +239,15 @@ Play
      - Description
    * - ``GET /api/play`` · ``/api/play/runs`` · ``/api/play/libraries?run=`` · ``/api/play/clips``
      - Playback state · runs · motion libraries for a run · clips of the session
-   * - ``POST /api/play/configure`` ``{run, checkpoint, motion, num_envs, terminations}``
+   * - ``POST /api/play/configure`` ``{run, checkpoint, motion, num_envs, terminations, gpu_uuid}``
      - Load a policy (``checkpoint: ""`` = zero action), rebuilt in the background; on a
        running session another checkpoint of its run, the env count up to its capacity and
-       ``terminations`` change in place
+       ``terminations`` change in place. Optional ``gpu_uuid`` selects one CUDA-visible
+       GPU; changing device rebuilds playback. Null/omitted uses Studio's default.
+       Playback state reports ``gpu_uuid`` and the resolved ``device``.
+   * - ``POST /api/runs/evaluate`` ``{run, checkpoint, motion, num_envs, gpu_uuid}``
+     - Launch a detached benchmark job on one GPU → ``{job}``. Optional ``gpu_uuid``
+       uses the same UUID-to-CUDA mapping as Play; null/omitted uses Studio's default.
    * - ``POST /api/play/stop`` · ``/playing`` · ``/step`` · ``/restart``
      - Stop · pause / resume · single step · reset every env
    * - ``POST /api/play/clip`` ``{clip, env}`` · ``/api/focus`` ``{index}``

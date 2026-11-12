@@ -280,6 +280,15 @@ run while a job trains it or while it is loaded in Play.
 5 · Play
 --------
 
+In **Setup → GPU · Play and evaluation**, choose one GPU using the live load and
+free-memory display, or keep **Studio default device**. **Load policy / Apply** uses
+that device for playback; changing the device rebuilds the session. The active
+session lists its CUDA device. **Evaluate** starts a separate benchmark job on the
+selected GPU, leaving active playback and training alone. Only GPUs exposed to
+Studio by Docker and CUDA are offered; a device that disappears is rejected before
+the current Play session is closed. Train, Play and evaluation share the same
+picker component, with multiple selection enabled only for training.
+
 Pick a run (or the bundled demo checkpoint) and a checkpoint — or the **zero action** (the PD
 holds the reference: judge a dataset without a policy) — a motion library and the number of
 envs (1, 4, 16, 64, or any count up to 4096 typed in the box), then
