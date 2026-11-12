@@ -754,3 +754,12 @@ kbd { font-family: var(--font-mono); font-size: 0.7rem; padding: 1px 6px; border
   .pl-side { border-right: 0; border-bottom: 1px solid var(--hairline); }
   .pl-help { display: none; }
 }
+.gpu-picker { border: 1px solid var(--hairline); border-radius: 8px; padding: 10px; }
+.gpu-picker summary { cursor: pointer; }
+.gpu-rows { display: grid; gap: 8px; margin-top: 10px; }
+.gpu-option { display: flex; align-items: center; gap: 8px; padding: 8px; border-left: 3px solid #929aa6; cursor: pointer; }
+.gpu-option small { display: block; opacity: .8; }
+.gpu-option.available { border-left-color: var(--color-success); }
+.gpu-option.moderate { border-left-color: var(--color-amber); }
+.gpu-option.busy { border-left-color: var(--color-danger); }
+.gpu-state { margin-left: auto; font-size: 11px; }

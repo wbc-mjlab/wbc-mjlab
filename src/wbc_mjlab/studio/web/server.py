@@ -736,6 +736,7 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
     algo_settings: dict = Body({}),
     recipe: str = Body(""),
     extra: str = Body(""),
+    gpu_uuids: list[str] | None = Body(None),
   ):
     job = guard(
       core.training.launch,
@@ -753,8 +754,18 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
       algo_settings=algo_settings,
       recipe=recipe,
       extra=extra,
+      gpu_uuids=gpu_uuids,
     )
     return ok(job=job.name)
+
+  @app.get("/api/gpus")
+  def gpu_status():
+    from wbc_mjlab.gpu import visible_gpus
+
+    try:
+      return {"gpus": visible_gpus(), "error": ""}
+    except (ValueError, RuntimeError) as exc:
+      return {"gpus": [], "error": str(exc)}
 
   @app.get("/api/train/methods")
   def train_methods(task: str = ""):

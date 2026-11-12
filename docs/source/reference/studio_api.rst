@@ -189,10 +189,14 @@ Training and jobs
      - Tasks of the robot (built-in and presets) · runs on disk
    * - ``POST /api/train/launch`` ``{task, dataset, num_envs, max_iterations, run_name,
        resume_run, resume_checkpoint, logger, mirror, debias_z, algo, algo_settings,
-       recipe, extra}``
+       recipe, extra, gpu_uuids}``
      - Launch a detached training job → ``{job}`` (``mirror`` / ``debias_z``: motion options;
        ``algo``: ``ppo`` or ``wm``; ``algo_settings``: ``{dotted key: value}`` of the
        method; ``recipe``: its name, kept with the job)
+   * - ``GET /api/gpus``
+     - CUDA-visible devices: UUID, host index, CUDA ordinal, utilization, free/total
+       memory in MiB and advisory status; ``error`` explains unavailable telemetry.
+       ``POST /api/train/launch`` accepts optional ``gpu_uuids`` (nonempty list).
    * - ``GET /api/train/methods?task=``
      - The methods with every setting of each for the task (defaults: the task's), the
        recipes, and the settings a checkpoint fixes

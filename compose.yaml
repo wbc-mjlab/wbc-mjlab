@@ -1,0 +1,36 @@
+# Development workspace: source stays on the host, generated environments in volumes.
+services:
+  dev:
+    extends:
+      file: ${WBC_GPU_CONFIG:-.devcontainer/gpu-all.yaml}
+      service: gpu
+    build:
+      context: .devcontainer
+      args:
+        USER_UID: ${WBC_UID:-1000}
+        USER_GID: ${WBC_GID:-1000}
+    init: true
+    shm_size: 2gb
+    working_dir: /workspaces/wbc-mjlab
+    entrypoint: ["bash", ".devcontainer/entrypoint.sh"]
+    command: ["sleep", "infinity"]
+    volumes:
+      - .:/workspaces/wbc-mjlab
+      - venv:/opt/venv
+      - cache:/home/developer/.cache
+      - config:/home/developer/.config/wbc-mjlab
+    ports:
+      - "127.0.0.1:${WBC_STUDIO_PORT:-8765}:8765"
+      - "127.0.0.1:${WBC_TENSORBOARD_PORT:-6006}:6006"
+      - "127.0.0.1:${WBC_VISER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/wbc-ready"]
+      interval: 5s
+      timeout: 2s
+      start_period: 20m
+      retries: 3
+
+volumes:
+  venv:
+  cache:
+  config:

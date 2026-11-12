@@ -50,6 +50,9 @@ export class TrainPane {
     this.datasets = [];
     this.runs = [];
     this.jobs = [];
+    this.gpus = [];
+    this.gpuError = "";
+    this.gpuTimer = null;
     this.methods = []; // PPO and the world model, with every setting of each for the chosen preset
     this.recipes = []; // a method + settings, by name (built-in and yours)
     this.architecture = []; // settings a checkpoint fixes
@@ -59,6 +62,7 @@ export class TrainPane {
     // algo_settings: the recipe's settings, as edited here
     this.form = { task: "", dataset: "", algo: "ppo", recipe: "ppo", algo_settings: {}, num_envs: 4096, max_iterations: 30000, run_name: "", logger: "tensorboard", mirror: false, debias_z: false, resume_run: "", resume_checkpoint: "", extra: "" };
     this.openJob = "";
+    this.form.gpu_uuids = null;
     this.curveGroup = "train";
   }
 
@@ -83,8 +87,64 @@ export class TrainPane {
     if (!this.datasets.some((d) => d.name === this.form.dataset)) this.form.dataset = (this.datasets.find((d) => d.name === picked) || this.datasets.find((d) => d.name === "samples") || this.datasets[0])?.name || "";
     this.methodsTask = ""; // a preset's defaults may have changed
     this.timing = {}; // runs may have finished
-    await Promise.all([this.loadJobs(), this.loadMethods()]);
+    await Promise.all([this.loadJobs(), this.loadMethods(), this.loadGpus()]);
     this.render();
+  }
+
+  async loadGpus() {
+    try {
+      const result = await api("/api/gpus");
+      this.gpus = result.gpus;
+      this.gpuError = result.error;
+      if (this.form.gpu_uuids === null && this.gpus.length) {
+        this.form.gpu_uuids = [this.gpus.find((g) => g.cuda_index === 0)?.uuid || this.gpus[0].uuid];
+      }
+    } catch (error) { this.gpuError = String(error); }
+  }
+
+  gpuPicker() {
+    clearInterval(this.gpuTimer);
+    const summary = h("summary");
+    const rows = h("div.gpu-rows");
+    const picker = h("details.gpu-picker", summary, rows);
+    const draw = () => {
+      const focused = document.activeElement?.dataset.gpu;
+      const selected = this.form.gpu_uuids || [];
+      summary.textContent = selected.length ? `${selected.length} GPU${selected.length === 1 ? "" : "s"} selected · change` : "Choose training GPUs";
+      const memory = (n) => n === null ? "?" : (n / 1024).toFixed(1);
+      rows.replaceChildren(...this.gpus.map((g) => {
+        const checkbox = h("input", { type: "checkbox", "data-gpu": g.uuid, checked: selected.includes(g.uuid), on: { change: () => {
+          const ids = new Set(this.form.gpu_uuids || []);
+          if (checkbox.checked) ids.add(g.uuid); else ids.delete(g.uuid);
+          this.form.gpu_uuids = [...ids];
+          draw(); this.renderCmd();
+        } } });
+        return h(`label.gpu-option.${g.status}`, { title: g.uuid }, checkbox,
+          h("span", h("b", `GPU ${g.index} · ${g.name}`),
+            h("small", `${g.utilization === null ? "?" : g.utilization}% load · ${memory(g.free_mib)}/${memory(g.total_mib)} GiB free`)),
+          h("span.gpu-state", g.status));
+      }), h("p.help", this.gpuError || (this.gpus.length ? "Live every 3s while open. Colors indicate current load, not a memory guarantee. Hover for GPU UUID." : "No CUDA GPUs visible to Studio.")),
+      h("p.help", "Multi-GPU: built-in presets only; disable world-model curriculum probes. Docker limits which GPUs are available here."));
+      if (focused) rows.querySelector(`[data-gpu="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+    };
+    picker.addEventListener("toggle", async () => {
+      clearInterval(this.gpuTimer);
+      if (picker.open) {
+        await this.loadGpus(); draw();
+        if (!picker.isConnected || !picker.open) return;
+        let loading = false;
+        const timer = setInterval(async () => {
+          if (!picker.isConnected || !picker.open) { clearInterval(timer); return; }
+          if (loading) return;
+          loading = true;
+          await this.loadGpus(); draw();
+          loading = false;
+        }, 3000);
+        this.gpuTimer = timer;
+      }
+    });
+    draw();
+    return picker;
   }
 
   async onEvent(topic) {
@@ -416,11 +476,10 @@ export class TrainPane {
     const iters = input(f.max_iterations, { type: "number", min: 1, step: 1000, onChange: (v) => { f.max_iterations = v; this.render(); } });
     this.estimateEl = h("p.help");
     this.cmdEl = h("div.cmd");
-    // jobs share the one GPU: a world model's update alone takes ~10 GB
     const running = this.jobs.filter((x) => x.status === "running");
     const busy = running.length
-      ? h("div.callouts", h("div.callout.warn", h("b", `${running.length} training job${running.length === 1 ? " is" : "s are"} running on this GPU · `),
-        `${running.map((x) => `${x.meta.task?.split("--").pop()} (${METHOD_LABEL[x.meta.algo || "ppo"]})`).join(", ")}. A second job slows both; two world-model jobs don't fit in 24 GB and the second runs out of memory.`))
+      ? h("div.callouts", h("div.callout.warn", h("b", `${running.length} training job${running.length === 1 ? " is" : "s are"} running · `),
+        "Check GPU load and free memory before launching another job."))
       : null;
     this.frame.setBody(
       busy,
@@ -432,6 +491,7 @@ export class TrainPane {
         t ? h("p.help", { style: { marginTop: "8px" } }, t.description) : null),
       this.methodGroup(),
       this.settingsGroup(),
+      group("GPUs", {}, this.gpuPicker()),
       group("Budget", {},
         h("div.stack",
           h("div.grid2",
@@ -490,11 +550,14 @@ export class TrainPane {
     if (f.logger === "wandb") parts.push("--use_wandb");
     if (run) parts.push(`--agent.resume True --agent.load-run ${run.name}`, f.resume_checkpoint ? `--agent.load-checkpoint ${f.resume_checkpoint}` : "");
     if (f.extra) parts.push(f.extra);
+    if (f.gpu_uuids?.length) parts.unshift(`CUDA_VISIBLE_DEVICES=${f.gpu_uuids.join(",")}`);
+    if (f.gpu_uuids?.length) parts.push(`--gpu-ids ${f.gpu_uuids.map((_, i) => i).join(" ")}`);
     this.cmdEl.textContent = parts.filter(Boolean).join(" ");
   }
 
   async launch() {
     const f = this.form;
+    if (Array.isArray(f.gpu_uuids) && !f.gpu_uuids.length) { toast("Choose at least one GPU", "warn"); return; }
     const namedRecipe = !this.resumed() && this.recipe() && !this.modified();
     const r = await post("/api/train/launch", { ...f, algo_settings: this.ownSettings(), recipe: namedRecipe ? f.recipe : "" });
     toast(`training started`, "ok");

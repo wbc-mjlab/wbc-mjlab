@@ -229,6 +229,7 @@ class TrainingService:
     algo_settings: dict | None = None,
     recipe: str = "",
     extra: str = "",
+    gpu_uuids: list[str] | None = None,
   ) -> jobmod.Job:
     """``algo_settings``: the recipe's settings as edited in the form (``recipe``: its name,
     kept in the job's meta)."""
@@ -316,6 +317,20 @@ class TrainingService:
         args += ["--agent.load-checkpoint", resume_checkpoint]
     if extra.strip():
       args += extra.split()
+    if gpu_uuids is not None:
+      from wbc_mjlab.gpu import training_gpu_indices, visible_gpus
+
+      indices = training_gpu_indices(gpu_uuids, visible_gpus())
+      if len(indices) > 1:
+        if preset:
+          raise ValueError("Custom Studio presets currently support one training GPU")
+        if algo == "wm":
+          resolved = (recipes.load(recipe)["settings"] if recipe else {}) | settings
+          if resolved.get("algorithm.probe_interval", 0):
+            raise ValueError("Multi-GPU training requires algorithm.probe_interval=0")
+      if any(x.startswith(("--gpu-ids", "--gpu_ids")) for x in extra.split()):
+        raise ValueError("Choose GPUs in the picker instead of overriding --gpu-ids")
+      args += ["--gpu-ids", *map(str, indices)]
     job = jobmod.launch(
       "train",
       args,
@@ -333,6 +348,7 @@ class TrainingService:
         "algo_settings": settings,
         "resume": f"{resume_run}/{resume_checkpoint}" if resume_run else "",
         "experiment": cfg.experiment_name,
+        "gpu_uuids": gpu_uuids,
       },
     )
     self.c.log(

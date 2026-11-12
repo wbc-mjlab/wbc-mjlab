@@ -34,3 +34,6 @@ data/**
 # Local technical report (keep untracked until ready to publish)
 wbc_report/
 TODO
+.env
+compose.override.yaml
+.devcontainer/gpus.local.yaml

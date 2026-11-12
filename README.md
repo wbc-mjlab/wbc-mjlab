@@ -27,6 +27,20 @@ Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://ar
 
 Details: [Documentation](https://wbc-mjlab.github.io/wbc-mjlab/) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
+**Remote development:** open the server checkout through Remote SSH in VS Code/Cursor,
+then **Dev Containers: Reopen in Container**. The included CUDA container sets up Python,
+GPU access, persistent caches and Studio port forwarding. See the
+[development guide](docs/source/contributing.rst) for host requirements and data mounts.
+
+**Docker from a terminal:** `make docker-shell` opens the GPU environment;
+`make docker-studio` starts Studio at http://localhost:8765.
+Run commands with `make docker-run CMD='wbc-mjlab-train --task Wbc-G1 --dataset samples --recipe wm-blink'`.
+The first start builds and installs dependencies automatically. `make docker-stop` stops
+the workspace and preserves its data and volumes.
+Use `make docker-gpus` for a live, colored GPU checkbox picker, or
+`make docker-gpus GPU_IDS=0,2` for scripts. Studio also has a per-job GPU dropdown
+under **Train → GPUs**, showing utilization and free memory.
+
 ## Quick start
 
 Requires [mjlab](https://github.com/mujocolab/mjlab) (≥ 1.5) and an NVIDIA GPU for training ([installation](https://wbc-mjlab.github.io/wbc-mjlab/source/installation.html)).

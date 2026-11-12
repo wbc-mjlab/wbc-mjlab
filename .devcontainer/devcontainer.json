@@ -1,0 +1,34 @@
+{
+  "name": "wbc-mjlab · CUDA development",
+  "dockerComposeFile": "../compose.yaml",
+  "service": "dev",
+  "workspaceFolder": "/workspaces/wbc-mjlab",
+  "remoteUser": "developer",
+  "updateRemoteUserUID": true,
+  "hostRequirements": {"gpu": true},
+  "overrideCommand": false,
+  "shutdownAction": "none",
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "forwardPorts": [8765, 6006, 8080],
+  "portsAttributes": {
+    "8765": {"label": "WBC Studio", "onAutoForward": "notify"},
+    "6006": {"label": "TensorBoard", "onAutoForward": "silent"},
+    "8080": {"label": "Viser playback", "onAutoForward": "notify"}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-python.debugpy", "charliermarsh.ruff"],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "python.testing.unittestEnabled": false,
+        "[python]": {"editor.defaultFormatter": "charliermarsh.ruff"},
+        "files.watcherExclude": {
+          "**/.venv/**": true, "**/data/**": true, "**/logs/**": true,
+          "**/docs/_build/**": true
+        }
+      }
+    }
+  }
+}
