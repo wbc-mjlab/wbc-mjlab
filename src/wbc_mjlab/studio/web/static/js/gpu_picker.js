@@ -27,9 +27,15 @@ export class GpuPicker {
 
   element() {
     clearInterval(this.timer);
+    // Play/Train rebuild their pane on background events. Keep the disclosure
+    // and keyboard position instead of closing a menu the user is working in.
+    const previous = this.picker;
+    const focused = previous?.contains(document.activeElement) ? document.activeElement.dataset.gpu : null;
     const summary = h("summary");
     const rows = h("div.gpu-rows");
     const picker = h("details.gpu-picker", summary, rows);
+    picker.open = previous?.open || false;
+    this.picker = picker;
     const radioName = `gpu-${++nextPickerId}`;
     this.draw = () => {
       const focused = document.activeElement?.dataset.gpu;
@@ -66,6 +72,7 @@ export class GpuPicker {
       if (focused) rows.querySelector(`[data-gpu="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
     };
     picker.addEventListener("toggle", async () => {
+      if (this.picker !== picker) return;
       clearInterval(this.timer);
       if (!picker.open) return;
       await this.refresh();
@@ -81,6 +88,11 @@ export class GpuPicker {
       this.timer = timer;
     });
     this.draw();
+    if (focused) queueMicrotask(() => {
+      if (this.picker === picker && picker.isConnected) {
+        rows.querySelector(`[data-gpu="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+      }
+    });
     return picker;
   }
 }
