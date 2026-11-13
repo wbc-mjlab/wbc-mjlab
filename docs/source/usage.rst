@@ -142,6 +142,8 @@ wbc-mjlab options (parsed first):
    * - ``--mirror`` · ``--debias-z`` *(train)*
      - Add left-right mirrored clips · put each clip's lowest foot on the ground —
        :doc:`data`
+   * - ``--algo ppo|wm`` *(train)*
+     - Training algorithm: PPO (default) or the world model — :doc:`concepts/world_model`
    * - ``--cache-motion-bundle``
      - Converted-NPZ datasets only: write / reuse ``<dataset>/<dataset>.npz``
    * - ``--robot <id>`` · ``--no-state-estimation``
@@ -162,7 +164,7 @@ Everything else passes through to mjlab (`mjlab CLI <https://mujocolab.github.io
      - Continue a run — :doc:`workflows/training`
    * - ``--agent.logger tensorboard|wandb``
      - Logger (default TensorBoard)
-   * - ``--gpu-ids 0 1`` · ``all``
+   * - ``--gpu-ids "[0, 1]"`` · ``all``
      - Train on several GPUs
    * - ``--checkpoint-file PATH`` *(play)*
      - A specific checkpoint (default: latest of the task)

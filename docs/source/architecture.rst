@@ -69,8 +69,13 @@ WBC Studio
      - Datasets, clip index / search, raw + NPZ preview, clip QA, conversion and import
    * - ``presets.py`` · ``train_preset.py``
      - Studio presets and modules (schema, apply, register, run snapshots) · training entry
-   * - ``training.py`` · ``jobs.py`` · ``tensorboard.py``
-     - Detached train / convert jobs (``logs/studio/jobs``), runs, curves, TensorBoard
+   * - ``recipes.py``
+     - Training recipes: a method (:data:`~wbc_mjlab.rl.algos.ALGORITHMS`) and its
+       settings, saved apart from presets
+   * - ``training.py`` · ``jobs.py`` · ``tensorboard.py`` · ``algo_check.py``
+     - Detached train / convert jobs (``logs/studio/jobs``), runs (sizes, delete, prune
+       checkpoints), curves, TensorBoard ·
+       whether a method can train a preset (:data:`~wbc_mjlab.rl.algos.ALGORITHMS`)
    * - ``play.py``
      - A checkpoint on N envs in-process: clip pinning, reference ghost, reward terms
    * - ``web/``

@@ -27,7 +27,6 @@ from typing import Any
 
 import numpy as np
 import torch
-
 from mjlab.utils.lab_api.math import (
   axis_angle_from_quat,
   quat_conjugate,
@@ -178,8 +177,7 @@ def _peek_csv_row_dof_width(
   row = np.atleast_1d(_as_float32(row))
   if row.size < 8:
     raise ValueError(
-      f"CSV {path} must have at least 8 columns (root pos/rot + joints), "
-      f"got {row.size}"
+      f"CSV {path} must have at least 8 columns (root pos/rot + joints), got {row.size}"
     )
   return int(row.size - 7)
 
@@ -484,17 +482,12 @@ def _batched_quat_slerp(
   tau: torch.Tensor,
 ) -> torch.Tensor:
   """SLERP for ``(..., 4)`` quaternions (wxyz) and broadcastable ``tau``."""
-  eps = torch.finfo(q0.dtype).eps * 4.0
-  d = (q0 * q1).sum(dim=-1, keepdim=True)
-  q1 = torch.where(d < 0.0, -q1, q1)
-  d = d.abs().clamp(-1.0, 1.0)
-  angle = torch.acos(d)
-  near_parallel = angle < eps
-  sin_angle = torch.sin(angle).clamp_min(eps)
-  w0 = torch.sin((1.0 - tau) * angle) / sin_angle
-  w1 = torch.sin(tau * angle) / sin_angle
-  out = w0 * q0 + w1 * q1
-  return torch.where(near_parallel, q0, out)
+  # Reuse the accurate online interpolation in the optional offline converter too.
+  # Regression motivated by SuperMimic-Reproduced (ba61053), test_motion_convert.py:
+  # https://github.com/CuboiLeo/SuperMimic-Reproduced/blob/ba6105349069bf040f1fdad60873d13138d505a2/tests/test_motion_convert.py
+  from wbc_mjlab.motion.library import _slerp
+
+  return _slerp(q0, q1, tau)
 
 
 def _batched_lerp_gather(
@@ -516,7 +509,9 @@ def _batched_lerp_gather(
   return a * (1.0 - blend_f) + b * blend_f
 
 
-def _compute_output_frame_count(input_frames: int, input_fps: float, output_fps: int) -> int:
+def _compute_output_frame_count(
+  input_frames: int, input_fps: float, output_fps: int
+) -> int:
   if input_frames <= 1:
     return input_frames
   duration = (input_frames - 1) / input_fps
@@ -554,9 +549,7 @@ def resample_motion_clips_batch(
   output_dt = 1.0 / float(output_fps)
 
   parsed = [
-    _raw_clip_to_input_tensors(
-      raw, model_joint_names=model_joint_names, device=device
-    )
+    _raw_clip_to_input_tensors(raw, model_joint_names=model_joint_names, device=device)
     for raw in raw_clips
   ]
   batch_size = len(parsed)
@@ -589,8 +582,7 @@ def resample_motion_clips_batch(
 
   durations = (input_frames.float() - 1.0) / input_fps
   times = (
-    torch.arange(t_out_max, device=device, dtype=torch.float32).unsqueeze(0)
-    * output_dt
+    torch.arange(t_out_max, device=device, dtype=torch.float32).unsqueeze(0) * output_dt
   )
   safe_durations = durations.unsqueeze(1).clamp_min(1.0e-8)
   phase = times / safe_durations
@@ -617,9 +609,7 @@ def resample_motion_clips_batch(
     pos = base_pos_out[batch_idx, :n_out]
     rot = base_rot_out[batch_idx, :n_out]
     dof = dof_pos_out[batch_idx, :n_out]
-    lin_vel, ang_vel, dof_vel = _compute_velocities_for_clip(
-      pos, rot, dof, output_dt
-    )
+    lin_vel, ang_vel, dof_vel = _compute_velocities_for_clip(pos, rot, dof, output_dt)
     clips.append(
       ResampledClip(
         base_pos=pos,

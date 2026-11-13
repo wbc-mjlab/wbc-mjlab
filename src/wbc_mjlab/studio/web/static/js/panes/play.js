@@ -1,7 +1,9 @@
 // Step 5 · Play: a run's checkpoint (or the zero action = PD on the reference) on N envs over a
 // motion library. Clip / env / push live on the stage; this pane picks the policy and shows the
 // focused env's reward terms.
-import { PaneFrame, api, bars, button, empty, field, group, h, help, input, listRow, post, seg, select, switchEl, tag, toast } from "../ui.js";
+import { openStorage } from "../storage.js";
+import { GpuPicker } from "../gpu_picker.js";
+import { PaneFrame, api, bars, button, empty, field, group, h, help, iconButton, input, linkButton, listRow, post, seg, select, switchEl, tag, toast } from "../ui.js";
 
 const ENVS = ["1", "4", "16", "64"];
 const MAX_ENVS = 4096; // play.MAX_ENVS
@@ -37,7 +39,9 @@ export class PlayPane {
     this.state = null;
     this.runs = [];
     this.libs = [];
-    this.choice = { run: "", checkpoint: "", motion: "", num_envs: 16, terminations: false };
+    this.choice = { run: "", checkpoint: "", motion: "", num_envs: 16, terminations: false, gpu_uuid: null };
+    this.gpuSelector = new GpuPicker({ onChange: (value) => { this.choice.gpu_uuid = value; },
+      help: "One GPU for Play or Evaluate. Apply rebuilds playback if its GPU changes; evaluation starts a separate job." });
     this.picking = false;
     this.pendingClip = null;
   }
@@ -52,10 +56,11 @@ export class PlayPane {
     [this.state, this.runs] = await Promise.all([api("/api/play"), api("/api/play/runs")]);
     const s = this.state;
     if (s.active && !this.picking) {
-      Object.assign(this.choice, { run: s.run, checkpoint: s.checkpoint === s.zero ? ZERO : s.checkpoint, motion: s.motion, num_envs: s.num_envs, terminations: s.terminations });
+      Object.assign(this.choice, { run: s.run, checkpoint: s.checkpoint === s.zero ? ZERO : s.checkpoint, motion: s.motion, num_envs: s.num_envs, terminations: s.terminations, gpu_uuid: s.gpu_uuid ?? null });
     }
     if (!this.runs.some((r) => r.label === this.choice.run)) this.choice.run = this.runs.find((r) => !r.demo)?.label || this.runs[0]?.label || "";
-    await this.loadLibraries();
+    this.gpuSelector.setValue(this.choice.gpu_uuid);
+    await Promise.all([this.loadLibraries(), this.gpuSelector.refresh()]);
     this.render();
   }
 
@@ -72,6 +77,10 @@ export class PlayPane {
     if (topic === "play") {
       const was = this.state?.active;
       this.state = payload;
+      if (payload.active && !this.picking) {
+        this.choice.gpu_uuid = payload.gpu_uuid ?? null;
+        this.gpuSelector.setValue(this.choice.gpu_uuid);
+      }
       if (this.pendingClip && payload.active && !this.app.state.task) {
         const clip = this.pendingClip;
         this.pendingClip = null;
@@ -123,13 +132,17 @@ export class PlayPane {
 
   renderPicker() {
     const c = this.choice;
-    const rows = this.runs.map((r) => {
+    // filter by training method once runs of both exist (the demo is always listed)
+    const methods = new Set(this.runs.filter((r) => !r.demo).map((r) => r.algo || "ppo"));
+    const filter = methods.size > 1 ? (this.methodFilter || "all") : "all";
+    const shown = this.runs.filter((r) => filter === "all" || r.demo || (r.algo || "ppo") === filter || r.label === c.run);
+    const rows = shown.map((r) => {
       const preset = r.task.includes("--") ? r.task.split("--").pop() : "";
       return listRow({
         lead: r.demo ? "bolt" : preset ? "sliders" : "layers",
         title: r.demo ? "Bundled demo" : preset || r.task || r.experiment,
         sub: `${preset ? `${r.task.split("--")[0]} + preset · ` : ""}${r.updated_text} · ${r.checkpoints.length} ckpt${r.name.includes("_", 19) ? ` · ${r.name.slice(20)}` : ""}`,
-        trail: r.demo ? tag("demo", "accent") : null,
+        trail: r.demo ? tag("demo", "accent") : r.algo === "wm" ? tag("world model", "", "Trained with the world model (--algo wm)") : null,
         active: r.label === c.run,
         onClick: async () => { c.run = r.label; c.checkpoint = ""; await this.loadLibraries(); this.render(); },
       });
@@ -138,17 +151,42 @@ export class PlayPane {
     const ckpts = run?.checkpoints || [];
     if (!c.checkpoint || (c.checkpoint !== ZERO && !ckpts.includes(c.checkpoint))) c.checkpoint = ckpts[0] || ZERO;
     this.frame.setBody(
-      group("Run", { aside: `${this.runs.length} on disk` }, h("div.list", rows)),
+      group("Run", {
+        action: h("div.row", { style: { gap: "12px" } },
+          methods.size > 1
+            ? seg([{ value: "all", label: "All" }, { value: "ppo", label: "PPO" }, { value: "wm", label: "World model" }], filter, (v) => { this.methodFilter = v; this.render(); })
+            : h("span.aside", `${this.runs.length} on disk`),
+          h("a.link", { href: "/tensorboard", target: "_blank", rel: "noopener", title: "Every run's training curves" }, "All in TensorBoard"),
+          iconButton("database", () => openStorage({ onChange: () => this.refresh() }), "Runs on disk: sizes, delete runs, prune old checkpoints")),
+      }, h("div.list", rows)),
       group("Setup", {},
         h("div.stack",
-          field("Checkpoint", select([...ckpts.map((x) => ({ value: x, label: x })), { value: ZERO, label: "Zero action · PD on the reference" }], c.checkpoint, (v) => (c.checkpoint = v))),
+          field("Checkpoint", select([...ckpts.map((x) => ({ value: x, label: x })), { value: ZERO, label: "Zero action · PD on the reference" }], c.checkpoint, (v) => { c.checkpoint = v; this.render(); })),
           field("Motion library", select(this.libs.length ? this.libs : [{ value: "", label: "add a dataset in Data first" }], c.motion, (v) => (c.motion = v))),
           field("Environments", envPicker(c.num_envs, (n) => (c.num_envs = n))),
-          switchEl("Terminations — falls end episodes", c.terminations, (v) => (c.terminations = v)))),
+          field("GPU · Play and evaluation", this.gpuSelector.element()),
+          switchEl("Terminations — falls end episodes", c.terminations, (v) => (c.terminations = v))),
+        help("Evaluate uses the selected library and environment count, with the run's saved rewards and failure conditions. The benchmark disables noise and randomization.")),
     );
     this.frame.setFooter(
       this.state?.active ? button("Cancel", () => { this.picking = false; this.render(); }, { cls: "ghost" }) : h("span.note", run ? run.task : ""),
       h("span.spacer"),
+      tensorBoardButton(run),
+      button("Evaluate", async (event) => {
+        const control = event.currentTarget;
+        control.disabled = true;
+        try {
+          const result = await post("/api/runs/evaluate", { run: c.run, checkpoint: c.checkpoint, num_envs: c.num_envs, motion: c.motion, gpu_uuid: c.gpu_uuid });
+          const train = this.app.panes.train;
+          train.openJob = result.job;
+          train.tab = "jobs";
+          await train.loadJobs();
+          this.app.select("train");
+          train.render();
+          toast("Evaluation started", "ok");
+        } catch (error) { toast(error.message, "error"); }
+        finally { control.disabled = c.checkpoint === ZERO; }
+      }, { cls: "ghost", disabled: !run || !c.motion || c.checkpoint === ZERO, title: "Evaluate every clip in the selected library from its first frame using the deterministic benchmark protocol" }),
       button(this.state?.active ? "Apply" : "Load policy", () => this.apply(), { cls: "primary", icon: "play", disabled: !c.motion }),
     );
   }
@@ -167,7 +205,7 @@ export class PlayPane {
     const s = this.state;
     const c = Object.assign(this.choice, {
       run: s.run, checkpoint: s.checkpoint === s.zero ? ZERO : s.checkpoint, motion: s.motion,
-      num_envs: s.num_envs, terminations: s.terminations, ...patch,
+      num_envs: s.num_envs, terminations: s.terminations, gpu_uuid: s.gpu_uuid ?? null, ...patch,
     });
     const r = await post("/api/play/configure", { ...c, checkpoint: c.checkpoint === ZERO ? "" : c.checkpoint });
     if (r.result === "rebuilding") toast(`Rebuilding the session for ${c.num_envs} envs…`, "info");
@@ -184,7 +222,7 @@ export class PlayPane {
         h("div.list", listRow({
           lead: run?.demo ? "bolt" : "layers",
           title: run?.demo ? "Bundled demo" : (s.task.includes("--") ? s.task.split("--").pop() : s.task),
-          sub: `${run?.updated_text || ""} · ${s.checkpoint === s.zero ? "zero action" : s.checkpoint} · ${lib} · ${s.num_envs} envs`,
+          sub: `${run?.algo === "wm" ? "world model · " : ""}${run?.updated_text || ""} · ${s.checkpoint === s.zero ? "zero action" : s.checkpoint} · ${lib} · ${s.num_envs} envs · ${s.device}`,
           trail: tag(s.playing ? "live" : "paused", s.playing ? "accent" : "amber"),
           active: true,
         }))),
@@ -208,6 +246,7 @@ export class PlayPane {
     this.frame.setFooter(
       button("Stop", () => post("/api/play/stop"), { cls: "danger ghost", icon: "stop" }),
       h("span.spacer"),
+      tensorBoardButton(run),
       button("Restart all", () => post("/api/play/restart"), { icon: "refresh" }),
     );
   }
@@ -215,4 +254,10 @@ export class PlayPane {
   hud(hud) {
     if (this.barsHost && hud.terms) this.barsHost.replaceChildren(bars(hud.terms, 24));
   }
+}
+
+/** The run's training curves in TensorBoard (started on demand), for runs that logged there. */
+function tensorBoardButton(run) {
+  if (!run?.events) return null;
+  return linkButton("TensorBoard", `/tensorboard?run=${encodeURIComponent(run.name)}`, { cls: "ghost", icon: "link", title: "This run's training curves" });
 }

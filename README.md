@@ -20,11 +20,26 @@ Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://ar
 - **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache.
 - **Building blocks** — paper presets in `presets/` and G1 task builders in `robots/g1/tasks.py`; add a paper setup or tune your own WBC without forking the core MDP.
 - **Plug-in robots** — add a humanoid from its MJCF / URDF [without code](https://wbc-mjlab.github.io/wbc-mjlab/source/extensions/custom_robots.html), or ship an extension package via `register_wbc_extension` ([H2 example](https://github.com/wbc-mjlab/wbc-mjlab-extension-h2)).
+- **PPO or a world model** — any task also trains through a learned, differentiable world model on one GPU (`--algo wm`, after [SuperMimic](https://arxiv.org/abs/2610.28480)): [world-model training](https://wbc-mjlab.github.io/wbc-mjlab/source/concepts/world_model.html).
 - **[WBC Studio](https://wbc-mjlab.github.io/wbc-mjlab/source/studio.html)** — the whole pipeline in a browser: robots, clip QA, presets, training jobs, playback on many envs.
 - **One policy, many skills** — one policy for walk, jog, run, crawl, fight, get-up, lie-down, flips, and more.
 - **Sim → real** — train/play export `policy.onnx` + `config.yaml` aligned with the deploy runtime.
 
 Details: [Documentation](https://wbc-mjlab.github.io/wbc-mjlab/) · [CONTRIBUTING.md](CONTRIBUTING.md)
+
+**Remote development:** open the server checkout through Remote SSH in VS Code/Cursor,
+then **Dev Containers: Reopen in Container**. The included CUDA container sets up Python,
+GPU access, persistent caches and Studio port forwarding. See the
+[development guide](docs/source/contributing.rst) for host requirements and data mounts.
+
+**Docker from a terminal:** `make docker-shell` opens the GPU environment;
+`make docker-studio` starts Studio at http://localhost:8765.
+Run commands with `make docker-run CMD='wbc-mjlab-train --task Wbc-G1 --dataset samples --recipe wm-blink'`.
+The first start builds and installs dependencies automatically. `make docker-stop` stops
+the workspace and preserves its data and volumes.
+Use `make docker-gpus` for a live, colored GPU checkbox picker, or
+`make docker-gpus GPU_IDS=0,2` for scripts. Studio also has a per-job GPU dropdown
+under **Train → GPUs**, showing utilization and free memory.
 
 ## Quick start
 
@@ -51,6 +66,14 @@ Five steps — **Robot → Data → Preset → Train → Play**: pick or [add a 
 # train a task (Wbc-G1, Wbc-G1-Zest, Wbc-G1-Terrain-Scan, …) on source clips (CSV / PKL):
 # resampled, mirrored and run through FK on the GPU while training — nothing to convert
 uv run wbc-mjlab-train --task Wbc-G1 --dataset samples --mirror
+
+# BlinkMimic-inspired task and modular world-model recipe (experimental, one GPU)
+# Optional recovery kicks: add --env.events.wm-velocity-kick.params.enabled True
+uv run wbc-mjlab-train --task Wbc-G1-Blink --dataset samples --recipe wm-blink
+uv run wbc-mjlab-train --task Wbc-G1-Lookahead --dataset samples --recipe wm-supermimic
+
+# the same task through a learned world model instead of PPO (one GPU)
+uv run wbc-mjlab-train --task Wbc-G1 --dataset samples --algo wm
 
 # play / evaluate the last run (exports policy.onnx + config.yaml)
 uv run wbc-mjlab-play --task Wbc-G1 --dataset samples --viewer viser

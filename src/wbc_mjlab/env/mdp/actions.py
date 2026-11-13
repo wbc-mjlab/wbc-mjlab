@@ -20,6 +20,71 @@ if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
 
+def joint_position_target(term, action, reference=None, env_ids=None):
+  """Shared simulator/imagination transform: scale, offset, clipping, reference, bias."""
+
+  def select(value):
+    return (
+      value[env_ids]
+      if env_ids is not None and isinstance(value, torch.Tensor)
+      else value
+    )
+
+  target = action * select(term._scale) + select(term._offset)
+  if term.cfg.clip is not None:
+    clip = select(term._clip)
+    target = target.clamp(min=clip[..., 0], max=clip[..., 1])
+  if getattr(term, "reference_relative", False):
+    ref = term._command.tracked_joint_pos if reference is None else reference
+    target = target + (select(ref) if reference is None else ref)
+  bias = term._entity.data.encoder_bias[:, term._target_ids]
+  return target - select(bias)
+
+
+class _JointPositionExecution:
+  """Explicit clean/executed action lifecycle, shared by the repo's position terms.
+
+  Execution-only exploration follows SuperMimic and SuperMimic-Reproduced
+  (ba61053), envs/actions.py; see THIRD_PARTY_NOTICES and
+  https://arxiv.org/abs/2610.28480. No instance methods are replaced at runtime.
+  """
+
+  def __init__(self, cfg, env):
+    super().__init__(cfg=cfg, env=env)
+    self.execution_noise_std = 0.0
+    self.executed_action = torch.zeros_like(self._raw_actions)
+    self.executed_setpoint = torch.zeros_like(self._raw_actions)
+
+  def set_execution_noise(self, std: float) -> None:
+    if std < 0:
+      raise ValueError("execution noise must be nonnegative")
+    self.execution_noise_std = float(std)
+
+  def process_actions(self, actions):
+    executed = actions
+    if self.execution_noise_std:
+      executed = actions + self.execution_noise_std * torch.randn_like(actions)
+    super().process_actions(executed)
+    self._raw_actions.copy_(actions)
+    self.executed_action.copy_(executed)
+    self.executed_setpoint.copy_(joint_position_target(self, executed))
+
+  def apply_actions(self):
+    self._entity.set_joint_position_target(
+      self.executed_setpoint, joint_ids=self._target_ids
+    )
+
+
+@dataclass(kw_only=True)
+class TrackingJointPositionActionCfg(JointPositionActionCfg):
+  def build(self, env):
+    return TrackingJointPositionAction(self, env)
+
+
+class TrackingJointPositionAction(_JointPositionExecution, JointPositionAction):
+  pass
+
+
 @dataclass(kw_only=True)
 class ReferenceJointPositionActionCfg(BaseActionCfg):
   """Joint position targets as motion reference plus scaled residual actions.
@@ -41,11 +106,12 @@ class ReferenceJointPositionActionCfg(BaseActionCfg):
     return ReferenceJointPositionAction(self, env)
 
 
-class ReferenceJointPositionAction(BaseAction):
+class ReferenceJointPositionAction(_JointPositionExecution, BaseAction):
   """Control joints via position targets relative to the motion reference."""
 
   cfg: ReferenceJointPositionActionCfg
   _command: MotionCommand
+  reference_relative = True
 
   def __init__(self, cfg: ReferenceJointPositionActionCfg, env: ManagerBasedRlEnv):
     super().__init__(cfg=cfg, env=env)
@@ -56,12 +122,6 @@ class ReferenceJointPositionAction(BaseAction):
         f"got {type(command).__name__} for '{cfg.command_name}'."
       )
     self._command = command
-
-  def apply_actions(self) -> None:
-    ref_joint_pos = self._command.tracked_joint_pos
-    encoder_bias = self._entity.data.encoder_bias[:, self._target_ids]
-    target = ref_joint_pos + self._processed_actions - encoder_bias
-    self._entity.set_joint_position_target(target, joint_ids=self._target_ids)
 
 
 @dataclass(kw_only=True)
@@ -80,15 +140,13 @@ class DefaultOffsetJointPositionActionCfg(JointPositionActionCfg):
     return DefaultOffsetJointPositionAction(self, env)
 
 
-class DefaultOffsetJointPositionAction(JointPositionAction):
+class DefaultOffsetJointPositionAction(_JointPositionExecution, JointPositionAction):
   """``q_cmd = q_default + scale · a`` with reset warm-start from ``q_ref``."""
 
   cfg: DefaultOffsetJointPositionActionCfg
   _command: MotionCommand
 
-  def __init__(
-    self, cfg: DefaultOffsetJointPositionActionCfg, env: ManagerBasedRlEnv
-  ):
+  def __init__(self, cfg: DefaultOffsetJointPositionActionCfg, env: ManagerBasedRlEnv):
     super().__init__(cfg=cfg, env=env)
     command = env.command_manager.get_term(cfg.command_name)
     if not isinstance(command, MotionCommand):
@@ -102,7 +160,9 @@ class DefaultOffsetJointPositionAction(JointPositionAction):
     """Set raw actions so ``q_default + scale · a = q_ref`` (resample only)."""
     q_ref = self._command.tracked_joint_pos[env_ids]
     q_default = self._entity.data.default_joint_pos[env_ids][:, self._target_ids]
-    scale = self._scale[env_ids] if isinstance(self._scale, torch.Tensor) else self._scale
+    scale = (
+      self._scale[env_ids] if isinstance(self._scale, torch.Tensor) else self._scale
+    )
     raw = (q_ref - q_default) / torch.as_tensor(
       scale, device=q_ref.device, dtype=q_ref.dtype
     ).clamp(min=1.0e-6)

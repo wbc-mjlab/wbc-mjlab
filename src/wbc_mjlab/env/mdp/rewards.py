@@ -15,7 +15,6 @@ import math
 from typing import TYPE_CHECKING, cast
 
 import torch
-
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
@@ -111,13 +110,13 @@ def _motion_keybody_tracking_exp(
 ) -> torch.Tensor:
   if per_keybody:
     if sigma_per_keybody is None:
-      raise ValueError("``sigma_per_keybody`` is required when ``per_keybody`` is True.")
+      raise ValueError(
+        "``sigma_per_keybody`` is required when ``per_keybody`` is True."
+      )
     std_b = tracking_std_from_sigma(sigma_per_keybody, dim=1)
     return _tracking_exp(sq_error_per_body, std=std_b, kappa=kappa).mean(dim=-1)
 
-  std_eff = _resolve_tracking_std(
-    std, sigma_per=sigma_per_keybody, dim=num_bodies
-  )
+  std_eff = _resolve_tracking_std(std, sigma_per=sigma_per_keybody, dim=num_bodies)
   if body_error_aggregate == "sum":
     error = sq_error_per_body.sum(dim=-1)
   elif body_error_aggregate == "mean":
@@ -293,9 +292,7 @@ def motion_joint_velocity_error_exp(
       raise ValueError("``sigma_per_joint`` is required when ``per_joint`` is True.")
     std_j = tracking_std_from_sigma(sigma_per_joint, dim=1)
     return _tracking_exp(sq_err, std=std_j, kappa=kappa).mean(dim=-1)
-  std_eff = _resolve_tracking_std(
-    std, sigma_per=sigma_per_joint, dim=sq_err.shape[-1]
-  )
+  std_eff = _resolve_tracking_std(std, sigma_per=sigma_per_joint, dim=sq_err.shape[-1])
   return _tracking_exp(torch.sum(sq_err, dim=-1), std=std_eff, kappa=kappa)
 
 
@@ -314,7 +311,12 @@ def motion_relative_body_position_error_exp(
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   sq_err = _body_sq_error_per_keybody(
-    command, body_indexes, relative_pos=True, relative_ori=False, lin_vel=False, ang_vel=False
+    command,
+    body_indexes,
+    relative_pos=True,
+    relative_ori=False,
+    lin_vel=False,
+    ang_vel=False,
   )
   return _motion_keybody_tracking_exp(
     sq_err,
@@ -342,7 +344,12 @@ def motion_relative_body_orientation_error_exp(
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   sq_err = _body_sq_error_per_keybody(
-    command, body_indexes, relative_pos=False, relative_ori=True, lin_vel=False, ang_vel=False
+    command,
+    body_indexes,
+    relative_pos=False,
+    relative_ori=True,
+    lin_vel=False,
+    ang_vel=False,
   )
   return _motion_keybody_tracking_exp(
     sq_err,
@@ -370,7 +377,12 @@ def motion_global_body_linear_velocity_error_exp(
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   sq_err = _body_sq_error_per_keybody(
-    command, body_indexes, relative_pos=False, relative_ori=False, lin_vel=True, ang_vel=False
+    command,
+    body_indexes,
+    relative_pos=False,
+    relative_ori=False,
+    lin_vel=True,
+    ang_vel=False,
   )
   return _motion_keybody_tracking_exp(
     sq_err,
@@ -398,7 +410,12 @@ def motion_global_body_angular_velocity_error_exp(
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   sq_err = _body_sq_error_per_keybody(
-    command, body_indexes, relative_pos=False, relative_ori=False, lin_vel=False, ang_vel=True
+    command,
+    body_indexes,
+    relative_pos=False,
+    relative_ori=False,
+    lin_vel=False,
+    ang_vel=True,
   )
   return _motion_keybody_tracking_exp(
     sq_err,
@@ -524,6 +541,56 @@ def feet_slip(
   vel_xy_norm_sq = torch.square(vel_xy_norm)
   cost = torch.sum(vel_xy_norm_sq * in_contact, dim=1)
   num_in_contact = torch.sum(in_contact)
-  mean_slip_vel = torch.sum(vel_xy_norm * in_contact) / torch.clamp(num_in_contact, min=1)
+  mean_slip_vel = torch.sum(vel_xy_norm * in_contact) / torch.clamp(
+    num_in_contact, min=1
+  )
   env.extras["log"]["Metrics/slip_velocity_mean"] = mean_slip_vel
   return cost
+
+
+def reference_contact_reward(
+  env,
+  command_name: str,
+  body_names: tuple[str, ...],
+  contact_height: float = 0.045,
+  softness: float = 0.005,
+  floor_quantile: float = 0.05,
+  floor_margin: float = 0.015,
+  reference_speed: float = 0.5,
+  slip_std: float = 0.3,
+):
+  """Training-only contact agreement and stance slip shaping (range [0,2]).
+
+  BlinkMimic d264658 mdp.py and motion.py, inherited from InstantTrack (MIT):
+  https://github.com/fuyichen0725/blinkmimic/tree/d264658d6c9ce61fb52f9f0f8985a369f3ccc409/src/blinkmimic
+  SuperMimic reward baseline: https://arxiv.org/abs/2610.28480.
+  Clip-specific reference floors avoid treating retargeting height offsets as flight.
+  Uses body kinematics, so the same function is differentiable in imagination.
+  """
+  command = env.command_manager.get_term(command_name)
+  indices = [list(command.cfg.body_names).index(name) for name in body_names]
+  motion = command.motion
+  key = (tuple(body_names), floor_quantile)
+  if not hasattr(motion, "_contact_floors"):
+    motion._contact_floors = {}
+  if key not in motion._contact_floors:
+    from wbc_mjlab.motion.library import contact_floors
+
+    motion._contact_floors[key] = contact_floors(motion, indices, floor_quantile)
+  ref = command.reference()
+  floor = motion._contact_floors[key][command.trajectory_ids]
+  desired = (
+    (ref.body_pos_w[:, indices, 2] < floor + floor_margin)
+    & (ref.body_lin_vel_w[:, indices, :2].norm(dim=-1) < reference_speed)
+  ).float()
+  # command robot positions are in world coordinates; remove environment origin.
+  height = command.robot_body_pos_w[:, indices, 2] - env.scene.env_origins[:, 2:3]
+  contact = torch.sigmoid((contact_height - height) / softness)
+  slip = command.robot_body_lin_vel_w[:, indices, :2].square().sum(-1)
+  return (
+    1 - (contact - desired).square() + desired * torch.exp(-slip / slip_std**2)
+  ).mean(-1)
+
+
+reference_contact_reward.training_only = True
+reference_contact_reward.upper_bound = 2.0

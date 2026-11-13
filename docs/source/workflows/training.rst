@@ -37,6 +37,21 @@ options, and passes every other option through (``--agent.*``, ``--env.*``, ``--
 All options: :ref:`cli-train` · ``uv run wbc-mjlab-train Wbc-G1 --help`` shows the task's
 defaults.
 
+Choose the algorithm
+--------------------
+
+Tasks train with PPO. ``--algo wm`` trains the same task — preset, data, sampling, export —
+through a learned world model instead (SuperMimic-style, one or several GPUs):
+:doc:`../concepts/world_model`.
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --algo wm
+
+Play and resume pick up the algorithm a run was trained with.
+Both methods accept ``--agent.actor.architecture motion_encoder``; its settings
+live under ``agent.actor`` and the default remains ``mlp``.
+
 Follow progress
 ---------------
 
@@ -84,10 +99,13 @@ What ``--agent.resume True`` does
 2. **Load latest checkpoint** — mjlab searches ``logs/rsl_rl/<experiment_name>/`` for
    the most recent run matching ``--agent.load-run`` (default ``.*``) and checkpoint
    matching ``--agent.load-checkpoint`` (default ``model_.*.pt``).
-3. **Restore training state** — policy (+ optimizer) weights via RSL-RL ``runner.load``.
-4. **Restore RSI curriculum** — wbc-mjlab's runner also loads ``rsi_bin_stats.npz`` from
-   the checkpoint run's ``params/`` when ``persist_failure_levels=True`` (WBC/Zest
-   presets), so adaptive bin failure EMA continues where you left off.
+3. **Restore saved configuration and training state** — task behavior, actor architecture,
+   algorithm and optimizer settings come from the run; explicit CLI flags override those
+   defaults. Policy and optimizer weights load through the common runner.
+4. **Restore RSI curriculum** — PPO and WM checkpoints hold the sampler's failure levels,
+   sampling memory and visit counts. Segment names, frame counts and bin widths must
+   match. A checkpoint's state takes precedence over a newer sidecar. Legacy checkpoints
+   fall back to ``params/rsi_bin_stats.npz`` when ``persist_failure_levels=True``.
 
 Pick a specific prior run:
 
@@ -105,22 +123,26 @@ Train on several GPUs
 ---------------------
 
 mjlab launches **one process per GPU** via ``torchrunx`` when more than one GPU is
-selected. Each worker gets a subset of parallel envs on its device; gradients are
+selected. Each worker creates the configured number of parallel envs on its device; gradients are
 synchronized by RSL-RL.
 
 .. code-block:: bash
 
    # four GPUs on one machine
-   uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids 0 1 2 3
+   uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids "[0, 1, 2, 3]"
 
    # all visible GPUs (respects CUDA_VISIBLE_DEVICES)
    uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids all
 
    # restrict visible devices first
-   CUDA_VISIBLE_DEVICES=2,3 uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids 0 1
+   CUDA_VISIBLE_DEVICES=2,3 uv run wbc-mjlab-train --task Wbc-G1 --dataset lafan --gpu-ids "[0, 1]"
 
 ``--gpu-ids`` indices are **into** ``CUDA_VISIBLE_DEVICES``, not necessarily physical
-GPU ids. Single-GPU (default ``--gpu-ids 0``) runs in-process without torchrunx.
+GPU ids. Single-GPU (default ``--gpu-ids "[0]"``) runs in-process without torchrunx.
+Even one explicit GPU needs a list, for example ``--gpu-ids "[2]"``; a bare
+``--gpu-ids 2`` is not accepted by the current parser. The quotes keep the list
+as one shell argument. See mjlab's
+`distributed training guide <https://mujocolab.github.io/mjlab/main/source/training/distributed_training.html>`_.
 
 Worker logs go to ``<run_dir>/torchrunx/`` unless overridden with ``--torchrunx-log-dir``.
 

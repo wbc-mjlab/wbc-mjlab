@@ -1,0 +1,4 @@
+# The picker supplies an ignored file with explicit GPU UUIDs instead.
+services:
+  gpu:
+    gpus: all

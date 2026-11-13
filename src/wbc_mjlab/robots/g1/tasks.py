@@ -6,7 +6,9 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 
 from wbc_mjlab.env.mdp.commands import MotionCommandCfg
 from wbc_mjlab.presets.binary_failure import apply_binary_failure
+from wbc_mjlab.presets.blink import apply_blink
 from wbc_mjlab.presets.end_effector import apply_end_effector
+from wbc_mjlab.presets.lookahead import apply_lookahead
 from wbc_mjlab.presets.se_actor import apply_se_actor
 from wbc_mjlab.presets.terrain import apply_terrain_scan
 from wbc_mjlab.presets.wbc import apply_wbc
@@ -75,6 +77,22 @@ def g1_wbc_binary_failure_env_cfg() -> ManagerBasedRlEnvCfg:
   return cfg
 
 
+def g1_wbc_lookahead_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_base_cfg()
+  apply_lookahead(cfg)
+  return cfg
+
+
+def g1_wbc_blink_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_base_cfg()
+  apply_blink(
+    cfg,
+    root_body="pelvis",
+    foot_bodies=("left_ankle_roll_link", "right_ankle_roll_link"),
+  )
+  return cfg
+
+
 def g1_wbc_ee_env_cfg() -> ManagerBasedRlEnvCfg:
   cfg = g1_wbc_env_cfg()
   apply_end_effector(cfg, body_names=G1_ENDEFFECTOR_BODY_NAMES)
@@ -89,6 +107,13 @@ def g1_wbc_ee_se_env_cfg() -> ManagerBasedRlEnvCfg:
 
 
 G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
+  WbcTaskConfig(
+    task_id="Wbc-G1-Blink",
+    robot_id="g1",
+    description="BlinkMimic-inspired Lookahead task: pelvis anchor and training-only contact shaping; pair with wm-blink.",
+    experiment_name="wbc_g1_blink",
+    build_env_cfg=g1_wbc_blink_env_cfg,
+  ),
   WbcTaskConfig(
     task_id="Wbc-G1",
     robot_id="g1",
@@ -134,6 +159,16 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
     description="Full obs, whole-body RSI with binary failure (BeyondMimic paper).",
     experiment_name="wbc_g1_binary",
     build_env_cfg=g1_wbc_binary_failure_env_cfg,
+  ),
+  WbcTaskConfig(
+    task_id="Wbc-G1-Lookahead",
+    robot_id="g1",
+    description=(
+      "Looks 10 reference frames ahead, 10-step history, BeyondMimic reward, return-based "
+      "starts: the SuperMimic paper's task (SuperMimic with --algo wm)."
+    ),
+    experiment_name="wbc_g1_lookahead",
+    build_env_cfg=g1_wbc_lookahead_env_cfg,
   ),
   WbcTaskConfig(
     task_id="Wbc-G1-EE",
@@ -205,6 +240,7 @@ __all__ = [
   "g1_wbc_ee_env_cfg",
   "g1_wbc_ee_se_env_cfg",
   "g1_wbc_env_cfg",
+  "g1_wbc_lookahead_env_cfg",
   "g1_wbc_se_env_cfg",
   "g1_wbc_terrain_scan_env_cfg",
   "g1_wbc_zest_env_cfg",

@@ -173,6 +173,8 @@ Presets and modules
        (:ref:`reference-preset-file`)
    * - ``GET | PUT | DELETE /api/modules/{name}``
      - Read · write ``{overrides, description}`` · delete a module
+   * - ``POST /api/presets/{name}/move-agent``
+     - Move a preset's PPO settings (from before recipes) to a recipe of the same name
 
 Training and jobs
 -----------------
@@ -186,12 +188,40 @@ Training and jobs
    * - ``GET /api/tasks`` · ``GET /api/runs``
      - Tasks of the robot (built-in and presets) · runs on disk
    * - ``POST /api/train/launch`` ``{task, dataset, num_envs, max_iterations, run_name,
-       resume_run, resume_checkpoint, logger, mirror, debias_z, extra}``
-     - Launch a detached training job → ``{job}`` (``mirror`` / ``debias_z``: motion options)
+       resume_run, resume_checkpoint, logger, mirror, debias_z, algo, algo_settings,
+       recipe, extra, gpu_uuids}``
+     - Launch a detached training job → ``{job}`` (``mirror`` / ``debias_z``: motion options;
+       ``algo``: ``ppo`` or ``wm``; ``algo_settings``: ``{dotted key: value}`` of the
+       method; ``recipe``: its name, kept with the job)
+   * - ``GET /api/gpus``
+     - CUDA-visible devices: UUID, host index, CUDA ordinal, utilization, free/total
+       memory in MiB and advisory status; ``error`` explains unavailable telemetry.
+       ``POST /api/train/launch`` accepts optional ``gpu_uuids`` (nonempty list).
+   * - ``GET /api/train/methods?task=``
+     - The methods with every setting of each for the task (defaults: the task's), the
+       recipes, and the settings a checkpoint fixes
+   * - ``POST /api/train/check`` ``{task, algo, dataset}``
+     - Whether the method can train the task (world model: builds a 2-env copy)
+   * - ``GET /api/train/timing?algo=``
+     - Measured seconds per iteration of the method's runs here
+   * - ``PUT | DELETE /api/recipes/{name}``
+     - Write ``{algo, settings, description}`` · delete a recipe
    * - ``GET /api/jobs`` · ``GET /api/jobs/{name}?tail=``
      - Jobs with status, progress and ETA · one job with its log tail
-   * - ``POST /api/jobs/{name}/stop`` · ``DELETE /api/jobs/{name}``
-     - Stop · forget a job (its run stays)
+   * - ``GET /api/jobs/{name}/log?lines=`` · ``GET /api/jobs/{name}/log.txt``
+     - A job's last lines (``{log, size, status}``, at most 50000) · the whole log file
+   * - ``POST /api/jobs/{name}/stop`` · ``DELETE /api/jobs/{name}?run=``
+     - Stop · remove a finished job's record and log (``run=true``: its run folder too) →
+       ``{freed}``
+   * - ``DELETE /api/jobs?kind=&robot=&runs=``
+     - Remove every finished job (of a kind / robot; ``runs=true``: their run folders too) →
+       ``{deleted: [names], freed}``
+   * - ``GET /api/storage``
+     - Every run folder: ``{runs: [{label, task, algo, checkpoints, last, size, prunable,
+       job, status, busy}], total}`` (``busy``: why it can't change now)
+   * - ``POST /api/runs/delete`` · ``POST /api/runs/prune``
+     - ``{labels}``: delete runs and their jobs · ``{labels, every}``: keep the last
+       checkpoint (and multiples of ``every`` iterations) → ``{freed}`` (bytes)
    * - ``GET /api/curves?job=&run=&group=``
      - Training curves (``group``: ``train``, ``errors``, ``rewards``, ``sampling``,
        ``loss``, ``all``)
@@ -209,10 +239,15 @@ Play
      - Description
    * - ``GET /api/play`` · ``/api/play/runs`` · ``/api/play/libraries?run=`` · ``/api/play/clips``
      - Playback state · runs · motion libraries for a run · clips of the session
-   * - ``POST /api/play/configure`` ``{run, checkpoint, motion, num_envs, terminations}``
+   * - ``POST /api/play/configure`` ``{run, checkpoint, motion, num_envs, terminations, gpu_uuid}``
      - Load a policy (``checkpoint: ""`` = zero action), rebuilt in the background; on a
        running session another checkpoint of its run, the env count up to its capacity and
-       ``terminations`` change in place
+       ``terminations`` change in place. Optional ``gpu_uuid`` selects one CUDA-visible
+       GPU; changing device rebuilds playback. Null/omitted uses Studio's default.
+       Playback state reports ``gpu_uuid`` and the resolved ``device``.
+   * - ``POST /api/runs/evaluate`` ``{run, checkpoint, motion, num_envs, gpu_uuid}``
+     - Launch a detached benchmark job on one GPU → ``{job}``. Optional ``gpu_uuid``
+       uses the same UUID-to-CUDA mapping as Play; null/omitted uses Studio's default.
    * - ``POST /api/play/stop`` · ``/playing`` · ``/step`` · ``/restart``
      - Stop · pause / resume · single step · reset every env
    * - ``POST /api/play/clip`` ``{clip, env}`` · ``/api/focus`` ``{index}``
@@ -283,7 +318,8 @@ reference ghost poses, then overlay data. When ``model_version`` changes, client
 ``/api/scene/terrain.bin`` (``[u32 nv][u32 nf][f32 verts][u8 colours, padded][u32 faces]``).
 
 Events are JSON ``{"type": "event", "topic": …, "payload": …}`` with topics ``log``,
-``busy``, ``robot``, ``robots``, ``data``, ``jobs``, ``play``, ``presets``, ``owner`` and
+``busy``, ``robot``, ``robots``, ``data``, ``jobs``, ``play``, ``presets``, ``recipes``,
+``owner`` and
 ``focus``.
 
 .. seealso::

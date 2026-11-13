@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import dataclasses
+import inspect
+from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 import torch
 
 from mjlab.entity import Entity
+from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import (
@@ -16,7 +20,7 @@ from mjlab.utils.lab_api.math import (
 
 from wbc_mjlab.env.mdp.torque_envelope import torque_speed_limits
 
-from .commands import MotionCommand
+from .commands import MotionCommand, TrackingView
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
@@ -28,39 +32,123 @@ def _motion_command(env: ManagerBasedRlEnv, command_name: str) -> MotionCommand:
   return cast(MotionCommand, env.command_manager.get_term(command_name))
 
 
+def _ahead(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  frames: int,
+  stride: int,
+  value: Callable[[TrackingView], torch.Tensor],
+) -> torch.Tensor:
+  """``value`` of the reference now and ``stride``, ``2·stride``, … control steps ahead
+  (``frames`` in all), concatenated frame by frame."""
+  views = _motion_command(env, command_name).ahead(frames, stride)
+  if len(views) == 1:
+    return value(views[0])
+  return torch.cat([value(v).reshape(env.num_envs, -1) for v in views], dim=-1)
+
+
+def takes_frames(term: ObservationTermCfg) -> bool:
+  """Whether an observation term can look ahead (a ``frames`` parameter)."""
+  try:
+    return "frames" in inspect.signature(term.func).parameters
+  except (TypeError, ValueError):
+    return False
+
+
+def look_ahead(
+  term: ObservationTermCfg, frames: int, stride: int = 1
+) -> ObservationTermCfg:
+  """A copy of reference term ``term`` covering ``frames`` reference frames ``stride``
+  control steps apart, its per-value noise bounds repeated for each frame."""
+  if not takes_frames(term):
+    raise ValueError(f"{getattr(term.func, '__name__', term.func)} can't look ahead")
+  params = dict(term.params or {})
+  before = int(params.get("frames", 1))
+  params |= {"frames": int(frames), "stride": int(stride)}
+  noise = term.noise
+
+  def per_frame(v):
+    if not isinstance(v, (tuple, list)):
+      return v
+    width = len(v) // before
+    return tuple(v[:width]) * int(frames)
+
+  if noise is not None and hasattr(noise, "n_max"):
+    noise = dataclasses.replace(
+      noise, n_min=per_frame(noise.n_min), n_max=per_frame(noise.n_max)
+    )
+  return dataclasses.replace(term, params=params, noise=noise)
+
+
 # --- Actor reference features (configurable obs terms; were stacked in MotionCommand.command) ---
 # SE actor layouts: ``apply_se_actor`` in ``presets/se_actor.py``.
+# Every reference term takes ``frames`` (reference frames it covers, the current one first)
+# and ``stride`` (control steps between them): the reference ahead, as a term's
+# ``history_length`` is its past. Frames past a clip's end repeat its last one.
 
 
-def ref_base_height(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_base_height(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference anchor height relative to env origin (z_I r̂_IB)."""
-  return _motion_command(env, command_name).ref_base_height
+  return _ahead(env, command_name, frames, stride, lambda c: c.ref_base_height)
 
 
-def ref_anchor_pos_w(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_anchor_pos_w(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference anchor xyz position relative to env origin (SE reference command)."""
-  command = _motion_command(env, command_name)
-  return command.anchor_pos_w - env.scene.env_origins
+  return _ahead(
+    env,
+    command_name,
+    frames,
+    stride,
+    lambda c: c.anchor_pos_w - c._env.scene.env_origins,
+  )
 
 
-def ref_base_lin_vel_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_base_lin_vel_b(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference anchor linear velocity in anchor frame (B v̂_IB)."""
-  return _motion_command(env, command_name).ref_base_lin_vel_b
+  return _ahead(env, command_name, frames, stride, lambda c: c.ref_base_lin_vel_b)
 
 
-def ref_base_ang_vel_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_base_ang_vel_b(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference anchor angular velocity in anchor frame (B ω̂_IB)."""
-  return _motion_command(env, command_name).ref_base_ang_vel_b
+  return _ahead(env, command_name, frames, stride, lambda c: c.ref_base_ang_vel_b)
 
 
-def ref_gravity_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_gravity_b(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference gravity in anchor frame (B ĝ_I)."""
-  return _motion_command(env, command_name).ref_gravity_b
+  return _ahead(env, command_name, frames, stride, lambda c: c.ref_gravity_b)
 
 
-def ref_joint_pos(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_joint_pos(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference joint positions for tracked DoFs (absolute)."""
-  return _motion_command(env, command_name).tracked_joint_pos
+  return _ahead(env, command_name, frames, stride, lambda c: c.tracked_joint_pos)
+
+
+def ref_anchor_shift_b(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
+  """Displacement of the reference anchor from where the reference is now, in the robot
+  anchor frame: where the motion goes (zero for the current frame). Needs only the robot's
+  orientation (IMU), as deployed; SuperMimic (arXiv:2610.28480) looks 10 frames ahead."""
+  now = _motion_command(env, command_name).anchor_pos_w
+  return _ahead(
+    env,
+    command_name,
+    frames,
+    stride,
+    lambda c: quat_apply_inverse(c.robot_anchor_quat_w, c.anchor_pos_w - now),
+  )
 
 
 def _body_index(asset: Entity, body_name: str) -> int:
@@ -96,29 +184,43 @@ def ref_joint_vel(
   env: ManagerBasedRlEnv,
   command_name: str,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  frames: int = 1,
+  stride: int = 1,
 ) -> torch.Tensor:
   """Reference joint velocities (critic privileged)."""
-  command = _motion_command(env, command_name)
-  if asset_cfg.joint_ids is not None:
-    return command.joint_vel[:, asset_cfg.joint_ids]
-  return command.tracked_joint_vel
+
+  def value(c: TrackingView) -> torch.Tensor:
+    if asset_cfg.joint_ids is not None:
+      return c.joint_vel[:, asset_cfg.joint_ids]
+    return c.tracked_joint_vel
+
+  return _ahead(env, command_name, frames, stride, value)
 
 
-def ref_anchor_ori_6d(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  """Reference anchor orientation as 6D rotation matrix columns (world frame)."""
-  command = _motion_command(env, command_name)
-  mat = matrix_from_quat(command.anchor_quat_w)
+def _ori_6d(quat: torch.Tensor) -> torch.Tensor:
+  mat = matrix_from_quat(quat)
   return mat[..., :2].reshape(mat.shape[0], -1)
 
 
-def ref_base_lin_acc_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_anchor_ori_6d(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
+  """Reference anchor orientation as 6D rotation matrix columns (world frame)."""
+  return _ahead(env, command_name, frames, stride, lambda c: _ori_6d(c.anchor_quat_w))
+
+
+def ref_base_lin_acc_b(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference anchor linear acceleration in anchor frame (critic privileged)."""
-  return _motion_command(env, command_name).ref_base_lin_acc_b
+  return _ahead(env, command_name, frames, stride, lambda c: c.ref_base_lin_acc_b)
 
 
-def ref_base_ang_acc_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_base_ang_acc_b(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference anchor angular acceleration in anchor frame (critic privileged)."""
-  return _motion_command(env, command_name).ref_base_ang_acc_b
+  return _ahead(env, command_name, frames, stride, lambda c: c.ref_base_ang_acc_b)
 
 
 def height_scan(
@@ -162,18 +264,18 @@ def _body_ang_vel_in_anchor_frame(
   return vel_b.view(num_envs, num_bodies * 3)
 
 
-def motion_anchor_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def motion_anchor_pos_b(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Full xyz anchor tracking error in robot anchor frame (non-SE layouts)."""
-  command = _motion_command(env, command_name)
 
-  pos, _ = subtract_frame_transforms(
-    command.robot_anchor_pos_w,
-    command.robot_anchor_quat_w,
-    command.anchor_pos_w,
-    command.anchor_quat_w,
-  )
+  def value(c: TrackingView) -> torch.Tensor:
+    pos, _ = subtract_frame_transforms(
+      c.robot_anchor_pos_w, c.robot_anchor_quat_w, c.anchor_pos_w, c.anchor_quat_w
+    )
+    return pos.view(env.num_envs, -1)
 
-  return pos.view(env.num_envs, -1)
+  return _ahead(env, command_name, frames, stride, value)
 
 
 def motion_anchor_pos_z_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
@@ -181,33 +283,40 @@ def motion_anchor_pos_z_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Te
   return motion_anchor_pos_b(env, command_name)[:, 2:3]
 
 
-def motion_anchor_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  command = _motion_command(env, command_name)
+def motion_anchor_ori_b(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
+  """Reference anchor orientation in the robot anchor frame (6D rotation columns)."""
 
-  _, ori = subtract_frame_transforms(
-    command.robot_anchor_pos_w,
-    command.robot_anchor_quat_w,
-    command.anchor_pos_w,
-    command.anchor_quat_w,
-  )
-  mat = matrix_from_quat(ori)
-  return mat[..., :2].reshape(mat.shape[0], -1)
+  def value(c: TrackingView) -> torch.Tensor:
+    _, ori = subtract_frame_transforms(
+      c.robot_anchor_pos_w, c.robot_anchor_quat_w, c.anchor_pos_w, c.anchor_quat_w
+    )
+    return _ori_6d(ori)
+
+  return _ahead(env, command_name, frames, stride, value)
 
 
 def motion_anchor_pos_error_w(
-  env: ManagerBasedRlEnv, command_name: str
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
 ) -> torch.Tensor:
   """World-frame anchor position tracking error (ref − robot)."""
-  command = _motion_command(env, command_name)
-  return command.anchor_pos_w - command.robot_anchor_pos_w
+  return _ahead(
+    env, command_name, frames, stride, lambda c: c.anchor_pos_w - c.robot_anchor_pos_w
+  )
 
 
 def motion_anchor_ori_error(
-  env: ManagerBasedRlEnv, command_name: str
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
 ) -> torch.Tensor:
   """Anchor orientation tracking error as axis-angle (3); ‖·‖ = quat_error_magnitude."""
-  command = _motion_command(env, command_name)
-  return quat_box_minus(command.anchor_quat_w, command.robot_anchor_quat_w)
+  return _ahead(
+    env,
+    command_name,
+    frames,
+    stride,
+    lambda c: quat_box_minus(c.anchor_quat_w, c.robot_anchor_quat_w),
+  )
 
 
 def robot_body_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
@@ -253,49 +362,60 @@ def _ref_body_indexes(
   return [name_to_idx[name] for name in body_names]
 
 
+def _ref_body_pose_b(
+  c: TrackingView, indexes: list[int]
+) -> tuple[torch.Tensor, torch.Tensor]:
+  n = len(indexes)
+  return subtract_frame_transforms(
+    c.robot_anchor_pos_w[:, None, :].repeat(1, n, 1),
+    c.robot_anchor_quat_w[:, None, :].repeat(1, n, 1),
+    c.body_pos_w[:, indexes],
+    c.body_quat_w[:, indexes],
+  )
+
+
 def ref_body_pos_b(
   env: ManagerBasedRlEnv,
   command_name: str,
   body_names: tuple[str, ...] | None = None,
+  frames: int = 1,
+  stride: int = 1,
 ) -> torch.Tensor:
   """Reference keybody positions in the robot anchor frame.
 
   Args:
     body_names: Subset of motion command bodies (default: all), in the given order.
   """
-  command = _motion_command(env, command_name)
-  indexes = _ref_body_indexes(command, body_names)
-  num_bodies = len(indexes)
-  pos_b, _ = subtract_frame_transforms(
-    command.robot_anchor_pos_w[:, None, :].repeat(1, num_bodies, 1),
-    command.robot_anchor_quat_w[:, None, :].repeat(1, num_bodies, 1),
-    command.body_pos_w[:, indexes],
-    command.body_quat_w[:, indexes],
+  indexes = _ref_body_indexes(_motion_command(env, command_name), body_names)
+  return _ahead(
+    env,
+    command_name,
+    frames,
+    stride,
+    lambda c: _ref_body_pose_b(c, indexes)[0].reshape(env.num_envs, -1),
   )
-  return pos_b.view(env.num_envs, -1)
 
 
 def ref_body_ori_b(
   env: ManagerBasedRlEnv,
   command_name: str,
   body_names: tuple[str, ...] | None = None,
+  frames: int = 1,
+  stride: int = 1,
 ) -> torch.Tensor:
   """Reference keybody orientations in the robot anchor frame (6D rotation columns).
 
   Args:
     body_names: Subset of motion command bodies (default: all), in the given order.
   """
-  command = _motion_command(env, command_name)
-  indexes = _ref_body_indexes(command, body_names)
-  num_bodies = len(indexes)
-  _, ori_b = subtract_frame_transforms(
-    command.robot_anchor_pos_w[:, None, :].repeat(1, num_bodies, 1),
-    command.robot_anchor_quat_w[:, None, :].repeat(1, num_bodies, 1),
-    command.body_pos_w[:, indexes],
-    command.body_quat_w[:, indexes],
+  indexes = _ref_body_indexes(_motion_command(env, command_name), body_names)
+  return _ahead(
+    env,
+    command_name,
+    frames,
+    stride,
+    lambda c: _ori_6d(_ref_body_pose_b(c, indexes)[1]),
   )
-  mat = matrix_from_quat(ori_b)
-  return mat[..., :2].reshape(mat.shape[0], -1)
 
 
 def motion_body_lin_vel(
@@ -318,19 +438,29 @@ def motion_body_ang_vel(
   )
 
 
-def ref_body_lin_vel(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_body_lin_vel(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference keybody linear velocities in the robot anchor frame."""
-  command = _motion_command(env, command_name)
-  return _body_lin_vel_in_anchor_frame(
-    command.robot_anchor_quat_w, command.body_lin_vel_w
+  return _ahead(
+    env,
+    command_name,
+    frames,
+    stride,
+    lambda c: _body_lin_vel_in_anchor_frame(c.robot_anchor_quat_w, c.body_lin_vel_w),
   )
 
 
-def ref_body_ang_vel(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+def ref_body_ang_vel(
+  env: ManagerBasedRlEnv, command_name: str, frames: int = 1, stride: int = 1
+) -> torch.Tensor:
   """Reference keybody angular velocities in the robot anchor frame."""
-  command = _motion_command(env, command_name)
-  return _body_ang_vel_in_anchor_frame(
-    command.robot_anchor_quat_w, command.body_ang_vel_w
+  return _ahead(
+    env,
+    command_name,
+    frames,
+    stride,
+    lambda c: _body_ang_vel_in_anchor_frame(c.robot_anchor_quat_w, c.body_ang_vel_w),
   )
 
 

@@ -37,6 +37,8 @@ import json
 import os
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -239,6 +241,9 @@ def load_dataset(
   file's name, size and mtime, the joint list and the format options, so editing, adding or
   removing a clip rebuilds it. Older cache files of the dataset are removed.
   """
+  import time
+
+  started = time.perf_counter()
   root = Path(root).expanduser().resolve()
   files = list_source_files(root, format_name=format_name)
   if not files:
@@ -257,7 +262,7 @@ def load_dataset(
       if verbose:
         print(
           f"[INFO] Motion library: {packed.num_clips} clips, {packed.num_frames} frames "
-          f"(cache {path.name})"
+          f"(cache {path.name}, {time.perf_counter() - started:.2f}s)"
         )
       return packed
     except (OSError, ValueError, KeyError) as e:
@@ -276,6 +281,11 @@ def load_dataset(
         old.unlink(missing_ok=True)
   except OSError as e:  # read-only dataset: run without a cache
     print(f"[WARN] Could not write motion cache {path}: {e}")
+  if verbose:
+    print(
+      f"[INFO] Motion library: source packing ready in {time.perf_counter() - started:.2f}s",
+      flush=True,
+    )
   return packed
 
 
@@ -367,6 +377,7 @@ class RobotKinematics:
 
     mjd = mujoco.MjData(mj_model)
     mujoco.mj_kinematics(mj_model, mjd)  # no collision: the FK data holds no contacts
+    self._mj_model, self._mjd = mj_model, mjd
     with wp.ScopedDevice(self._wp_device):
       self._m = mjw.put_model(mj_model)
     # A full-width batch (one world per env) and a narrow one for the few rows of a reset.
@@ -376,7 +387,7 @@ class RobotKinematics:
     ]
 
   def fk(
-    self, qpos: torch.Tensor, qvel: torch.Tensor
+    self, qpos: torch.Tensor, qvel: torch.Tensor, batch: _FkBatch | None = None
   ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """``qpos`` (M, 7+J), ``qvel`` (M, 6+J) → body pos, quat (wxyz), lin vel, ang vel (world)."""
     m = int(qpos.shape[0])
@@ -385,7 +396,7 @@ class RobotKinematics:
       torch.empty(m, nb, k, device=self.device, dtype=torch.float32)
       for k in (3, 4, 3, 3)
     ]
-    batch = self.batch_for(m)
+    batch = batch or self.batch_for(m)
     for a in range(0, m, batch.nworld):
       b = min(m, a + batch.nworld)
       self.write(batch, qpos[a:b], qvel[a:b])
@@ -397,6 +408,13 @@ class RobotKinematics:
   def batch_for(self, m: int) -> _FkBatch:
     """The narrowest FK batch holding ``m`` rows (the widest one when none does)."""
     return next((x for x in self._batches if x.nworld >= m), self._batches[-1])
+
+  def wide_batch(self, nworld: int) -> _FkBatch:
+    """A batch of at least ``nworld`` worlds for a one-off pass over many rows: the full
+    one when it is that wide, else a new one the caller drops when done."""
+    if self._batches[-1].nworld >= nworld:
+      return self._batches[-1]
+    return _FkBatch(self._m, self._mj_model, self._mjd, nworld, self._wp_device)
 
   def write(self, batch: _FkBatch, qpos: torch.Tensor, qvel: torch.Tensor) -> None:
     n, fq, fv = int(qpos.shape[0]), self._free_q, self._free_v
@@ -418,6 +436,10 @@ class RobotKinematics:
 
 SMALL_BATCH = 256
 """Worlds of the narrow FK batch (reset rows); wider requests use the full one."""
+
+SOURCE_BATCH = 4096
+"""Worlds of the FK batch of :meth:`MotionLibrary.source_pass`, whatever the env count: a
+pass over every source frame of a large dataset in Play's few worlds would take minutes."""
 
 
 class _FkBatch:
@@ -487,6 +509,34 @@ class MotionFrame:
   body_ang_vel_w: torch.Tensor  # (M, B, 3)
   anchor_lin_acc_w: torch.Tensor  # (M, 3)
   anchor_ang_acc_w: torch.Tensor  # (M, 3)
+
+  # Of a window (fields shaped ``(M, frames, …)``). Fields spelled out: torch.compile does
+  # not trace dataclasses.fields.
+  def at(self, i: int) -> MotionFrame:
+    """Frame ``i`` of a window."""
+    return MotionFrame(
+      self.joint_pos[:, i],
+      self.joint_vel[:, i],
+      self.body_pos_w[:, i],
+      self.body_quat_w[:, i],
+      self.body_lin_vel_w[:, i],
+      self.body_ang_vel_w[:, i],
+      self.anchor_lin_acc_w[:, i],
+      self.anchor_ang_acc_w[:, i],
+    )
+
+  def head(self, k: int) -> MotionFrame:
+    """The first ``k`` frames of a window."""
+    return MotionFrame(
+      self.joint_pos[:, :k],
+      self.joint_vel[:, :k],
+      self.body_pos_w[:, :k],
+      self.body_quat_w[:, :k],
+      self.body_lin_vel_w[:, :k],
+      self.body_ang_vel_w[:, :k],
+      self.anchor_lin_acc_w[:, :k],
+      self.anchor_ang_acc_w[:, :k],
+    )
 
 
 @dataclass(frozen=True)
@@ -695,13 +745,14 @@ class MotionLibrary:
     fps = self.clip_fps[clip_of]
     vel = torch.zeros(n, 6, device=self.device)
     foot_min = torch.full((p.num_clips,), float("inf"), device=self.device)
-    for a in range(0, n, kin.nworld):
-      b = min(n, a + kin.nworld)
+    batch = kin.wide_batch(SOURCE_BATCH)
+    for a in range(0, n, batch.nworld):
+      b = min(n, a + batch.nworld)
       clip = clip_of[a:b]
       q, qv = self._state(
         clip, local[a:b].double() / fps[a:b], 1.0 / fps[a:b], None, False
       )
-      pos, _, lin, ang = kin.fk(q, qv)
+      pos, _, lin, ang = kin.fk(q, qv, batch)
       if anchor is not None:
         vel[a:b] = torch.cat([lin[:, anchor], ang[:, anchor]], dim=-1)
       if feet:
@@ -733,6 +784,44 @@ def _grid_lengths(lib: MotionLibrary, step_dt: float) -> torch.Tensor:
   ]
   counts = torch.tensor(per_clip, dtype=torch.long, device=lib.device)
   return counts[lib.segment_clip]
+
+
+# Explicit, construction-scoped sharing for independent curriculum simulators.
+# Only immutable source/derived tables are shared; FK scratch space and CUDA graphs
+# always belong to the new environment and its stream.
+
+_shared_online_motion = ContextVar("shared_online_motion", default=None)
+
+
+@contextmanager
+def reuse_online_motion(motion):
+  token = _shared_online_motion.set(
+    motion if isinstance(motion, OnlineMotion) else None
+  )
+  try:
+    yield
+  finally:
+    _shared_online_motion.reset(token)
+
+
+def _kinematic_signature(model):
+  import hashlib
+
+  digest = hashlib.sha256()
+  for name in (
+    "body_parentid",
+    "body_pos",
+    "body_quat",
+    "jnt_type",
+    "jnt_bodyid",
+    "jnt_qposadr",
+    "jnt_dofadr",
+    "jnt_pos",
+    "jnt_axis",
+    "qpos0",
+  ):
+    digest.update(getattr(model, name).tobytes())
+  return digest.digest()
 
 
 class OnlineMotion:
@@ -777,11 +866,41 @@ class OnlineMotion:
     missing = [n for n in joint_names if n not in qpos_names]
     if missing:
       raise ValueError(f"joints {missing} are not in the model")
-    packed = load_dataset(
-      source, qpos_names, format_name=format_name, input_fps=input_fps, cache=cache
+    self._data_key = (
+      self.motion_source,
+      tuple(qpos_names),
+      tuple(body_names),
+      anchor_body,
+      root_body,
+      self.step_dt,
+      str(self.device),
+      robot_id,
+      entity_name,
+      mirror,
+      debias_z,
+      debias_foot_sole_z,
+      storage,
+      format_name,
+      input_fps,
+      _kinematic_signature(mj_model),
     )
-    spec = mirror_spec_for(robot_id, qpos_names) if mirror else None
-    self.library = MotionLibrary(packed, device=device, storage=storage, mirror=spec)
+    shared = _shared_online_motion.get()
+    if shared is not None and shared._data_key != self._data_key:
+      raise ValueError(
+        "Cannot share motion data across different source/kinematic settings"
+      )
+    if shared is None:
+      packed = load_dataset(
+        source, qpos_names, format_name=format_name, input_fps=input_fps, cache=cache
+      )
+      spec = mirror_spec_for(robot_id, qpos_names) if mirror else None
+      self.library = MotionLibrary(packed, device=device, storage=storage, mirror=spec)
+    else:
+      self.library = shared.library
+      packed = self.library.packed
+      print(
+        "[INFO] Online motion: reusing immutable training source tables", flush=True
+      )
 
     feet: list[str] = []
     sole_z = None
@@ -804,12 +923,23 @@ class OnlineMotion:
       device=device,
       entity_name=entity_name,
     )
-    self.library.source_pass(
-      self.kin,
-      anchor=bodies.index(anchor_body),
-      feet=[bodies.index(f) for f in feet],
-      foot_sole_z=sole_z,
-    )
+    if shared is None:
+      import time
+
+      started = time.perf_counter()
+      print(
+        f"[INFO] Online motion: source FK pass ({packed.num_frames} frames)", flush=True
+      )
+      self.library.source_pass(
+        self.kin,
+        anchor=bodies.index(anchor_body),
+        feet=[bodies.index(f) for f in feet],
+        foot_sole_z=sole_z,
+      )
+      print(
+        f"[INFO] Online motion: source FK ready in {time.perf_counter() - started:.2f}s",
+        flush=True,
+      )
     self._use_graphs = self.device.type == "cuda" and storage == "device"
     self._graphs: dict[int, tuple] = {}
     self._joint_perm = (
@@ -848,7 +978,10 @@ class OnlineMotion:
     m = int(steps.shape[0])
     if not self._use_graphs or m == 0 or m > self.kin.nworld:
       return self._frame(steps)
-    batch = self.kin.batch_for(m)
+    return self._frame_graph(steps, self.kin.batch_for(m))
+
+  def _frame_graph(self, steps, batch):
+    m = int(steps.shape[0])
     pre, post, buf, out = self._graphs_for(batch)
     buf[:m] = steps
     if m < batch.nworld:
@@ -1050,31 +1183,9 @@ RUN_MOTION_OPTIONS = ("mirror", "debias_z", "source_format", "source_fps")
 def run_motion_options(run_dir: Path | str) -> dict:
   """The :data:`RUN_MOTION_OPTIONS` of a training run (``params/env.yaml``); empty when the
   run predates them or has no params."""
-  import yaml
+  from wbc_mjlab.run_params import read_run_params
 
-  path = Path(run_dir) / "params" / "env.yaml"
-  if not path.is_file():
-    return {}
-
-  class _Loader(yaml.SafeLoader):
-    pass
-
-  # mjlab writes tuples (and other python objects) with python/* tags: read them as lists
-  _Loader.add_multi_constructor(
-    "tag:yaml.org,2002:python/",
-    lambda loader, _suffix, node: (
-      loader.construct_sequence(node)
-      if isinstance(node, yaml.SequenceNode)
-      else loader.construct_mapping(node)
-      if isinstance(node, yaml.MappingNode)
-      else loader.construct_scalar(node)
-    ),
-  )
-  try:
-    doc = yaml.load(path.read_text(errors="replace"), Loader=_Loader)  # noqa: S506
-    motion = doc["commands"]["motion"]
-  except (yaml.YAMLError, KeyError, TypeError):
-    return {}
+  motion = read_run_params(run_dir, "env").get("commands", {}).get("motion") or {}
   return {k: motion[k] for k in RUN_MOTION_OPTIONS if k in motion}
 
 
@@ -1086,3 +1197,52 @@ def apply_run_motion_options(motion_cfg, run_dir: Path | str | None) -> dict:
   if options:
     print(f"[INFO] Motion options of the run: {options}")
   return options
+
+
+@torch.no_grad()
+def contact_floors(motion, body_indices, quantile, batch_size=SOURCE_BATCH):
+  """Exact per-segment foot-height quantiles, with FK batched across clip boundaries.
+
+  BlinkMimic motion.py's contact floor, evaluated on our resampled motion grid.
+  Only selected heights live on the CPU (two floats/frame for two feet), never
+  the full body trajectories. Reuses the online FK graphs at a fixed batch width.
+  """
+  import time
+
+  started = time.perf_counter()
+  print("[INFO] Motion contacts: computing batched reference floors", flush=True)
+  # Preprocessing width is independent of Play/probe environment count.
+  batch = (
+    motion.kin.wide_batch(batch_size) if isinstance(motion, OnlineMotion) else None
+  )
+  width = batch.nworld if batch is not None else batch_size
+  heights = np.empty((motion.time_step_total, len(body_indices)), dtype=np.float32)
+  device = motion.segment_start_idx.device
+  for a in range(0, len(heights), width):
+    b = min(a + width, len(heights))
+    steps = torch.arange(a, b, device=device)
+    if batch is not None:
+      if motion._use_graphs:
+        positions = motion._frame_graph(steps, batch).body_pos_w
+      else:
+        seg, t = motion.locate(steps)
+        q, qv = motion.library.state_at(seg, t, motion.step_dt)
+        positions = motion.kin.fk(q, qv, batch)[0]
+    else:
+      positions = motion.frame(steps).body_pos_w
+    heights[a:b] = positions[:, body_indices, 2].cpu().numpy()
+  if batch is not None and batch not in motion.kin._batches:
+    motion._graphs.pop(batch.nworld, None)  # release one-off preprocessing graphs
+  floors = np.stack(
+    [
+      np.quantile(heights[a:b], quantile, axis=0)
+      for a, b in zip(
+        motion.segment_start_idx.tolist(), motion.segment_end_idx.tolist(), strict=True
+      )
+    ]
+  )
+  print(
+    f"[INFO] Motion contacts: floors ready in {time.perf_counter() - started:.2f}s",
+    flush=True,
+  )
+  return torch.as_tensor(floors, dtype=torch.float32, device=device)

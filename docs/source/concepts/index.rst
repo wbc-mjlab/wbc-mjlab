@@ -49,6 +49,12 @@ most (**adaptive sampling**).
 
       Where episodes start in a clip library, and why it matters.
 
+   .. grid-item-card:: :octicon:`rocket` World-model training
+      :link: world_model
+      :link-type: doc
+
+      ``--algo wm``: a learned dynamics model instead of PPO, for the same tasks.
+
    .. grid-item-card:: :octicon:`eye` Observations
       :link: ../mdp/observations
       :link-type: doc
@@ -63,3 +69,4 @@ most (**adaptive sampling**).
    presets_and_tasks
    robots_and_extensions
    adaptive_sampling
+   world_model

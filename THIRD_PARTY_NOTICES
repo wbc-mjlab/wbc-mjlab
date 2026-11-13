@@ -1,0 +1,211 @@
+Official SuperMimic
+===================
+
+Copyright 2026 The SuperMimic Authors.
+Licensed under Apache License 2.0 (see LICENSE).
+
+Source: https://github.com/HybridRobotics/supermimic
+Reference commit: abc124c1bd5976341034668af3d12c087f2f1f55
+Paper: Qiayuan Liao et al. (2026), SuperMimic: Scaling Humanoid Whole-Body
+Control with One Differentiable World Model. https://arxiv.org/abs/2610.28480
+
+The optional velocity-only dynamics, fixed physical loss tolerances, structured
+critic, visited-bin return curriculum and graph-storage validation adapt designs
+or algorithms from representations.py, learners/wm_learner.py,
+learners/learner_utils.py, models.py,
+envs/world_model_env.py and runners/reset_sampling.py.
+
+Modified for this repository: retained robot state/action conventions, explicit
+root velocity loss, full policy-history encoding, segment-local sampling and
+checkpoint persistence, finite-update guards and flat observations.
+No separate upstream runner or mjlab fork is bundled.
+
+
+SuperMimic-Reproduced
+====================
+
+The optional world-model integration prior, motion encoder design, terminal-state
+recording, execution-only noise, distributed gradient averaging, evaluation/drift
+protocol and numerical validation ideas were adapted from or informed by:
+
+  CuboiLeo/SuperMimic-Reproduced
+  https://github.com/CuboiLeo/SuperMimic-Reproduced
+  Reference commit: ba6105349069bf040f1fdad60873d13138d505a2
+
+These features implement or extend the method described in:
+
+  Qiayuan Liao et al. (2026), SuperMimic: Scaling Humanoid Whole-Body Control
+  with One Differentiable World Model. https://arxiv.org/abs/2610.28480
+
+The reproduced code is an independent implementation, not the paper authors'
+official code. File-level comments identify the relevant upstream source paths.
+The upstream license notice is preserved below. The rest of wbc-mjlab remains
+under its existing Apache-2.0 license.
+
+MIT License
+
+Copyright (c) 2026 Yuxi Liu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+BlinkMimic / InstantTrack / supermimic_vibed
+=========================================
+
+BlinkMimic (Fuyi Chen, 2026), reference commit
+d264658d6c9ce61fb52f9f0f8985a369f3ccc409:
+https://github.com/fuyichen0725/blinkmimic
+
+rl/optim.py adapts the upstream optimizer implementation. Structured dynamics,
+loss scales, reference residuals, EMA, mirrored replay, failure-directed resets,
+policy probes and contact shaping adapt designs in networks.py, mirror.py,
+train.py, env.py, mdp.py and motion.py. The shared method remains SuperMimic
+(Liao et al., 2026): https://arxiv.org/abs/2610.28480. BlinkMimic builds upon
+https://github.com/Huy-Quang-Dao/instantTrack and
+https://github.com/zita-ch/supermimic_vibed. Muon: Jordan et al. (2024),
+https://github.com/KellerJordan/Muon; the implementation calls PyTorch's optimizer.
+Existing CuboiLeo attribution above remains applicable. Data licenses are separate.
+
+MIT License
+
+Copyright (c) 2026 Fuyi Chen
+Copyright (c) 2026 Huy-Quang-Dao (InstantTrack, from which this software is derived)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+# Third-party notices
+
+Portions of `src/blinkmimic/` and `tools/` come from [supermimic_vibed](https://github.com/zita-ch/supermimic_vibed)
+(Chong Zhang) and [InstantTrack](https://github.com/Huy-Quang-Dao/instantTrack) (Huy-Quang-Dao), used under their MIT
+Licenses, reproduced below.
+
+## InstantTrack
+
+```
+MIT License
+
+Copyright (c) 2026 Huy-Quang-Dao
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## supermimic_vibed
+
+```
+MIT License
+
+Copyright (c) 2026 ETH Zurich, Chong Zhang
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Dependencies and data
+
+The Python dependencies (mjlab, MuJoCo, MuJoCo Warp, NVIDIA Warp, PyTorch, matplotlib, Pillow) are installed from
+their own distributions under their own licenses (Apache-2.0, BSD-3-Clause and others) and are not redistributed here.
+The LAFAN1 motions (Ubisoft La Forge, CC BY-NC-ND 4.0) and the Unitree G1 description (BSD-3-Clause) are downloaded
+by `tools/download_data.sh` and are not redistributed here either; files derived from LAFAN1 (videos, GIFs,
+checkpoints) are not covered by this repository's MIT License.
+
+
+xMimic and draft disturbance adaptation
+======================================
+
+The optional tracking-based imagined termination in rl/wm/termination.py is
+adapted from BlinkMimic's sigmoid termination relaxation and its xMimic port:
+  https://github.com/nico-bohlinger/xmimic
+  Reference commit: 54860e100251fa80143627565568d5e6b0ff2c2b
+  Source: xmimic/mdp.py, soft_termination
+It uses this repository's task thresholds and the existing SuperMimic trainer;
+xMimic's JAX execution pipeline is not incorporated.
+
+rl/wm/perturbations.py reuses the user's draft_wbc velocity-kick controller,
+adapted to the shared environment, replay and checkpoint contracts. Its original
+precedent is BlinkMimic env.py / buffer.py at
+d264658d6c9ce61fb52f9f0f8985a369f3ccc409.
+
+MIT License
+
+Copyright (c) 2026 Nico Bohlinger
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

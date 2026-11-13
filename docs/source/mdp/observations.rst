@@ -231,6 +231,33 @@ Preset changes to reference obs
 
 Task-specific details: :doc:`../tasks/index`.
 
+.. _observations-ahead:
+
+Looking ahead: ``frames`` and ``stride``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every reference term (``ref_*``, ``motion_anchor_*``) takes two parameters: ``frames``, the
+reference frames it covers (the current one first), and ``stride``, the control steps between
+them. ``ref_joint_pos`` with ``frames=5, stride=2`` is the reference joint positions now and
+2, 4, 6 and 8 steps ahead, frame after frame (``5 × J`` values); frames past a clip's end
+repeat its last one. Robot-relative terms (``ref_body_pos``, ``motion_anchor_ori_b``) express
+each later frame against the robot's current pose. It is the future counterpart of
+``history_length``, which gives a term's past.
+
+.. code-block:: python
+
+   from wbc_mjlab.env.mdp.observations import look_ahead
+
+   actor = cfg.observations["actor"]
+   actor.terms["ref_joint_pos"] = look_ahead(actor.terms["ref_joint_pos"], frames=5, stride=2)
+
+:func:`~wbc_mjlab.env.mdp.observations.look_ahead` also repeats per-value noise bounds for
+each frame. In the Studio: *Preset → Observations*, a term's *frames ahead* and *stride*.
+The world model reads the same frames ahead in imagination, and the deploy export records
+``frames`` / ``stride`` in each term's ``params`` (the robot runtime must feed the reference
+that far ahead). :doc:`../tasks/wbc-g1-lookahead` builds its 10-frame window this way,
+with ``ref_anchor_shift_b`` (where the reference anchor goes, in the robot anchor frame).
+
 Total actor observation size
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -238,11 +265,11 @@ Terms are **concatenated in cfg order** (``cfg.observations["actor"].terms``):
 
 .. code-block:: text
 
-   actor_dim = sum(dim(term) for term in active_actor_terms) × history_length
+   actor_dim = sum(dim(term) × frames × history_length for term in active_actor_terms)
 
 ``history_length`` may be set on the observation **group** or on individual terms
 (mjlab ``ObservationManager``). Presets such as ``apply_zest`` can set actor
-``history_length`` > 1.
+``history_length`` > 1. The export records each term's ``history_length``.
 
 Reference command size for deploy (``wbc_command_dim``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
