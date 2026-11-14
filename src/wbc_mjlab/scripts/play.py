@@ -102,6 +102,7 @@ def _export_onnx_pre_viewer(
         runner.env.unwrapped,
         robot_id=last_registered_robot_id(),
         write_motion_library=True,
+        write_rsi_stats=False,  # training state: never overwrite it from play
       )
       print(f"[INFO] WBC tracking params written to {yaml_path.resolve()}")
       if rsi_path is not None:
