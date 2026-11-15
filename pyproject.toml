@@ -41,7 +41,10 @@ classifiers = [
 ]
 dependencies = [
   "fastapi>=0.115",
-  "mjlab>=1.6.0",
+  "mjlab~=1.6.1",
+  # mjlab 1.6.x supports the matching MuJoCo / MuJoCo Warp 3.11 stack.
+  "mujoco~=3.11.0",
+  "mujoco-warp~=3.11.0",
   # mediapy (mjlab dep) breaks on numpy 2.5+; keep in sync with mjlab.
   "numpy<2.5",
   "uvicorn>=0.30",

@@ -43,7 +43,7 @@ under **Train → GPUs**, showing utilization and free memory.
 
 ## Quick start
 
-Requires [mjlab](https://github.com/mujocolab/mjlab) (≥ 1.5) and an NVIDIA GPU for training ([installation](https://wbc-mjlab.github.io/wbc-mjlab/source/installation.html)).
+Requires [mjlab](https://github.com/mujocolab/mjlab) (1.6.1+) with its compatible MuJoCo/MuJoCo Warp 3.11 stack and an NVIDIA GPU for training ([installation](https://wbc-mjlab.github.io/wbc-mjlab/source/installation.html)).
 
 ```bash
 git clone https://github.com/wbc-mjlab/wbc-mjlab.git && cd wbc-mjlab
