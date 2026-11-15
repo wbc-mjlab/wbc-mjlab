@@ -31,6 +31,24 @@ def test_package_metadata() -> None:
   assert "wbc_mjlab" in task_plugins
 
 
+def test_physics_stack() -> None:
+  """Detect namespace collisions from mismatched MuJoCo distributions on install."""
+  import mujoco
+  import mujoco_warp  # noqa: F401
+
+  installed = md.version("mujoco")
+  assert mujoco.__version__ == installed
+  assert mujoco.mj_versionString() == installed
+  assert installed.split(".")[:2] == md.version("mujoco-warp").split(".")[:2]
+  if int(installed.split(".")[0]) < 4:
+    for incompatible in ("mujoco-core", "mujoco-studio"):
+      try:
+        md.distribution(incompatible)
+      except md.PackageNotFoundError:
+        continue
+      raise AssertionError(f"{incompatible} collides with MuJoCo {installed}")
+
+
 @pytest.mark.slow if pytest else lambda f: f
 def test_import_and_list_tasks() -> None:
   """Full stack: mjlab import + WBC task registry."""
@@ -46,6 +64,7 @@ def test_import_and_list_tasks() -> None:
 if __name__ == "__main__":
   try:
     test_package_metadata()
+    test_physics_stack()
     test_import_and_list_tasks()
     print("Smoke test passed!")
     sys.exit(0)

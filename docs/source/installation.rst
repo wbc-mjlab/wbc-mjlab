@@ -14,6 +14,14 @@ System requirements
 - **Evaluation:** Linux, macOS, or Windows (WSL) with CPU PyTorch
 - **Python:** 3.10–3.13
 
+The supported physics stack is **mjlab 1.6.1+ within 1.6.x**, **MuJoCo 3.11.x** and
+**MuJoCo Warp 3.11.x**. MuJoCo 4 is not supported by this mjlab release. mjlab 1.6.1
+also caps ``mjviser<0.0.17`` to prevent its newer dependencies from installing
+``mujoco-core`` alongside the monolithic MuJoCo 3 package; those distributions
+write into the same Python namespace. See the
+`mjlab 1.6.1 release notes <https://github.com/mujocolab/mjlab/releases/tag/v1.6.1>`_.
+Use ``make sync`` (or rebuild the development container) to install the updated lockfile.
+
 From source (recommended)
 -------------------------
 
