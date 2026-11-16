@@ -134,7 +134,7 @@ Why WBC-MJLab
    .. grid-item-card:: :octicon:`versions` Tasks, not forks
       :class-card: wbc-feature
 
-      ZEST, BeyondMimic-style sampling, state estimation, end-effector command, rough
+      ZEST, BeyondMimic-style and success-guided sampling, state estimation, end-effector command, rough
       terrain — ``--task`` switches on one codebase, with the same CLI and logs for fair
       comparison.
 

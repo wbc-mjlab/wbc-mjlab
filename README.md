@@ -16,7 +16,7 @@ Recent works ([ZEST](https://arxiv.org/abs/2602.00401), [BeyondMimic](https://ar
 
 - **Multi-motion by design** — train on **multi-clip datasets** (LAFAN, SEED, custom NPZ libraries); one controller generalizes across the library. At runtime, provide reference - via playing clip, teleop, or higher level policy.
 - **Shared MDP** — rewards, terminations, motion command, RSI, and playback live in `env/` once; robots and papers plug in via task configs.
-- **Tasks, not forks** — ZEST, BeyondMimic-style RSI, deploy obs, etc. are **`--task` switches** (`Wbc-G1`, `Wbc-G1-Zest`, `Wbc-G1-BinaryFailure`, …) with the same CLI and log layout for fair comparison.
+- **Tasks, not forks** — ZEST, BeyondMimic-style RSI, success-guided sampling, deploy obs, etc. are **`--task` switches** (`Wbc-G1`, `Wbc-G1-Zest`, `Wbc-G1-BinaryFailure`, `Wbc-G1-SGS`, …) with the same CLI and log layout for fair comparison.
 - **Motion data pipeline** — versioned libraries under `data/`, GMR PKL ingest, **batch GPU CSV→NPZ**, optional motion-bundle cache.
 - **Building blocks** — paper presets in `presets/` and G1 task builders in `robots/g1/tasks.py`; add a paper setup or tune your own WBC without forking the core MDP.
 - **Plug-in robots** — add a humanoid from its MJCF / URDF [without code](https://wbc-mjlab.github.io/wbc-mjlab/source/extensions/custom_robots.html), or ship an extension package via `register_wbc_extension` ([H2 example](https://github.com/wbc-mjlab/wbc-mjlab-extension-h2)).
