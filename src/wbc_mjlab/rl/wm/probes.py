@@ -119,7 +119,7 @@ class CurriculumProbes:
     if self.cuda_graphs:
       if torch.device(self.alg.device).type != "cuda":
         raise ValueError("probe policy graphs require CUDA")
-      from wbc_mjlab.rl.wm.algorithm import CudaGraphed
+      from wbc_mjlab.rl.wm.cuda_graph import CudaGraphed
 
       self.policy_forward = CudaGraphed(torch.compile(self._forward, dynamic=False))
 

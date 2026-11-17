@@ -740,3 +740,39 @@ def test_ppo_encoder_saved_run_and_evaluation(tmp_path):
   assert out.is_file() and len(result["clips"]) == 1
   assert result["protocol"]["task"] == "Wbc-G1-Lookahead"
   assert reward_name in result["clips"][0]["reward_terms"]
+
+
+@cuda
+def test_viewer_and_headless_frame_reset_match():
+  from unittest.mock import MagicMock
+
+  _, env = _env("Wbc-G1-Lookahead", num_envs=2, noise=False)
+  try:
+    env.reset()
+    command = env.command_manager.get_term("motion")
+    ids = torch.arange(2, device=env.device)
+
+    def snapshot():
+      return [
+        t.clone()
+        for t in (
+          env.sim.data.qpos,
+          env.sim.data.qvel,
+          command.trajectory_ids,
+          command.reference_window(3).joint_pos,
+        )
+      ]
+
+    command.reset_to_frame(ids, 5)
+    expected = snapshot()
+    command.reset_to_frame(ids, 9)
+    # The GUI reset uses the selected scrubber frame and the same simulator mutation.
+    server = MagicMock()
+    command.create_gui("motion", server, lambda: 0)
+    command.on_viewer_pause(True)
+    server.gui.add_slider.return_value.value = 5
+    assert command.apply_gui_reset(ids)
+    for real, wanted in zip(snapshot(), expected, strict=True):
+      torch.testing.assert_close(real, wanted)
+  finally:
+    env.close()

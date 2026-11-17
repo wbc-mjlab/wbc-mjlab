@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from wbc_mjlab.studio import jobs as jobmod
@@ -37,6 +40,39 @@ LOSS_SKIP = ("Loss/learning_rate",)
 
 def _size(n: int) -> str:
   return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{n / 1e6:.0f} MB"
+
+
+@dataclass
+class TrainRequest:
+  task: str
+  dataset: str
+  num_envs: int = 4096
+  max_iterations: int = 30000
+  run_name: str = ""
+  resume_run: str = ""
+  resume_checkpoint: str = ""
+  logger: str = "tensorboard"
+  mirror: bool = False
+  debias_z: bool = False
+  algo: str = "ppo"
+  algo_settings: dict | None = None
+  recipe: str = ""
+  extra: str = ""
+  gpu_uuids: list[str] | None = None
+
+
+class LaunchFieldError(ValueError):
+  def __init__(self, field, message):
+    super().__init__(message)
+    self.field = field
+
+
+@contextmanager
+def launch_field(field):
+  try:
+    yield
+  except (ValueError, KeyError, FileNotFoundError) as exc:
+    raise LaunchFieldError(field, str(exc)) from exc
 
 
 class TrainingService:
@@ -152,11 +188,21 @@ class TrainingService:
       try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
       except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "check timed out (10 min)", "details": {}}
+        return {
+          "ok": False,
+          "retryable": True,
+          "error": "check timed out (10 min)",
+          "details": {},
+        }
       line = next((x for x in proc.stdout.splitlines() if x.startswith(MARK)), None)
       if line is None:
         tail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or ["no output"]
-        return {"ok": False, "error": f"check failed: {tail[0]}", "details": {}}
+        return {
+          "ok": False,
+          "retryable": True,
+          "error": f"check failed: {tail[0]}",
+          "details": {},
+        }
       result = json.loads(line[len(MARK) :])
       self._checks[key] = result
       return result
@@ -212,54 +258,41 @@ class TrainingService:
     return out
 
   # ------------------------------------------------------------------ jobs
-  def launch(
-    self,
-    task: str,
-    dataset: str,
-    *,
-    num_envs: int = 4096,
-    max_iterations: int = 30000,
-    run_name: str = "",
-    resume_run: str = "",
-    resume_checkpoint: str = "",
-    logger: str = "tensorboard",
-    mirror: bool = False,
-    debias_z: bool = False,
-    algo: str = "ppo",
-    algo_settings: dict | None = None,
-    recipe: str = "",
-    extra: str = "",
-    gpu_uuids: list[str] | None = None,
-  ) -> jobmod.Job:
+  def prepare_launch(self, request: TrainRequest) -> tuple[list[str], dict]:
     """``algo_settings``: the recipe's settings as edited in the form (``recipe``: its name,
     kept in the job's meta)."""
     from wbc_mjlab.rl.algos import ALGORITHMS, check_algo, run_algo
     from wbc_mjlab.studio import presets, recipes
     from wbc_mjlab.tasks import get_task_config
 
-    algo = check_algo(algo)
+    algo = check_algo(request.algo)
 
-    preset = presets.split_task_id(task)
+    preset = presets.split_task_id(request.task)
     if preset:
       presets.register(preset[1])  # validates the preset and learns its experiment name
-    cfg = get_task_config(task)
-    settings = recipes.check_settings(cfg.task_id, algo, algo_settings)
-    if not dataset:
-      raise ValueError("pick a dataset")
-    from wbc_mjlab.data_paths import resolve_dataset_root
-    from wbc_mjlab.motion.library import has_sources
-    from wbc_mjlab.motion.stack_bundle import list_clip_npz_files
+    cfg = get_task_config(request.task)
+    with launch_field("recipe"):
+      settings = recipes.check_settings(cfg.task_id, algo, request.algo_settings)
+    with launch_field("dataset"):
+      if not request.dataset:
+        raise ValueError("pick a dataset")
+      from wbc_mjlab.data_paths import resolve_dataset_root
+      from wbc_mjlab.motion.dataset import has_sources
+      from wbc_mjlab.motion.stack_bundle import list_clip_npz_files
 
-    root = resolve_dataset_root(cfg.robot_id, dataset)
-    if not has_sources(root) and not list_clip_npz_files(root):
-      raise ValueError(f"{dataset} has no clips (source CSV / PKL or converted NPZ)")
-    if mirror:
-      from wbc_mjlab.robots.symmetry import get_robot_symmetry_config
-
-      if get_robot_symmetry_config(cfg.robot_id) is None:
+      root = resolve_dataset_root(cfg.robot_id, request.dataset)
+      if not has_sources(root) and not list_clip_npz_files(root):
         raise ValueError(
-          f"mirroring needs a left/right symmetry config for {cfg.robot_id}"
+          f"{request.dataset} has no clips (source CSV / PKL or converted NPZ)"
         )
+    with launch_field("mirror"):
+      if request.mirror:
+        from wbc_mjlab.robots.symmetry import get_robot_symmetry_config
+
+        if get_robot_symmetry_config(cfg.robot_id) is None:
+          raise ValueError(
+            f"mirroring needs a left/right symmetry config for {cfg.robot_id}"
+          )
     entry = (
       ["wbc_mjlab.studio.train_preset", "--preset", preset[1]]
       if preset
@@ -268,93 +301,106 @@ class TrainingService:
     args = [
       *entry,
       "--dataset",
-      dataset,
+      request.dataset,
       "--env.scene.num-envs",
-      str(int(num_envs)),
+      str(int(request.num_envs)),
       "--agent.max-iterations",
-      str(int(max_iterations)),
+      str(int(request.max_iterations)),
       "--algo",
       algo,
     ]
     run = None
-    if resume_run:
-      run = jobmod.find_run(resume_run)
-      if run is None:
-        raise ValueError(f"no run {resume_run!r}")
-      if run.task_id() != cfg.task_id:
-        raise ValueError(
-          f"{resume_run} was trained with {run.task_id()}, not {cfg.task_id}"
-        )
-      if run_algo(run.path) != algo:
-        label = ALGORITHMS[run_algo(run.path)].label
-        raise ValueError(
-          f"{resume_run} was trained with {label}: continue it with that"
-        )
-      # its checkpoint fixes the networks: build them as the run did
-      settings |= recipes.architecture_of(run.path)
-    if recipe and run is None:
-      selected = recipes.load(recipe)
-      if selected["algo"] != algo:
-        raise ValueError("recipe does not match the selected method")
-      # Resolve missing defaults in the fresh worker, even if the Studio/browser has
-      # cached an older recipe. Explicit edits still take precedence; resume uses YAML.
-      args += ["--recipe", recipe]
-      if settings == recipes.check_settings(cfg.task_id, algo, selected["settings"]):
-        settings = {}  # an unedited form snapshot is not an explicit override
+    with launch_field("resume"):
+      if request.resume_run:
+        run = jobmod.find_run(request.resume_run)
+        if run is None:
+          raise ValueError(f"no run {request.resume_run!r}")
+        if run.task_id() != cfg.task_id:
+          raise ValueError(
+            f"{request.resume_run} was trained with {run.task_id()}, not {cfg.task_id}"
+          )
+        if run_algo(run.path) != algo:
+          label = ALGORITHMS[run_algo(run.path)].label
+          raise ValueError(
+            f"{request.resume_run} was trained with {label}: continue it with that"
+          )
+        # its checkpoint fixes the networks: build them as the run did
+        settings |= recipes.architecture_of(run.path)
+    with launch_field("recipe"):
+      if request.recipe and run is None:
+        selected = recipes.load(request.recipe)
+        if selected["algo"] != algo:
+          raise ValueError("recipe does not match the selected method")
+        # Resolve missing defaults in the fresh worker, even if the Studio/browser has
+        # cached an older recipe. Explicit edits still take precedence; resume uses YAML.
+        args += ["--recipe", request.recipe]
+        if settings == recipes.check_settings(cfg.task_id, algo, selected["settings"]):
+          settings = {}  # an unedited form snapshot is not an explicit override
     for key, value in settings.items():
       args += [f"--agent.{key.replace('_', '-')}", *_cli_values(value)]
-    if mirror:
+    if request.mirror:
       args += ["--env.commands.motion.mirror", "True"]
-    if debias_z:
+    if request.debias_z:
       args += ["--env.commands.motion.debias-z", "True"]
-    if run_name:
-      args += ["--agent.run-name", re.sub(r"[^\w.-]+", "-", run_name)]
-    if logger == "wandb":
+    if request.run_name:
+      args += ["--agent.run-name", re.sub(r"[^\w.-]+", "-", request.run_name)]
+    if request.logger == "wandb":
       args += ["--use_wandb"]
     if run is not None:
       args += ["--agent.resume", "True", "--agent.load-run", run.name]
-      if resume_checkpoint:
-        args += ["--agent.load-checkpoint", resume_checkpoint]
-    if extra.strip():
-      args += extra.split()
-    if gpu_uuids is not None:
-      from wbc_mjlab.gpu import training_gpu_indices, visible_gpus
+      if request.resume_checkpoint:
+        args += ["--agent.load-checkpoint", request.resume_checkpoint]
+    with launch_field("extra"):
+      extra_args = shlex.split(request.extra)
+      args.extend(extra_args)
+    with launch_field("gpu"):
+      if request.gpu_uuids is not None:
+        from wbc_mjlab.gpu import training_gpu_indices, visible_gpus
 
-      indices = training_gpu_indices(gpu_uuids, visible_gpus())
-      if len(indices) > 1:
-        if preset:
-          raise ValueError("Custom Studio presets currently support one training GPU")
-        if algo == "wm":
-          resolved = (recipes.load(recipe)["settings"] if recipe else {}) | settings
-          if resolved.get("algorithm.probe_interval", 0):
-            raise ValueError("Multi-GPU training requires algorithm.probe_interval=0")
-      if any(x.startswith(("--gpu-ids", "--gpu_ids")) for x in extra.split()):
-        raise ValueError("Choose GPUs in the picker instead of overriding --gpu-ids")
-      # mjlab/tyro expects one list literal, including for a single GPU.
-      args += ["--gpu-ids", json.dumps(indices)]
-    job = jobmod.launch(
-      "train",
-      args,
-      label=f"{cfg.task_id}-{dataset}",
-      meta={
-        "task": cfg.task_id,
-        "robot": cfg.robot_id,
-        "dataset": dataset,
-        "num_envs": int(num_envs),
-        "max_iterations": int(max_iterations),
-        "mirror": bool(mirror),
-        "debias_z": bool(debias_z),
-        "algo": algo,
-        "recipe": recipe,
-        "algo_settings": settings,
-        "resume": f"{resume_run}/{resume_checkpoint}" if resume_run else "",
-        "experiment": cfg.experiment_name,
-        "gpu_uuids": gpu_uuids,
-      },
-    )
+        indices = training_gpu_indices(request.gpu_uuids, visible_gpus())
+        if len(indices) > 1:
+          if preset:
+            raise ValueError("Custom Studio presets currently support one training GPU")
+          if algo == "wm":
+            resolved = (
+              recipes.load(request.recipe)["settings"] if request.recipe else {}
+            ) | settings
+            if resolved.get("algorithm.probe_interval", 0):
+              raise ValueError("Multi-GPU training requires algorithm.probe_interval=0")
+        if any(x.startswith(("--gpu-ids", "--gpu_ids")) for x in extra_args):
+          raise ValueError("Choose GPUs in the picker instead of overriding --gpu-ids")
+        # mjlab/tyro expects one list literal, including for a single GPU.
+        args += ["--gpu-ids", json.dumps(indices)]
+    return args, {
+      "task": cfg.task_id,
+      "robot": cfg.robot_id,
+      "dataset": request.dataset,
+      "num_envs": int(request.num_envs),
+      "max_iterations": int(request.max_iterations),
+      "mirror": bool(request.mirror),
+      "debias_z": bool(request.debias_z),
+      "algo": algo,
+      "recipe": request.recipe,
+      "algo_settings": settings,
+      "resume": f"{request.resume_run}/{request.resume_checkpoint}"
+      if request.resume_run
+      else "",
+      "experiment": cfg.experiment_name,
+      "gpu_uuids": request.gpu_uuids,
+    }
+
+  def preview(self, task: str, dataset: str, **options) -> str:
+    args, _ = self.prepare_launch(TrainRequest(task, dataset, **options))
+    return shlex.join(jobmod.worker_command(args))
+
+  def launch(self, task: str, dataset: str, **options) -> jobmod.Job:
+    from wbc_mjlab.rl.algos import ALGORITHMS
+
+    args, meta = self.prepare_launch(TrainRequest(task, dataset, **options))
+    job = jobmod.launch("train", args, label=f"{meta['task']}-{dataset}", meta=meta)
+    method = meta["recipe"] or ALGORITHMS[meta["algo"]].label
     self.c.log(
-      f"training {cfg.task_id} on {dataset} with {recipe or ALGORITHMS[algo].label}: "
-      f"job {job.name}",
+      f"training {meta['task']} on {dataset} with {method}: job {job.name}",
       "ok",
     )
     self.c.emit("jobs")
