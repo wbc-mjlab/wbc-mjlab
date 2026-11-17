@@ -70,7 +70,13 @@ def test_pack_cache_rebuilds_when_a_clip_changes(tmp_path: Path) -> None:
   assert len(caches) == 1
 
   again = load_dataset(tmp_path, names, verbose=False)  # served from the cache
-  assert np.array_equal(again.frames, packed.frames)
+  assert (again.names, again.sources, again.joint_names) == (
+    packed.names,
+    packed.sources,
+    packed.joint_names,
+  )
+  for attr in ("frames", "fps", "start", "length"):
+    np.testing.assert_array_equal(getattr(again, attr), getattr(packed, attr))
 
   clip = tmp_path / "dance.csv"
   clip.write_text("\n".join(clip.read_text().splitlines()[:40]) + "\n")

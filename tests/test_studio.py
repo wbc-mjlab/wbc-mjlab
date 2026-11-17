@@ -302,6 +302,7 @@ def test_recipes_train_any_preset_with_either_method(preset_dir) -> None:
     "wm-encoder",
     "wm-blink",
     "wm-party",
+    "wm-nabla",
     "wm-supermimic",
   }
   blink = recipes.load("wm-blink")["settings"]
@@ -421,10 +422,42 @@ def test_launch_passes_the_method_and_its_settings(monkeypatch, tmp_path) -> Non
     resume_run="wbc_g1/run",
     algo_settings={"actor.hidden_dims": [512, 512]},
   )
+  import shlex
+
+  preview = t.preview(
+    "Wbc-G1",
+    "samples",
+    resume_run="wbc_g1/run",
+    algo_settings={"actor.hidden_dims": [512, 512]},
+  )
+  assert shlex.split(preview) == jobmod.worker_command(launched["args"])
   args = launched["args"]
   assert "--agent.resume" in args
   # the run's checkpoint fixes its network, whatever the form says
   assert args[args.index("--agent.actor.hidden-dims") + 1] == "(64, 32)"
+
+
+def test_preview_custom_preset_matches_worker(preset_dir, monkeypatch):
+  import shlex
+  from types import SimpleNamespace
+
+  from wbc_mjlab.studio import presets
+  from wbc_mjlab.studio.training import TrainingService
+
+  presets.save("zz_preview", "Wbc-G1", {})
+  task = presets.register("zz_preview")
+  service = TrainingService(_Core())
+  preview = service.preview(task, "samples", recipe="ppo")
+  workers = []
+
+  def capture(kind, args, **kwargs):
+    workers.append(args)
+    return SimpleNamespace(name="preview-test")
+
+  monkeypatch.setattr(jobmod, "launch", capture)
+  service.launch(task, "samples", recipe="ppo")
+  assert workers[0][:3] == ["wbc_mjlab.studio.train_preset", "--preset", "zz_preview"]
+  assert shlex.split(preview) == jobmod.worker_command(workers[0])
 
 
 def test_evaluate_saved_checkpoint_job_and_download(core, monkeypatch, tmp_path):

@@ -56,7 +56,8 @@ from wbc_mjlab.export.web_reference import (
   write_reference_bin,
   write_reference_index,
 )
-from wbc_mjlab.motion.library import Baker, has_sources
+from wbc_mjlab.motion.dataset import has_sources
+from wbc_mjlab.motion.library import Baker
 from wbc_mjlab.motion.manifest import (
   MANIFEST_SCHEMA,
   build_motion_library_manifest,

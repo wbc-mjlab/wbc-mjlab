@@ -243,7 +243,31 @@ def test_training_launch_uses_selected_cuda_ordinal(core, monkeypatch):
       {"uuid": "GPU-b", "cuda_index": 1},
     ],
   )
-  core.training.launch("Wbc-G1", "samples", gpu_uuids=["GPU-a", "GPU-b"])
+  import shlex
+
+  from fastapi.testclient import TestClient
+
+  from wbc_mjlab.studio.web.server import create_app
+
+  client = TestClient(create_app(core), client=("127.0.0.1", 1234))
+  request = dict(
+    task="Wbc-G1",
+    dataset="samples",
+    gpu_uuids=["GPU-a", "GPU-b"],
+    extra='--agent.wandb-project "two words"',
+    mirror=True,
+    run_name="walk baseline",
+  )
+  captured.clear()
+  preview = client.post("/api/train/preview", json=request).json()
+  assert not captured
+  assert client.post("/api/train/launch", json=request).json()["ok"]
+  assert shlex.split(preview["command"]) == jobs.worker_command(captured["args"])
+  assert "two words" in captured["args"] and "walk-baseline" in captured["args"]
+  assert (
+    client.post("/api/train/preview", json=request | {"extra": "'"}).json()["field"]
+    == "extra"
+  )
   parsed = tyro.cli(
     TrainConfig,
     default=TrainConfig.from_task("Wbc-G1"),

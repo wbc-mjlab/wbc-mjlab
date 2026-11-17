@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -163,6 +164,10 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 """Terminal colour / cursor codes (rich and rsl_rl print bold headers)."""
 
 
+def worker_command(args: list[str]) -> list[str]:
+  return [sys.executable, "-m", *args]
+
+
 def launch(kind: str, args: list[str], *, label: str, meta: dict | None = None) -> Job:
   """Start ``python -m <args…>`` detached from the Studio (own session, own log); a shell
   around it writes its exit status to the log (``[job exit N]``), which :meth:`Job.status`
@@ -170,9 +175,9 @@ def launch(kind: str, args: list[str], *, label: str, meta: dict | None = None) 
   safe = re.sub(r"[^\w.-]+", "-", label)
   name = f"{time.strftime('%Y%m%d-%H%M%S')}_{kind}_{safe}"
   log = _jobs_dir() / f"{name}.log"
-  cmd = [sys.executable, "-m", *args]
+  cmd = worker_command(args)
   with log.open("w") as f:
-    f.write(f"$ {' '.join(cmd)}\n")
+    f.write(f"$ {shlex.join(cmd)}\n")
     f.flush()
     proc = subprocess.Popen(
       ["/bin/sh", "-c", '"$@"; echo "[job exit $?]"', "sh", *cmd],
