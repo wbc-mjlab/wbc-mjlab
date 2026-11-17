@@ -12,7 +12,10 @@ _SAMPLES_DATASET = "samples"
 
 def ensure_demo_checkpoint() -> Path:
   """Return the bundled G1 demo checkpoint (``demos/wbc_g1/model.pt``)."""
-  for candidate in (Path.cwd() / _DEMO_CHECKPOINT_REL, repo_root() / _DEMO_CHECKPOINT_REL):
+  for candidate in (
+    Path.cwd() / _DEMO_CHECKPOINT_REL,
+    repo_root() / _DEMO_CHECKPOINT_REL,
+  ):
     if candidate.is_file():
       return candidate.resolve()
   raise FileNotFoundError(

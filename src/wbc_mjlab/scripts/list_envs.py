@@ -18,7 +18,9 @@ def main() -> None:
   print("Robots:", ", ".join(list_robot_ids_from_tasks()))
   print("\nWBC tasks:")
   for task in all_wbc_tasks():
-    print(f"  {task.task_id:24}  logs/rsl_rl/{task.experiment_name}/  — {task.description}")
+    print(
+      f"  {task.task_id:24}  logs/rsl_rl/{task.experiment_name}/  — {task.description}"
+    )
   print()
   _mjlab_list()
 

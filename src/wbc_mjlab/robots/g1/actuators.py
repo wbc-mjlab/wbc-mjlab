@@ -72,10 +72,10 @@ def _pd_gains(armature: float) -> tuple[float, float]:
   return stiffness, damping
 
 
-_ARMATURE_5020 = _armature((0.139e-4, 0.017e-4, 0.169e-4), (1, 1 + 46 / 18, 1 + 56 / 16))
-_ARMATURE_7520_14 = _armature(
-  (0.489e-4, 0.098e-4, 0.533e-4), (1, 4.5, 1 + 48 / 22)
+_ARMATURE_5020 = _armature(
+  (0.139e-4, 0.017e-4, 0.169e-4), (1, 1 + 46 / 18, 1 + 56 / 16)
 )
+_ARMATURE_7520_14 = _armature((0.489e-4, 0.098e-4, 0.533e-4), (1, 4.5, 1 + 48 / 22))
 _ARMATURE_7520_22 = _armature((0.489e-4, 0.109e-4, 0.738e-4), (1, 4.5, 5))
 _ARMATURE_4010 = _armature((0.068e-4, 0.0, 0.0), (1, 5, 5))
 

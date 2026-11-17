@@ -103,7 +103,16 @@ def parse_wbc_argv(
     robot_id=robot,
     robot_explicit=robot_explicit,
   )
-  return rest, robot, task_id, no_se, used_legacy, dataset, dataset_path, cache_motion_bundle
+  return (
+    rest,
+    robot,
+    task_id,
+    no_se,
+    used_legacy,
+    dataset,
+    dataset_path,
+    cache_motion_bundle,
+  )
 
 
 def _has_explicit_motion_file(argv: list[str]) -> bool:

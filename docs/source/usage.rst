@@ -30,6 +30,8 @@ pip, drop the ``uv run`` prefix.
      - Write a task's deploy ``config.yaml``
    * - :ref:`wbc-mjlab-plot-rsi-bins <cli-rsi>`
      - Plot saved adaptive-sampling state
+   * - :ref:`wbc-mjlab-motion-data <cli-motion-data>`
+     - Clip QA, diversity analysis, diversity-based subsets
    * - :ref:`python -m wbc_mjlab.studio.train_preset <cli-train-preset>`
      - Train a Studio preset
 
@@ -200,6 +202,27 @@ wbc-mjlab-plot-rsi-bins
 
    uv run wbc-mjlab-plot-rsi-bins logs/rsl_rl/<experiment>/<run>/params/rsi_bin_stats.npz \
      [--trajectory N] [--output plot.png]
+
+.. _cli-motion-data:
+
+wbc-mjlab-motion-data
+---------------------
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-motion-data qa data/g1/my_clips --report qa.csv --keep-dir data/g1/my_clips_ok
+   uv run wbc-mjlab-motion-data analyze data/g1/my_clips --heldout data/g1/heldout
+   uv run wbc-mjlab-motion-data select data/g1/my_clips --out-dir data/g1/my_div --clips 500 --hours 10
+
+Every clip is cut into 1 s windows (joint angles, root height, gravity in the root frame,
+heading-frame velocity, yaw rate) and clustered with k-means. ``qa`` flags clips with a
+body below ``--floor``, a joint faster than ``--joint-speed`` or a base step above
+``--base-jump``. ``analyze`` reports the effective cluster count, the rarest and most
+redundant clips and the share of a ``--heldout`` set the library covers. ``select`` picks
+passing clips that fill the clusters evenly (``--tau`` < 1 flattens common motions) to
+``--clips`` and/or ``--hours``. ``--keep-dir`` / ``--out-dir`` write a dataset of links to
+the source clips (``--copy`` copies), for ``--dataset-path``. Adapted from PartyMimic's
+data tools (:doc:`tasks/wbc-g1-party`).
 
 .. _cli-train-preset:
 

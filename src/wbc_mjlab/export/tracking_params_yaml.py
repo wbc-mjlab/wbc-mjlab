@@ -37,6 +37,7 @@ REFERENCE_OBS_TERM_NAMES = (
   "ref_body_ori",
   "ref_anchor_ori_b",
   "ref_anchor_shift_b",
+  "ref_keypoints",
 )
 """Reference-command actor terms recognized when building tracking params."""
 
@@ -65,6 +66,7 @@ _MOTION_OBS_PARAM_TERMS = frozenset(
     "assistive_force",
     "assistive_torque",
     "assistive_gain",
+    "keypoint_error",
   }
 )
 
@@ -156,8 +158,10 @@ def _observation_dim(
     return 3
   if name in ("ref_body_pos", "body_pos"):
     return 3 * body_count
-  if name in ("ref_body_ori", "body_ori"):
+  if name in ("ref_body_ori", "body_ori", "keypoint_error"):
     return 6 * body_count
+  if name == "ref_keypoints":  # per frame: position + 6D, reference heading frame
+    return 9 * body_count
   if name in (
     "ref_anchor_pos_w",
     "ref_base_lin_vel_b",
@@ -232,7 +236,9 @@ def _height_scan_params(cfg: Any, term: Any) -> dict[str, Any]:
   sensor = next(s for s in cfg.scene.sensors if s.name == term_params["sensor_name"])
   pattern = sensor.pattern
   if type(pattern).__name__ != "GridPatternCfg":
-    raise TypeError(f"height_scan export expects a grid pattern, got {type(pattern).__name__}")
+    raise TypeError(
+      f"height_scan export expects a grid pattern, got {type(pattern).__name__}"
+    )
   res = float(pattern.resolution)
   nx = int(math.floor(pattern.size[0] / res + 0.5)) + 1
   ny = int(math.floor(pattern.size[1] / res + 0.5)) + 1
@@ -270,7 +276,9 @@ def _actuator_gain(act: Any, joint_name: str, field: str) -> float:
   return float(val)
 
 
-def _pd_from_robot(cfg: Any, joint_names: tuple[str, ...]) -> tuple[list[float], list[float], list[float]]:
+def _pd_from_robot(
+  cfg: Any, joint_names: tuple[str, ...]
+) -> tuple[list[float], list[float], list[float]]:
   robot_cfg = cfg.scene.entities["robot"]
   entity = _build_robot_entity(cfg)
   jp = robot_cfg.init_state.joint_pos or {}
@@ -332,7 +340,9 @@ def build_wbc_tracking_params(
       "scale": [1.0] * dim,
       "params": params,
       # steps of this term the policy sees (the group's, else its own)
-      "history_length": max(1, int(group_history or actor_terms[name].history_length or 0)),
+      "history_length": max(
+        1, int(group_history or actor_terms[name].history_length or 0)
+      ),
     }
 
   if "command" not in actor_names:  # reference terms looking ahead feed more frames

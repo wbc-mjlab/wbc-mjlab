@@ -108,6 +108,8 @@ class WorldModelRL:
     critic_activation: str = "task",
     model_optimizer: str = "adam",
     actor_optimizer: str = "adam",
+    muon_weight_decay: float = 0.0,
+    actor_muon_io: bool = False,
     fused_optimizer: bool = False,
     skip_nonfinite_updates: bool = False,
     critic_norm_eps: float = 1e-4,
@@ -132,6 +134,13 @@ class WorldModelRL:
     probe_async: bool = False,
     compile_collection: bool = False,
     separate_action_noise: bool = False,
+    self_imitation: float = 0.0,
+    self_imitation_max_weight: float = 5.0,
+    value_gradient: float = 0.0,
+    value_gradient_states: int = 4096,
+    value_gradient_epochs: int = 1,
+    latent_aux: float = 0.0,
+    bf16: bool = False,
     scale_lr_by_world_size: bool = True,
     diagnostic_interval: int = 100,
     diagnostic_batch: int = 256,
@@ -201,6 +210,13 @@ class WorldModelRL:
     self.num_learned_rewards = len(im.learned_rewards)
 
     self.actor = actor.to(device)
+    self.bf16 = bf16
+    if bf16:
+      from wbc_mjlab.rl.policy import policy_head
+      from wbc_mjlab.rl.precision import autocast_bf16, check_bf16
+
+      check_bf16(device)
+      autocast_bf16(policy_head(self.actor))
     self.ema_actor = (
       copy.deepcopy(self.actor).requires_grad_(False).eval() if policy_ema else None
     )
@@ -265,6 +281,9 @@ class WorldModelRL:
       ).to(device)
     else:
       self.critic = MLP(critic_in, 1, critic_hidden_dims, activation).to(device)
+    if bf16:
+      for net in (self.world_model.dynamics, self.world_model.heads, self.critic):
+        autocast_bf16(net)
 
     # Learning rates as tensors: the schedule changes them inside captured graphs.
     learning_rate *= math.sqrt(world_size()) if scale_lr_by_world_size else 1.0
@@ -292,6 +311,7 @@ class WorldModelRL:
       lr=lr,
       fused=fused,
       capturable=graphs,
+      weight_decay=muon_weight_decay if model_optimizer == "muon" else 0.0,
     )
     self.actor_optimizer = make_optimizer(
       self.actor,
@@ -301,6 +321,8 @@ class WorldModelRL:
       betas=(0.9, 0.95),
       fused=fused,
       capturable=graphs,
+      muon_io=actor_muon_io,
+      weight_decay=muon_weight_decay if actor_optimizer == "muon" else 0.0,
     )
     self.critic_optimizer = make_optimizer(
       self.critic, [self.critic], kind="adam", lr=lr, fused=fused
@@ -333,6 +355,40 @@ class WorldModelRL:
       )
     if hasattr(term, "set_execution_noise"):
       term.set_execution_noise(action_noise if separate_action_noise else 0.0)
+    if self_imitation < 0 or self_imitation_max_weight <= 0 or value_gradient < 0:
+      raise ValueError("invalid self-imitation / value-gradient weights")
+    if self_imitation and separate_action_noise:
+      raise ValueError(
+        "self-imitation regresses onto executed actions; separate_action_noise hides them"
+      )
+    if value_gradient and (value_gradient_states < 1 or value_gradient_epochs < 0):
+      raise ValueError("value-gradient states must be positive, epochs nonnegative")
+    if value_gradient and horizon < 2:
+      raise ValueError("value-gradient consistency needs a horizon of at least 2")
+    if self_imitation and horizon < im.history_length - 1:
+      raise ValueError("self-imitation needs a horizon covering the actor's history")
+    self.self_imitation = self_imitation
+    self.self_imitation_max_weight = self_imitation_max_weight
+    self.value_gradient = value_gradient
+    self.value_gradient_states = value_gradient_states
+    self.value_gradient_epochs = value_gradient_epochs
+    from wbc_mjlab.rl.policy import policy_head
+
+    if latent_aux < 0:
+      raise ValueError("latent_aux must be nonnegative")
+    self.latent_aux = latent_aux
+    self._latent_head = policy_head(actor)
+    if latent_aux and getattr(self._latent_head, "aux", None) is None:
+      raise ValueError("algorithm.latent_aux needs actor.latent_aux (an encoder head)")
+    scale = torch.as_tensor(term._scale, dtype=torch.float, device=device)
+    self._action_scale = (scale[0] if scale.dim() == 2 else scale).expand(
+      self.num_joints
+    )
+    """Action units → joint-setpoint radians (self-imitation error in radians)."""
+    offset = torch.as_tensor(term._offset, dtype=torch.float, device=device)
+    self._joint_offset = (offset[0] if offset.dim() == 2 else offset).expand(
+      self.num_joints
+    )
     self.terminal_recorder = (
       env.recorder_manager.get_term(RECORDER)
       if RECORDER in env.recorder_manager.active_terms
@@ -346,6 +402,8 @@ class WorldModelRL:
       self._imagine_step = torch.compile(self._imagine_step, dynamic=False)
       self._model_loss_step = torch.compile(self._model_loss_step, dynamic=False)
       self._tracking_features = torch.compile(self._tracking_features, dynamic=False)
+      self._step_outcome = torch.compile(self._step_outcome, dynamic=False)
+      self._critic_features = torch.compile(self._critic_features, dynamic=False)
     self._model_step = (
       CudaGraphed(
         self._model_step,
@@ -451,6 +509,7 @@ class WorldModelRL:
     self.replay.begin(
       state=im.robot_state().vector(),
       setpoint=im.joint_setpoint(actions, command.reference(), ids),
+      action=actions,
       last_action=self.env.action_manager.action,
       time_step=command.time_steps,
       trajectory=command.trajectory_ids,
@@ -609,7 +668,7 @@ class WorldModelRL:
     if load_cfg.get("actor"):
       live = (
         loaded_dict.get("actor_live_state_dict", loaded_dict["actor_state_dict"])
-        if load_cfg.get("optimizer")
+        if load_cfg.get("optimizer") or load_cfg.get("live_actor")
         else loaded_dict["actor_state_dict"]
       )
       self.actor.load_state_dict(live, strict=strict)
@@ -923,11 +982,16 @@ class WorldModelRL:
     inside = steps[: h + 1] < clip_end  # [h + 1, n]
     steps = torch.minimum(steps, clip_end - 1)
     with torch.no_grad():
-      frames = im.command.motion.frame(steps.reshape(-1))
+      frames = _unflatten(im.command.motion.frame(steps.reshape(-1)), steps.shape[0])
+    if self.self_imitation:
+      recorded = self._recorded_return(b, steps, frames)
+    else:
+      zeros = torch.zeros(n, device=self.device)
+      recorded = (zeros, zeros, torch.zeros_like(b.last_action))
     # Only the actor learns from the imagined return.
     self.world_model.requires_grad_(False)
     self.critic.requires_grad_(False)
-    objective, critic_in, values, rewards, ends = self._policy_step(
+    out = self._policy_step(
       b.state,
       past,
       b.last_action,
@@ -936,12 +1000,18 @@ class WorldModelRL:
       b.reference_offset,
       steps,
       inside,
-      _unflatten(frames, steps.shape[0]),
+      frames,
+      *recorded,
     )
+    objective, critic_in, values, rewards, ends, sil_stats, gradients = out
     self.world_model.requires_grad_(True)
     self.critic.requires_grad_(True)
-    critic_loss = self._update_critic(critic_in, values, rewards, ends, inside[:h])
-    return {
+    fit = None
+    if gradients is not None:
+      fit = (*gradients, frames, steps, b.trajectory, b.reference_offset, b.env_ids)
+    critic_loss = self._update_critic(critic_in, values, rewards, ends, inside[:h], fit)
+    fit_stats = self._gradient_fit_stats
+    stats = {
       "imagined_return": objective.detach(),
       "imagined_reward": rewards.mean(),
       "imagined_termination": ends.mean(),
@@ -949,6 +1019,95 @@ class WorldModelRL:
       "imagined_value_max": values.max(),
       "imagined_value_min": values.min(),
     }
+    if self.self_imitation:
+      stats["self_imitation_share"], stats["self_imitation_loss"] = sil_stats[:2]
+    if self.latent_aux:
+      stats["latent_aux_rms"] = sil_stats[2]
+    if fit_stats is not None:
+      stats["value_gradient_error"], stats["value_gradient_cosine"] = fit_stats.unbind()
+    return stats
+
+  def _goal(self, frames, t, steps, trajectory, reference_offset) -> Goal:
+    """The goal of imagined step ``t`` (its reference frame and the window ahead)."""
+    ahead = self.imagination.window_frames
+    window = _window(frames, t, ahead) if ahead > 1 else None
+    return Goal(_row(frames, t), window, steps[t], trajectory, reference_offset)
+
+  def _goal_at(self, frames, rows, cols, steps, trajectory, reference_offset) -> Goal:
+    """Goals of the imagined steps ``rows`` of rollouts ``cols`` (gathered states)."""
+    ahead = self.imagination.window_frames
+    frame = _map_tensors(frames, lambda x: x[rows, cols])
+    window = None
+    if ahead > 1:
+      ahead_rows = rows[:, None] + torch.arange(ahead, device=rows.device)
+      window = _map_tensors(frames, lambda x: x[ahead_rows, cols[:, None]])
+    return Goal(
+      frame, window, steps[rows, cols], trajectory[cols], reference_offset[cols]
+    )
+
+  @torch.no_grad()
+  def _recorded_return(self, b, steps, frames):
+    """Self-imitation: what the simulator recorded over ``horizon`` steps from each start.
+
+    PartyMimic (Roboparty, 2026) train.py ``real_returns``, MIT; see THIRD_PARTY_NOTICES.
+    The task reward is recomputed on the recorded successors (learned terms: their
+    recorded targets) along the imagination's own reference frames, and bootstrapped
+    with the critic where the recorded episode continues. Returns the return, whether
+    it is usable (the window is held and does not end in a time-out, clip end or kick)
+    and the recorded action at the start.
+    """
+    assert self.replay is not None
+    im, h = self.imagination, self.horizon
+    w, ok = self.replay.forward(b.age, b.env_ids, h)
+    context = im.context(b.env_ids)
+    live = torch.ones_like(ok)
+    total = torch.zeros(ok.shape, device=self.device)
+    for t in range(h):
+      goal = self._goal(frames, t, steps, b.trajectory, b.reference_offset)
+      reward, _ = self._step_outcome(
+        w.next_state[t], goal, w.action[t], w.last_action[t], b.env_ids
+      )
+      reward = reward + w.rewards[t].sum(-1) * im.reward_scale
+      total = total + torch.where(live, self.gamma**t * reward, 0.0)
+      ok = ok & ~(live & ~w.continues[t] & ~w.terminated[t])
+      live = live & w.continues[t]
+    keep = im.history_length - 1
+    past = w.observed[h - keep :].transpose(0, 1).contiguous()
+    goal = self._goal(frames, h, steps, b.trajectory, b.reference_offset)
+    value = self._imagine_step(
+      w.next_state[h - 1], past, w.action[h - 1], goal, b.env_ids, context, last=True
+    )[0]
+    total = total + torch.where(live, self.gamma**h * self._bootstrap_value(value), 0.0)
+    ok = ok & torch.isfinite(total)
+    return torch.where(ok, total, 0.0), ok.float(), w.action[0]
+
+  def _step_outcome(self, next_state, goal, action, prev_action, env_ids):
+    """The analytic reward of a step that reached ``next_state``, and its tracking
+    termination (zero without hybrid termination)."""
+    im = self.imagination
+    s = self._state(next_state)
+    at = im.view(s, im.kinematics.bodies(s), env_ids, goal, action, prev_action)
+    end = (
+      self.tracking_termination(at)
+      if self.tracking_termination is not None
+      else torch.zeros(next_state.shape[0], device=next_state.device)
+    )
+    return im.analytic_reward(at), end
+
+  def _critic_features(self, state, past, prev_action, goal, env_ids, context):
+    """The critic input of an imagined state without observation noise (a function of
+    the state alone, for its Jacobian)."""
+    im = self.imagination
+    s = self._state(state)
+    at_s = im.view(s, im.kinematics.bodies(s), env_ids, goal, prev_action, prev_action)
+    obs, _ = im.actor_obs(at_s, past, corruption=False)
+    if self.critic_goal_indices is not None:
+      obs = torch.cat(
+        [obs[:, self.critic_goal_indices], obs[:, self.critic_history_indices]], dim=-1
+      )
+    return torch.cat(
+      [state_features(s), im.tracking_features(at_s), context, obs], dim=-1
+    )
 
   def _policy_step(
     self,
@@ -961,21 +1120,32 @@ class WorldModelRL:
     steps: torch.Tensor,
     inside: torch.Tensor,
     frames: MotionFrame,
-  ) -> tuple[torch.Tensor, ...]:
+    recorded_return: torch.Tensor,
+    recorded_ok: torch.Tensor,
+    recorded_action: torch.Tensor,
+  ) -> tuple:
     """Imagine ``horizon`` steps from replay states and take one actor step on the return.
 
-    Returns the mean return and, per step, the critic inputs, values, rewards and
-    termination probabilities (for the critic's targets).
+    Returns the mean return; per step, the critic inputs, values, rewards and
+    termination probabilities (for the critic's targets); self-imitation statistics;
+    and, with ``value_gradient``, the imagined states with their inputs and
+    return-gradient targets (else None).
     """
-    im, h, ahead = self.imagination, self.horizon, self.imagination.window_frames
+    im, h = self.imagination, self.horizon
+    n = state.shape[0]
     context = im.context(env_ids)
-    survival = torch.ones(state.shape[0], device=self.device)  # c_t
+    survival = torch.ones(n, device=self.device)  # c_t
     objective = torch.zeros_like(survival)
     critic_in, values, rewards, ends = [], [], [], []
-    s, prev_action = state, last_action
+    survivals, prev_actions, kept = [survival], [], []
+    s, prev_action, first_action, last_value = state, last_action, None, None
+    past0 = past
     for t in range(h + 1):
-      window = _window(frames, t, ahead) if ahead > 1 else None
-      goal = Goal(_row(frames, t), window, steps[t], trajectory, reference_offset)
+      goal = self._goal(frames, t, steps, trajectory, reference_offset)
+      if self.value_gradient and 0 < t < h:
+        s.retain_grad()
+        kept.append((s, past.detach()))
+      prev_actions.append(prev_action.detach())
       out = self._imagine_step(
         s, past, prev_action, goal, env_ids, context, last=t == h
       )
@@ -989,17 +1159,58 @@ class WorldModelRL:
           objective + self.gamma**t * survival * self._bootstrap_value(value) * stop
         )
       if t == h:
+        last_value = self._bootstrap_value(value).detach()
         break
       s, past, action, reward, end = out[2:]
+      first_action = action if first_action is None else first_action
       objective = objective + self.gamma**t * survival * reward * inside[t]
       survival = survival * (1 - end)
+      survivals.append(survival.detach())
       prev_action = action
       rewards.append(reward.detach())
       ends.append(end.detach())
 
+    loss = -objective.mean()
+    sil_stats = torch.zeros(2, device=self.device)
+    if self.self_imitation:
+      advantage = (recorded_return - self._bootstrap_value(values[0])) * recorded_ok
+      weight = (advantage / (advantage.abs().mean() + 1e-6)).clamp(
+        0, self.self_imitation_max_weight
+      )
+      error = ((first_action - recorded_action) * self._action_scale).square()
+      sil_loss = (weight * error.mean(-1)).mean()
+      loss = loss + self.self_imitation * sil_loss
+      sil_stats = torch.stack(
+        [
+          (advantage > 0).float().sum() / recorded_ok.sum().clamp_min(1),
+          sil_loss.detach(),
+        ]
+      )
+    if self.latent_aux:
+      aux_loss = self._latent_aux_loss(
+        state, past0, last_action, frames, steps, trajectory, reference_offset, env_ids
+      )
+      loss = loss + self.latent_aux * aux_loss
+      sil_stats = torch.cat([sil_stats, aux_loss.detach().sqrt()[None]])
     actor_params = [p for p in self.actor.parameters() if p.requires_grad]
     self.actor_optimizer.zero_grad(set_to_none=False)
-    (-objective.mean()).backward()
+    loss.backward()
+    gradients = None
+    if self.value_gradient:
+      gradients = self._value_gradient_targets(
+        kept,
+        prev_actions,
+        survivals,
+        rewards,
+        ends,
+        last_value,
+        inside[h - 1],
+        frames,
+        steps,
+        trajectory,
+        reference_offset,
+        env_ids,
+      )
     average_gradients(self.actor)
     grad_norm = nn.utils.clip_grad_norm_(actor_params, self.max_grad_norm)
     for p in actor_params:
@@ -1016,6 +1227,95 @@ class WorldModelRL:
       torch.stack(values),
       torch.stack(rewards),
       torch.stack(ends),
+      sil_stats,
+      gradients,
+    )
+
+  def _latent_aux_loss(
+    self, state, past, last_action, frames, steps, trajectory, offset, env_ids
+  ):
+    """Mean squared error (rad²) of the joint positions of the goal frames predicted
+    from the actor's reference latent at the imagination starts.
+
+    PartyMimic (Roboparty, 2026) train.py ``--kp_aux``, MIT; see THIRD_PARTY_NOTICES.
+    """
+    im, head = self.imagination, self._latent_head
+    s = self._state(state)
+    goal = self._goal(frames, 0, steps, trajectory, offset)
+    view = im.view(s, im.kinematics.bodies(s), env_ids, goal, last_action, last_action)
+    obs, _ = im.actor_obs(view, past)
+    predicted = head.aux(head.latent(self.actor.obs_normalizer(obs)))
+    k = head.aux.out_features // self.num_joints
+    joints = (
+      _window(frames, 0, k).joint_pos if k > 1 else _row(frames, 0).joint_pos[:, None]
+    )
+    ids = im.command._tracked_joint_ids
+    if ids is not None:
+      joints = joints[..., ids]
+    return (predicted - (joints - self._joint_offset).flatten(1)).square().mean()
+
+  def _value_gradient_targets(
+    self,
+    kept,
+    prev_actions,
+    survivals,
+    rewards,
+    ends,
+    last_value,
+    complete,
+    frames,
+    steps,
+    trajectory,
+    reference_offset,
+    env_ids,
+  ):
+    """∂G_k/∂s_k at imagined states s_1 … s_{H-1}, from the actor's backward pass.
+
+    PartyMimic (Roboparty, 2026) train.py ``value_grad_targets``, MIT; see
+    THIRD_PARTY_NOTICES. ``∂J/∂s_k`` (retained on the states) holds γᵏ c_k ∂G_k/∂s_k plus
+    the direct terms of the step into s_k (its analytic reward and tracking
+    termination); those are recomputed at s_k and removed. Rollouts that reach their
+    clip's end inside the horizon, and states with survival ≤ 0.5, are masked.
+
+    Returns the states, their history and previous actions, the targets and the mask,
+    each ``[H - 1, n, …]``.
+    """
+    h, n, g = self.horizon, survivals[0].shape[0], self.gamma
+    with torch.no_grad():
+      returns, running = [], last_value
+      for t in range(h - 1, 0, -1):
+        running = rewards[t] + g * (1 - ends[t]) * running
+        returns.append(running)
+      returns = returns[::-1]  # G_1 … G_{H-1}
+    leaves, local = [], torch.zeros((), device=self.device)
+    for k in range(1, h):
+      leaf = kept[k - 1][0].detach().requires_grad_()
+      goal = self._goal(frames, k - 1, steps, trajectory, reference_offset)
+      reward, end = self._step_outcome(
+        leaf, goal, prev_actions[k], prev_actions[k - 1], env_ids
+      )
+      # The tracking termination only acts where it wins the max over the learned head.
+      wins = (end.detach() >= ends[k - 1] - 1e-6).float()
+      w_r = g ** (k - 1) * survivals[k - 1]
+      w_d = g**k * survivals[k - 1] * returns[k - 1] * wins
+      local = local + (w_r * reward - w_d * end).sum()
+      leaves.append(leaf)
+    direct = torch.autograd.grad(local, leaves, allow_unused=True)
+    targets = []
+    for k in range(1, h):
+      grad = kept[k - 1][0].grad
+      total = -n * grad if grad is not None else torch.zeros_like(leaves[k - 1])
+      if direct[k - 1] is not None:
+        total = total - direct[k - 1]
+      scale = (g**k * survivals[k]).clamp_min(1e-3)
+      targets.append(total / scale[:, None])
+    mask = torch.stack(survivals[1:h]) > 0.5
+    return (
+      torch.stack([s.detach() for s, _ in kept]),
+      torch.stack([p for _, p in kept]),
+      torch.stack(prev_actions[1:h]),
+      torch.stack(targets).detach(),
+      mask & complete[None],
     )
 
   def _imagine_step(
@@ -1084,8 +1384,11 @@ class WorldModelRL:
     rewards: torch.Tensor,
     ends: torch.Tensor,
     inside: torch.Tensor,
+    gradient_fit: tuple | None = None,
   ) -> torch.Tensor:
-    """Fit V to GAE(λ) targets of the imagined rollouts (Eq. 3)."""
+    """Fit V to GAE(λ) targets of the imagined rollouts (Eq. 3); with ``gradient_fit``
+    (``value_gradient``) also ∇ₛV to the imagined return gradients, whose (relative
+    error, cosine) are left in ``_gradient_fit_stats``. Returns the value loss."""
     # BlinkMimic train.py: update normalization BEFORE evaluating target values.
     # Otherwise targets and predictions describe different value functions.
     x = critic_in[:-1].flatten(0, 1)
@@ -1120,7 +1423,16 @@ class WorldModelRL:
       )
     y = targets.flatten()
     total = torch.zeros((), device=self.device)
-    for _ in range(self.critic_epochs):
+    fit_stats = None
+    if gradient_fit is not None:
+      states = gradient_fit[0]
+      # Per-coordinate scale: the std of one imagined step's change.
+      change_scale = (
+        (states[1:] - states[:-1]).flatten(0, 1).std(0).clamp_min(1e-6)
+        if states.shape[0] > 1
+        else torch.ones_like(states[0, 0])
+      )
+    for epoch in range(self.critic_epochs):
       # tensor_split keeps the collective count identical even for small or uneven
       # clip-masked batches on different ranks. Empty minibatches yield zero gradients.
       batches = torch.randperm(x.shape[0], device=self.device).tensor_split(
@@ -1128,8 +1440,13 @@ class WorldModelRL:
       )
       for idx in batches:
         loss = self._critic_loss(x[idx], y[idx], weights[idx])
+        if gradient_fit is not None and epoch < self.value_gradient_epochs:
+          surrogate, fit_stats = self._value_gradient_loss(gradient_fit, change_scale)
+          loss_total = loss + self.value_gradient * surrogate
+        else:
+          loss_total = loss
         self.critic_optimizer.zero_grad()
-        loss.backward()
+        loss_total.backward()
         average_gradients(self.critic)
         grad_norm = nn.utils.clip_grad_norm_(
           self.critic.parameters(), self.max_grad_norm
@@ -1138,10 +1455,57 @@ class WorldModelRL:
           self.critic_optimizer,
           self.critic.parameters(),
           enabled=self.skip_nonfinite_updates,
-          valid=torch.isfinite(loss) & torch.isfinite(grad_norm),
+          valid=torch.isfinite(loss_total) & torch.isfinite(grad_norm),
         )
         total += loss.detach() / (self.critic_epochs * len(batches))
+    self._gradient_fit_stats = fit_stats
     return total
+
+  def _value_gradient_loss(self, fit, scale):
+    """A surrogate whose critic-parameter gradient is that of the relative squared error
+    of ∇ₛV against the targets, on a random subset of the imagined states.
+
+    PartyMimic (Roboparty, 2026) train.py ``gcons_loss``, MIT; see THIRD_PARTY_NOTICES.
+    Double backward runs through the critic only; the critic-input Jacobian enters by
+    central differences along the error's direction. Returns the surrogate and the
+    (relative error, masked mean cosine) pair.
+    """
+    states, pasts, prev, targets, mask, frames, steps, trajectory, offset, env_ids = fit
+    k, n = mask.shape
+    pick = torch.randint(0, k * n, (self.value_gradient_states,), device=self.device)
+    rows, cols = pick // n, pick % n
+    goal = self._goal_at(frames, rows + 1, cols, steps, trajectory, offset)
+    ids, context = env_ids[cols], self.imagination.context(env_ids[cols])
+    past, action = pasts[rows, cols], prev[rows, cols]
+    m = mask[rows, cols].float()
+    target = targets[rows, cols] * scale
+
+    def features(s):
+      return self._critic_features(s, past, action, goal, ids, context)
+
+    s = states[rows, cols].detach().requires_grad_()
+    x = features(s)
+    x_leaf = x.detach().requires_grad_()
+    value = self.critic(self.critic_norm(x_leaf)).sum()
+    u = torch.autograd.grad(value, x_leaf, create_graph=True)[0]
+    (grad_s,) = torch.autograd.grad(x, s, grad_outputs=u.detach())
+    grad_s = grad_s.detach().requires_grad_()
+    diff = grad_s * scale - target
+    error = (m * diff.square().sum(-1)).sum() / (
+      m * target.square().sum(-1)
+    ).sum().clamp_min(1e-12)
+    (e,) = torch.autograd.grad(error, grad_s)
+    with torch.no_grad():
+      eps = 0.05 / (e / scale).norm(dim=-1, keepdim=True).clamp_min(1e-12)
+      jacobian_e = (features(s + eps * e) - features(s - eps * e)) / (2 * eps)
+      fitted = diff + target
+      cosine = (
+        m
+        * (fitted * target).sum(-1)
+        / (fitted.norm(dim=-1) * target.norm(dim=-1)).clamp_min(1e-12)
+      ).sum() / m.sum().clamp_min(1)
+    surrogate = (u * jacobian_e).sum()
+    return surrogate, torch.stack([error.detach(), cosine])
 
   def _bootstrap_value(self, value):
     # Repository safeguard, not an upstream Blink feature: no policy can earn

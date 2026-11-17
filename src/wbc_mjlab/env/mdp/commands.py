@@ -29,13 +29,16 @@ from wbc_mjlab.env.mdp.sampling import (
   RsiCfg,
   TrackingSimilarityState,
   bin_index_for_frame,
+  bin_motion_features,
   bin_probabilities,
   build_bin_valid_mask,
   compile_similarity_terms,
   compute_assist_gain_matrix,
   compute_sampling_prob_matrix,
   curriculum_probabilities,
+  diversity_weights,
   failure_counts,
+  kmeans_labels,
   resolve_tracking_reward_indices,
   rsi_failure_signal_label,
   sample_adaptive_bins,
@@ -716,6 +719,28 @@ class MotionCommand(TrackingView, CommandTerm):
   def bin_count(self) -> int:
     return self.motion.num_trajectories * self.bins_per_trajectory
 
+  def uniform_bin_weights(self) -> torch.Tensor | None:
+    """How ``rsi.uniform_ratio`` spreads over valid bins; None: evenly (by duration)."""
+    rsi = self.cfg.rsi
+    if rsi.diversity_clusters <= 0:
+      return None
+    if getattr(self, "_uniform_weights", None) is None:
+      features = bin_motion_features(
+        self.motion,
+        self._valid_bin_indices,
+        bin_width_frames=self.bin_width_frames,
+        anchor_index=self.motion_anchor_body_index,
+      )
+      labels = kmeans_labels(features, rsi.diversity_clusters)
+      self.bin_cluster_labels = labels
+      self._uniform_weights = diversity_weights(labels, rsi.diversity_tau)
+      sizes = torch.bincount(labels).tolist()
+      print(
+        f"[INFO] RSI diversity: {len(self._valid_bin_indices)} bins in "
+        f"{sum(s > 0 for s in sizes)} motion clusters (sizes {min(sizes)}–{max(sizes)})"
+      )
+    return self._uniform_weights
+
   def _set_episode_similarity_denom(
     self, env_ids: torch.Tensor, traj_ids: torch.Tensor, time_steps: torch.Tensor
   ) -> None:
@@ -837,6 +862,7 @@ class MotionCommand(TrackingView, CommandTerm):
       memory=self._bin_memory,
       memory_ratio=rsi.memory_ratio,
       success_target=rsi.success_kernel(),
+      uniform=self.uniform_bin_weights(),
     )
     if self._visited_returns is None:
       self._bin_memory.lerp_(softmax, rsi.memory_alpha)
@@ -1280,6 +1306,7 @@ class MotionCommand(TrackingView, CommandTerm):
       memory=self._bin_memory,
       memory_ratio=rsi.memory_ratio,
       success_target=rsi.success_kernel(),
+      uniform=self.uniform_bin_weights(),
     )
     valid = self._valid_bin_indices
     prob[valid[:, 0], valid[:, 1]] = curriculum_probabilities(

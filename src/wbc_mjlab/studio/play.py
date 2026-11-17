@@ -42,6 +42,44 @@ def capacity_for(num_envs: int) -> int:
   return max(MIN_CAPACITY, 1 << max(0, int(num_envs) - 1).bit_length())
 
 
+def same_library(a: str | None, b: str | None) -> bool:
+  if not a or not b:
+    return False
+  return Path(a).expanduser().resolve() == Path(b).expanduser().resolve()
+
+
+def library_stamp(motion: str) -> tuple:
+  """Names, sizes and modification times of a motion library's files (a dataset folder
+  two levels deep, caches excluded, or one file): changes when clips are added, removed,
+  edited or converted on disk."""
+  root = Path(motion).expanduser()
+  if root.is_file():
+    st = root.stat()
+    return ((root.name, st.st_size, st.st_mtime_ns),)
+  out = []
+
+  def scan(folder: Path, depth: int) -> None:
+    try:
+      entries = sorted(folder.iterdir())
+    except OSError:
+      return
+    for p in entries:
+      if p.name.startswith("."):
+        continue
+      if p.is_dir():
+        if depth:
+          scan(p, depth - 1)
+        continue
+      try:
+        st = p.stat()
+      except OSError:
+        continue
+      out.append((str(p.relative_to(root)), st.st_size, st.st_mtime_ns))
+
+  scan(root, 1)
+  return tuple(out)
+
+
 class Session:
   """One play env + policy (the body of ``wbc_mjlab.scripts.play.run_play``, headless)."""
 
@@ -66,9 +104,15 @@ class Session:
     from wbc_mjlab.studio.presets import register, split_task_id
     from wbc_mjlab.tasks import prepare_wbc_run
 
-    if run_dir is not None and checkpoint is not None:
+    # The run's saved env and policy whatever plays (the zero action too): a checkpoint
+    # swapped in later runs in the env and runner it was trained with.
+    if run_dir is not None and (Path(run_dir) / "params" / "env.yaml").is_file():
       run = load_run_config(run_dir, task_id)
       env_cfg, agent_cfg = run.env, run.agent
+      if not same_library(env_cfg.commands["motion"].motion_file, motion_file):
+        # The run's source format / rate describe its own dataset, not this one.
+        env_cfg.commands["motion"].source_format = None
+        env_cfg.commands["motion"].source_fps = None
     else:
       if split_task_id(task_id):
         register(split_task_id(task_id)[1], snapshot=preset)
@@ -175,6 +219,7 @@ class PlayService:
     self.run_label = ""
     self.checkpoint = ""
     self.motion = ""  # motion library (dataset folder or bundle) of the session
+    self._motion_stamp: tuple = ()  # its files when the session loaded it
     self.num_envs = 1
     self.terminations = False
     self.gpu_uuid: str | None = None
@@ -279,10 +324,18 @@ class PlayService:
     if r is None:
       raise ValueError("pick a run")
     motion = motion or r.motion_source() or self._default_library()
+    stale = (
+      s is not None
+      and same_library(motion, self.motion)
+      and library_stamp(motion) != self._motion_stamp
+    )
+    if stale:
+      self.c.log("play: the motion library changed on disk → reloading it", "warn")
     if (
       s is None
+      or stale
       or run != self.run_label
-      or motion != self.motion
+      or not same_library(motion, self.motion)
       or num_envs > s.num_envs
       or device != s.device
     ):
@@ -352,6 +405,7 @@ class PlayService:
         self.c.select_robot(robot)
       ckpt = None if checkpoint in ("", ZERO) else r.path / checkpoint
       capacity = capacity_for(num_envs)
+      stamp = library_stamp(motion)
       self.c.progress(f"building {capacity} envs · {task}", 0, 1)
       session = Session(
         task,
@@ -376,6 +430,7 @@ class PlayService:
         self.recorder = recorder
         self.robot, self.run_label, self.checkpoint = robot, run, checkpoint or ZERO
         self.motion, self.num_envs, self.terminations = motion, num_envs, terminations
+        self._motion_stamp = stamp
         names = session.clip_names()
         self.pinned = {e: names.index(n) for e, n in pinned_names.items() if n in names}
         self._grid_cache = None

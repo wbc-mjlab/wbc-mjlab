@@ -113,6 +113,38 @@ def test_play_gpu_switch_rebuilds_without_changing_core_device(core, monkeypatch
     s.session = None  # the session above is a lightweight mock
 
 
+def test_play_reloads_a_library_changed_on_disk(core, monkeypatch, tmp_path):
+  from wbc_mjlab.studio import jobs, play
+
+  lib = tmp_path / "clips"
+  (lib / "raw").mkdir(parents=True)
+  (lib / "raw" / "a.csv").write_text("1\n")
+  (lib / ".cache").mkdir()
+  monkeypatch.setattr(
+    jobs, "find_run", lambda run: SimpleNamespace(motion_source=lambda: str(lib))
+  )
+  s = core.play
+  s.session = SimpleNamespace(
+    device="cpu",
+    num_envs=16,
+    task="task",
+    clip_names=lambda: ["a"],
+    cmd=SimpleNamespace(trajectory_ids=[0]),
+  )
+  s.run_label, s.motion, s.checkpoint = "run", str(lib), play.ZERO
+  s._motion_stamp = play.library_stamp(str(lib))
+  monkeypatch.setattr(s, "_render", lambda: None)
+  rebuilt = []
+  monkeypatch.setattr(s, "_rebuild", lambda *args: rebuilt.append(args) or True)
+  try:
+    (lib / ".cache" / "motion_x.npz").write_text("cache")  # the library's own cache
+    assert s.configure("run", "", motion=str(lib) + "/") == "unchanged"
+    (lib / "raw" / "b.csv").write_text("2\n")
+    assert s.configure("run", "", motion=str(lib)) == "rebuilding" and rebuilt
+  finally:
+    s.session = None
+
+
 def test_play_api_forwards_gpu_choice(core, monkeypatch):
   from fastapi.testclient import TestClient
 

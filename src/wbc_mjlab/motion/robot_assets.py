@@ -91,7 +91,9 @@ def get_robot_motion_spec(name: str) -> tuple[str, RobotMotionSpec]:
   return robot_id, _ROBOT_SPECS[robot_id]
 
 
-def conversion_scene_cfg(motion_spec: RobotMotionSpec, *, num_envs: int = 1) -> SceneCfg:
+def conversion_scene_cfg(
+  motion_spec: RobotMotionSpec, *, num_envs: int = 1
+) -> SceneCfg:
   scene_cfg = motion_spec.scene_cfg_fn()
   scene_cfg.num_envs = num_envs
   return scene_cfg

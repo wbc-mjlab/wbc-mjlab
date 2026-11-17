@@ -146,6 +146,41 @@ def test_drift_uses_heading_difference_without_tilt_contamination():
   assert result["mean_linear_velocity_aligned_mse"] < 1e-10
 
 
+def test_local_body_error_ignores_anchor_ground_offset_and_heading():
+  from types import SimpleNamespace
+
+  from mjlab.utils.lab_api.math import quat_apply, quat_from_euler_xyz
+
+  from wbc_mjlab.rl.evaluation import TrackingErrorMeter
+
+  zero = torch.zeros(1)
+  robot = torch.tensor([[[0.0, 0.0, 0.8], [0.3, 0.1, 0.9], [0.0, 0.2, 0.1]]])
+  yaw = quat_from_euler_xyz(zero, zero, zero + 1.2)
+  shift = torch.tensor([2.0, -1.0, 0.0])
+  ref = quat_apply(yaw[:, None].expand(-1, 3, -1), robot) + shift
+
+  def command(ref_bodies):
+    return SimpleNamespace(
+      body_pos_w=ref_bodies,
+      robot_body_pos_w=robot,
+      anchor_pos_w=ref_bodies[:, 0],
+      anchor_quat_w=yaw,
+      robot_anchor_pos_w=robot[:, 0],
+      robot_anchor_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+      _tracked_joint_pos_error=lambda: torch.zeros(1, 2),
+    )
+
+  meter = TrackingErrorMeter(1, "cpu")
+  meter.update(command(ref), torch.tensor([True]))
+  assert meter.result(0, 1)["local_body_pos_mm"] < 1e-3
+  assert meter.result(0, 1)["global_body_pos_mm"] > 100
+  meter.reset(torch.tensor([0]))
+  moved = ref.clone()
+  moved[0, 2, 2] += 0.03  # one of three bodies 3 cm off: 10 mm on average
+  meter.update(command(moved), torch.tensor([True]))
+  assert abs(meter.result(0, 1)["local_body_pos_mm"] - 10.0) < 1e-3
+
+
 def _replay(capacity: int, num_envs: int, observed_dim: int = 0) -> Replay:
   return Replay(capacity, num_envs, 1, 1, 0, observed_dim, "cpu")
 
@@ -641,6 +676,8 @@ def test_benchmark_queue_and_drift(tmp_path):
     assert all(0 < r["steps"] <= 3 for r in result["clips"])
     assert result["summary"]["clips"] == 3
     assert all("mean_yaw_deg" in r["drift"] for r in result["clips"])
+    assert all(r["tracking"]["local_body_pos_mm"] >= 0 for r in result["clips"])
+    assert result["summary"]["mean_local_body_pos_mm"] >= 0
     assert all(r["normalized_return"] is not None for r in result["clips"])
   finally:
     env.close()

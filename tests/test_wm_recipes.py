@@ -30,10 +30,11 @@ def test_recipe_settings_and_reward_bounds(task, recipe):
   assert reward_upper_bound(cfg, cfg.sim.mujoco.timestep * cfg.decimation) > 0
 
 
-def test_reference_shortcut_stays_explicit_and_validated():
+@pytest.mark.parametrize("recipe", ["wm-blink", "wm-party"])
+def test_reference_shortcut_stays_explicit_and_validated(recipe):
   from wbc_mjlab.tasks import prepare_wbc_run
 
-  settings = BUILTIN["wm-blink"]["settings"]
+  settings = BUILTIN[recipe]["settings"]
   assert not settings["actor.reference_residual"]
   assert settings["algorithm.mirror_probability"] == 0
   for task in ("Wbc-G1", "Wbc-G1-EE", "Wbc-G1-Lookahead"):
@@ -95,6 +96,10 @@ def test_recipe_trains_preset(motion_env, recipe, tmp_path):
   agent.algorithm.diagnostic_interval = 0
   agent.num_steps_per_env = 16
   agent.save_interval = 1000
+  if recipe == "wm-party":
+    agent.algorithm.horizon = 10  # self-imitation covers the actor's history
+    agent.algorithm.warmup_steps = 12
+    agent.algorithm.value_gradient_states = 64
   if recipe == "wm-blink" and task == "Wbc-G1-EE":
     # Exercise probes with an actor that has no joint-reference observations.
     agent.algorithm.probe_start = 0

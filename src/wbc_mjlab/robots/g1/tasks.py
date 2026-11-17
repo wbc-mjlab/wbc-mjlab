@@ -9,6 +9,7 @@ from wbc_mjlab.presets.binary_failure import apply_binary_failure
 from wbc_mjlab.presets.blink import apply_blink
 from wbc_mjlab.presets.end_effector import apply_end_effector
 from wbc_mjlab.presets.lookahead import apply_lookahead
+from wbc_mjlab.presets.party import apply_party, apply_sparse_keypoints
 from wbc_mjlab.presets.se_actor import apply_se_actor
 from wbc_mjlab.presets.sgs import apply_sgs
 from wbc_mjlab.presets.terrain import apply_terrain_scan
@@ -100,6 +101,32 @@ def g1_wbc_blink_env_cfg() -> ManagerBasedRlEnvCfg:
   return cfg
 
 
+def g1_wbc_party_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_base_cfg()
+  apply_party(
+    cfg,
+    root_body="pelvis",
+    foot_bodies=("left_ankle_roll_link", "right_ankle_roll_link"),
+  )
+  return cfg
+
+
+G1_SPARSE5_KEYPOINTS = (
+  "pelvis",
+  "torso_link",  # carries the head
+  "left_wrist_yaw_link",
+  "right_wrist_yaw_link",
+  "left_ankle_roll_link",
+  "right_ankle_roll_link",
+)
+
+
+def g1_wbc_sparse5_env_cfg() -> ManagerBasedRlEnvCfg:
+  cfg = g1_wbc_party_env_cfg()
+  apply_sparse_keypoints(cfg, keypoints=G1_SPARSE5_KEYPOINTS)
+  return cfg
+
+
 def g1_wbc_ee_env_cfg() -> ManagerBasedRlEnvCfg:
   cfg = g1_wbc_env_cfg()
   apply_end_effector(cfg, body_names=G1_ENDEFFECTOR_BODY_NAMES)
@@ -120,6 +147,20 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
     description="BlinkMimic-inspired Lookahead task: pelvis anchor and training-only contact shaping; pair with wm-blink.",
     experiment_name="wbc_g1_blink",
     build_env_cfg=g1_wbc_blink_env_cfg,
+  ),
+  WbcTaskConfig(
+    task_id="Wbc-G1-Party",
+    robot_id="g1",
+    description="PartyMimic-inspired Blink task: pose kernels x0.6 and diversity-balanced resets; pair with wm-party.",
+    experiment_name="wbc_g1_party",
+    build_env_cfg=g1_wbc_party_env_cfg,
+  ),
+  WbcTaskConfig(
+    task_id="Wbc-G1-Sparse5",
+    robot_id="g1",
+    description="Wbc-G1-Party following keypoint poses (pelvis, torso, wrists, ankles) instead of joint references, with a keypoint error block; pair with wm-party and the keypoint skip.",
+    experiment_name="wbc_g1_sparse5",
+    build_env_cfg=g1_wbc_sparse5_env_cfg,
   ),
   WbcTaskConfig(
     task_id="Wbc-G1",

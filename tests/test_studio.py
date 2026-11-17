@@ -301,6 +301,7 @@ def test_recipes_train_any_preset_with_either_method(preset_dir) -> None:
     "wm-24gb",
     "wm-encoder",
     "wm-blink",
+    "wm-party",
     "wm-supermimic",
   }
   blink = recipes.load("wm-blink")["settings"]
@@ -331,7 +332,7 @@ def test_recipes_train_any_preset_with_either_method(preset_dir) -> None:
   assert fields["actor.hidden_dims"]["section"] == "Policy network"
   assert fields["actor.goal_terms"]["kind"] == "strings"
   assert fields["actor.goal_terms"]["visible_if"] == {
-    "actor.architecture": "motion_encoder"
+    "actor.architecture": ["motion_encoder", "xattn"]
   }
   assert recipes.check_settings(tid, "wm", {"algorithm.goal_terms": []}) == {
     "actor.goal_terms": []
