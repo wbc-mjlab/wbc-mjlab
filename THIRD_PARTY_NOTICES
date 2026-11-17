@@ -265,3 +265,20 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+NablaMimic
+==========
+
+Copyright 2026 The NablaMimic Authors.
+Licensed under Apache License 2.0 (see LICENSE).
+Source: https://github.com/sailab-ai/NablaMimic
+Reference commit: bfbb2a6773b4776c17402a34a93ec7589d9c7c18
+
+rl/gradients.py adapts the per-sample action cotangent clipping in nets.py.
+rl/action_targets.py adapts the PODS-style target construction and regression
+in train.py. Modified for PyTorch, the existing learned-world-model trainer,
+robot-specific action scales, finite-row masking and resumable target buffers.
+rl/wm/termination.py adapts the smooth termination penalty from train.py to
+preset-defined tracking thresholds and a linear continuation after failure.
+No JAX runtime, simulator fork or upstream datasets are bundled.

@@ -100,6 +100,7 @@ def test_real_kicks_preserve_replay_and_hybrid_thresholds(tmp_path):
   try:
     agent = _small_agent()
     agent.algorithm.termination_mode = "hybrid"
+    agent.algorithm.termination_margin_weight = 1.5
     agent.clip_actions = 20.0
     runner = PolicyOnlyMotionTrackingRunner(
       RslRlVecEnvWrapper(env), asdict(agent), str(tmp_path), "cuda:0"
@@ -151,7 +152,15 @@ def test_real_kicks_preserve_replay_and_hybrid_thresholds(tmp_path):
     bad[:, 2] += 2.0
     shifted = RobotState.from_vector(bad, im.num_actions)
     view = im.view(shifted, im.kinematics.bodies(shifted), ids, goal, actions, actions)
-    assert alg.tracking_termination(view).min() > 0.999
+    reward, end = alg._step_outcome(bad, goal, actions, actions, ids)
+    baseline_end, cost = alg.tracking_termination.outcome(
+      view, soft=True, margin_start=0.5
+    )
+    assert end.min() > 0.999 and (cost > 1.0).all()
+    torch.testing.assert_close(end, baseline_end)
+    torch.testing.assert_close(
+      reward, im.analytic_reward(view) - 1.5 * im.reward_scale * cost
+    )
     pos = cfg.terminations["anchor_pos"]
     assert pos.func(view, **pos.params).all()
     assert any(
@@ -213,6 +222,43 @@ def test_soft_termination_tracks_the_task_threshold_and_has_gradients():
   ]
   probability.sum().backward()
   assert torch.isfinite(height.grad).all() and height.grad[2] > 0
+
+
+def test_tracking_margin_starts_before_failure_without_changing_survival():
+  from mjlab.managers.termination_manager import TerminationTermCfg
+
+  from wbc_mjlab.env.mdp.terminations import bad_anchor_pos_z_only
+  from wbc_mjlab.rl.wm.termination import TrackingTermination
+
+  term = TerminationTermCfg(
+    func=bad_anchor_pos_z_only, params={"command_name": "motion", "threshold": 0.4}
+  )
+  tracking = TrackingTermination({"anchor": term})
+  height = torch.tensor([0.1, 0.2, 0.3, 0.4, 0.5], requires_grad=True)
+
+  positions = torch.stack([height * 0, height * 0, height], dim=-1)
+  command = SimpleNamespace(
+    anchor_pos_w=positions, robot_anchor_pos_w=torch.zeros_like(positions)
+  )
+  view = SimpleNamespace(
+    num_envs=len(height),
+    device=height.device,
+    command_manager=SimpleNamespace(get_term=lambda _: command),
+  )
+
+  def outcome(env):
+    end, cost = tracking.outcome(env, soft=True, margin_start=0.5)
+    learned_only, _ = tracking.outcome(env, soft=False, margin_start=0.5)
+    return end, cost, tracking(env), learned_only
+
+  end, cost, baseline, learned_only = torch.compile(
+    outcome, backend="eager", fullgraph=True
+  )(view)
+  torch.testing.assert_close(end, baseline)
+  torch.testing.assert_close(learned_only, torch.zeros_like(end))
+  torch.testing.assert_close(cost, torch.tensor([0.0, 0.0, 0.25, 1.0, 2.0]))
+  cost.sum().backward()
+  torch.testing.assert_close(height.grad, torch.tensor([0.0, 0.0, 5.0, 10.0, 10.0]))
 
 
 def test_dead_imagination_rows_do_not_enter_critic_targets():

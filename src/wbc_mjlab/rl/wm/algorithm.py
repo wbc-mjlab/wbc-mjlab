@@ -41,6 +41,7 @@ from tensordict import TensorDict
 from torch import nn
 
 from wbc_mjlab.motion.library import MotionFrame
+from wbc_mjlab.rl.gradients import guard_action_gradient
 from wbc_mjlab.rl.optim import make_optimizer, step_if_finite
 from wbc_mjlab.rl.policy import build_actor, policy_mlps
 from wbc_mjlab.rl.wm.distributed import average_gradients, broadcast, sum_, world_size
@@ -115,6 +116,8 @@ class WorldModelRL:
     critic_norm_eps: float = 1e-4,
     bound_critic: bool = False,
     termination_mode: str = "learned",
+    termination_margin_weight: float = 0.0,
+    termination_margin_start: float = 0.5,
     policy_ema: float = 0.0,
     mirror_probability: float = 0.0,
     actor_lr_multiplier: float = 1.0,
@@ -134,6 +137,13 @@ class WorldModelRL:
     probe_async: bool = False,
     compile_collection: bool = False,
     separate_action_noise: bool = False,
+    actor_update: str = "pathwise",
+    action_target_steps: int = 8,
+    action_target_windows: int = 1,
+    action_target_batch: int = 4096,
+    action_target_delta: float = 0.03,
+    action_target_delta_floor: float = 0.3,
+    action_gradient_clip_ratio: float = 0.0,
     self_imitation: float = 0.0,
     self_imitation_max_weight: float = 5.0,
     value_gradient: float = 0.0,
@@ -156,6 +166,36 @@ class WorldModelRL:
       or lr_decay_updates < 1
     ):
       raise ValueError("invalid learning-rate schedule")
+    if not math.isfinite(action_gradient_clip_ratio) or action_gradient_clip_ratio < 0:
+      raise ValueError("action_gradient_clip_ratio must be finite and nonnegative")
+    self.action_gradient_clip_ratio = action_gradient_clip_ratio
+    if not math.isfinite(termination_margin_weight) or termination_margin_weight < 0:
+      raise ValueError("termination_margin_weight must be finite and nonnegative")
+    if not 0 <= termination_margin_start < 1:
+      raise ValueError("termination_margin_start must be in [0, 1)")
+    if actor_update not in ("pathwise", "action_targets"):
+      raise ValueError("unknown actor_update")
+    if min(action_target_steps, action_target_windows, action_target_batch) < 1:
+      raise ValueError("action-target steps, windows and batch must be positive")
+    if not math.isfinite(action_target_delta) or action_target_delta <= 0:
+      raise ValueError("action_target_delta must be positive and finite")
+    if not 0 < action_target_delta_floor <= 1:
+      raise ValueError("action_target_delta_floor must be in (0,1]")
+    if actor_update == "action_targets" and (
+      self_imitation or value_gradient or latent_aux
+    ):
+      raise ValueError(
+        "action_targets currently requires self_imitation, value_gradient and latent_aux disabled"
+      )
+    self.actor_update = actor_update
+    self.action_target_steps = action_target_steps
+    self.action_target_batch = action_target_batch
+    self.action_target_delta = action_target_delta
+    self.action_target_delta_floor = action_target_delta_floor
+    from wbc_mjlab.rl.action_targets import ActionTargetReplay
+
+    self.action_target_replay = ActionTargetReplay(action_target_windows)
+    self._action_target_stats = {}
     self.skip_nonfinite_updates = skip_nonfinite_updates
     self.policy_ema = policy_ema
     self.mirror_probability = mirror_probability
@@ -185,9 +225,18 @@ class WorldModelRL:
     from wbc_mjlab.rl.wm.termination import TrackingTermination
 
     self.tracking_termination = (
-      TrackingTermination(env.cfg.terminations)
-      if termination_mode == "hybrid"
+      TrackingTermination(
+        env.cfg.terminations,
+        option=(
+          "hybrid termination" if termination_mode == "hybrid" else "termination margin"
+        ),
+      )
+      if termination_mode == "hybrid" or termination_margin_weight
       else None
+    )
+    self._termination_margin_scale = termination_margin_weight * im.reward_scale
+    self._termination_margin_start = (
+      termination_margin_start if termination_margin_weight else None
     )
     print(
       f"[INFO] wm: clip_actions={clip_actions}, critic_norm_eps={critic_norm_eps}, "
@@ -295,6 +344,10 @@ class WorldModelRL:
       and torch.device(device).type == "cuda"
       and world_size() == 1
     )
+    if graphs and actor_update == "action_targets":
+      print(
+        "[INFO] wm: action-target policy updates use compiled steps without full-update CUDA capture"
+      )
     if cuda_graphs and world_size() > 1:
       print(
         "[INFO] wm: distributed updates use torch.compile without full-update CUDA graphs"
@@ -420,7 +473,7 @@ class WorldModelRL:
           [self.actor_optimizer],
         ),
       )
-      if graphs
+      if graphs and actor_update == "pathwise"
       else self._policy_step
     )
     if compile_collection:
@@ -643,6 +696,8 @@ class WorldModelRL:
       "world_model_state_dict": self.world_model.state_dict(),
       "optimizer_state_dict": [o.state_dict() for o in self._optimizers],
       "num_updates": self.num_updates,
+      "action_target_state": self.action_target_replay.state_dict(),
+      "actor_update": self.actor_update,
       "wm_metadata": {
         "dynamics_mode": self.world_model.dynamics_mode,
         "step_dt": self.world_model.step_dt,
@@ -712,6 +767,14 @@ class WorldModelRL:
         loaded_dict["critic_state_dict"]["mlp"], strict=strict
       )
     if load_cfg.get("optimizer"):
+      if loaded_dict.get("actor_update", "pathwise") != self.actor_update:
+        raise ValueError("checkpoint actor update differs; use actor-only warm start")
+      if self.actor_update == "action_targets":
+        if "action_target_state" not in loaded_dict:
+          raise ValueError("checkpoint lacks action-target replay state")
+        self.action_target_replay.load_state_dict(
+          loaded_dict["action_target_state"], self.device
+        )
       for o, state in zip(
         self._optimizers, loaded_dict["optimizer_state_dict"], strict=True
       ):
@@ -1025,6 +1088,7 @@ class WorldModelRL:
       stats["latent_aux_rms"] = sil_stats[2]
     if fit_stats is not None:
       stats["value_gradient_error"], stats["value_gradient_cosine"] = fit_stats.unbind()
+    stats.update(self._action_target_stats)
     return stats
 
   def _goal(self, frames, t, steps, trajectory, reference_offset) -> Goal:
@@ -1087,12 +1151,21 @@ class WorldModelRL:
     im = self.imagination
     s = self._state(next_state)
     at = im.view(s, im.kinematics.bodies(s), env_ids, goal, action, prev_action)
-    end = (
-      self.tracking_termination(at)
-      if self.tracking_termination is not None
-      else torch.zeros(next_state.shape[0], device=next_state.device)
+    return self._tracking_outcome(at)
+
+  def _tracking_outcome(self, view):
+    """Shared analytic reward and physical termination for rollout and replay."""
+    reward = self.imagination.analytic_reward(view)
+    if self.tracking_termination is None:
+      return reward, torch.zeros_like(reward)
+    end, cost = self.tracking_termination.outcome(
+      view,
+      soft=self.termination_mode == "hybrid",
+      margin_start=self._termination_margin_start,
     )
-    return im.analytic_reward(at), end
+    if self._termination_margin_start is not None:
+      reward = reward - self._termination_margin_scale * cost
+    return reward, end
 
   def _critic_features(self, state, past, prev_action, goal, env_ids, context):
     """The critic input of an imagined state without observation noise (a function of
@@ -1140,14 +1213,22 @@ class WorldModelRL:
     survivals, prev_actions, kept = [survival], [], []
     s, prev_action, first_action, last_value = state, last_action, None, None
     past0 = past
+    target_rows = []
     for t in range(h + 1):
       goal = self._goal(frames, t, steps, trajectory, reference_offset)
       if self.value_gradient and 0 < t < h:
         s.retain_grad()
         kept.append((s, past.detach()))
       prev_actions.append(prev_action.detach())
+      # A leaf offset exposes the complete action derivative through compiled
+      # steps, including same-step rewards (retaining an output's grad does not).
+      probe = (
+        torch.zeros(n, self.num_joints, device=self.device, requires_grad=True)
+        if self.actor_update == "action_targets" and t < h
+        else None
+      )
       out = self._imagine_step(
-        s, past, prev_action, goal, env_ids, context, last=t == h
+        s, past, prev_action, goal, env_ids, context, last=t == h, action_probe=probe
       )
       value, x = out[0], out[1]
       critic_in.append(x)
@@ -1161,7 +1242,9 @@ class WorldModelRL:
       if t == h:
         last_value = self._bootstrap_value(value).detach()
         break
-      s, past, action, reward, end = out[2:]
+      s, past, action, reward, end = out[2:7]
+      if self.actor_update == "action_targets":
+        target_rows.append((out[7], out[8], probe, inside[t] & (survival.detach() > 0)))
       first_action = action if first_action is None else first_action
       objective = objective + self.gamma**t * survival * reward * inside[t]
       survival = survival * (1 - end)
@@ -1211,16 +1294,19 @@ class WorldModelRL:
         reference_offset,
         env_ids,
       )
-    average_gradients(self.actor)
-    grad_norm = nn.utils.clip_grad_norm_(actor_params, self.max_grad_norm)
-    for p in actor_params:
-      p.grad.clamp_(-self.actor_grad_clip, self.actor_grad_clip)
-    step_if_finite(
-      self.actor_optimizer,
-      actor_params,
-      enabled=self.skip_nonfinite_updates,
-      valid=torch.isfinite(objective).all() & torch.isfinite(grad_norm),
-    )
+    if self.actor_update == "action_targets":
+      self._fit_action_targets(target_rows)
+    else:
+      average_gradients(self.actor)
+      grad_norm = nn.utils.clip_grad_norm_(actor_params, self.max_grad_norm)
+      for p in actor_params:
+        p.grad.clamp_(-self.actor_grad_clip, self.actor_grad_clip)
+      step_if_finite(
+        self.actor_optimizer,
+        actor_params,
+        enabled=self.skip_nonfinite_updates,
+        valid=torch.isfinite(objective).all() & torch.isfinite(grad_norm),
+      )
     return (
       objective.mean().detach(),
       torch.stack(critic_in),
@@ -1230,6 +1316,58 @@ class WorldModelRL:
       sil_stats,
       gradients,
     )
+
+  def _fit_action_targets(self, rows):
+    """Fit the existing actor optimizer to detached improved-action windows."""
+    from wbc_mjlab.rl.action_targets import action_targets
+
+    observations = torch.stack([r[0] for r in rows])
+    actions = torch.stack([r[1] for r in rows])
+    gradients = torch.stack(
+      [-r[2].grad if r[2].grad is not None else torch.zeros_like(r[2]) for r in rows]
+    )
+    valid = torch.stack([r[3] for r in rows])
+    p = min(self.num_updates / self.lr_decay_updates, 1.0)
+    delta = self.action_target_delta * (
+      self.action_target_delta_floor
+      + (1 - self.action_target_delta_floor) * 0.5 * (1 + math.cos(math.pi * p))
+    )
+    targets, weights, stats = action_targets(
+      actions,
+      gradients,
+      valid,
+      self._action_scale,
+      delta,
+      self.action_gradient_clip_ratio,
+      self.clip_actions,
+    )
+    self.action_target_replay.append(observations, targets, weights)
+    params = [p for p in self.actor.parameters() if p.requires_grad]
+    total = torch.zeros((), device=self.device)
+    for _ in range(self.action_target_steps):
+      obs, target, weight = self.action_target_replay.sample(self.action_target_batch)
+      predicted = self.actor(TensorDict({"actor": obs}, batch_size=[len(obs)]))
+      error = ((predicted - target) * self._action_scale).square().mean(-1)
+      count = sum_(weight.sum().detach().clone())
+      loss = (error * weight).sum() * world_size() / count.clamp_min(1)
+      self.actor_optimizer.zero_grad(set_to_none=False)
+      loss.backward()
+      average_gradients(self.actor)
+      norm = nn.utils.clip_grad_norm_(params, self.max_grad_norm)
+      for param in params:
+        if param.grad is not None:
+          param.grad.clamp_(-self.actor_grad_clip, self.actor_grad_clip)
+      valid_update = (count > 0) & torch.isfinite(loss) & torch.isfinite(norm)
+      if world_size() > 1:
+        valid_update = sum_(valid_update.int()) == world_size()
+      step_if_finite(
+        self.actor_optimizer,
+        params,
+        enabled=True,
+        valid=valid_update,
+      )
+      total += loss.detach() / self.action_target_steps
+    self._action_target_stats = stats | {"action_target_loss": total}
 
   def _latent_aux_loss(
     self, state, past, last_action, frames, steps, trajectory, offset, env_ids
@@ -1327,6 +1465,7 @@ class WorldModelRL:
     env_ids: torch.Tensor,
     context: torch.Tensor,
     last: bool = False,
+    action_probe: torch.Tensor | None = None,
   ) -> tuple:
     """One imagined step from ``state``: its value (and critic input) and, unless ``last``,
     the next state, observation history, action, the step's reward and termination
@@ -1350,6 +1489,10 @@ class WorldModelRL:
     action = self.actor(TensorDict({"actor": obs}, batch_size=[obs.shape[0]]))
     if self.clip_actions is not None:
       action = action.clamp(-self.clip_actions, self.clip_actions)
+    policy_action = action.detach()
+    action = guard_action_gradient(action, self.action_gradient_clip_ratio)
+    if action_probe is not None:
+      action = action + action_probe
     setpoint = im.joint_setpoint(action, goal.frame, env_ids)
     logit, learned = wm.step_heads(s, setpoint, tracking, context)
     s_next = wm.step(s, setpoint, context)
@@ -1357,25 +1500,21 @@ class WorldModelRL:
     at_next = im.view(
       s_next, im.kinematics.bodies(s_next), env_ids, goal, action, prev_action
     )
-    reward = im.analytic_reward(at_next) + learned.sum(-1) * im.reward_scale
+    reward, tracking_end = self._tracking_outcome(at_next)
+    reward = reward + learned.sum(-1) * im.reward_scale
     end = torch.sigmoid(logit)
     next_state = s_next.vector()
-    if self.tracking_termination is not None:
-      end = torch.maximum(end, self.tracking_termination(at_next))
+    if self.termination_mode == "hybrid":
+      end = torch.maximum(end, tracking_end)
       # Once soft survival has saturated, do not extrapolate through a dead robot.
       # Keep a finite predecessor for unused tail rows; their survival weight is zero.
       stopped = end >= 1 - 1e-6
       end = torch.where(stopped, torch.ones_like(end), end)
       next_state = torch.where(stopped[:, None], state, next_state)
-    return (
-      value,
-      x.detach(),
-      next_state,
-      history[:, 1:],
-      action,
-      reward,
-      end,
-    )
+    result = (value, x.detach(), next_state, history[:, 1:], action, reward, end)
+    if self.actor_update == "action_targets":
+      return (*result, obs.detach(), policy_action)
+    return result
 
   def _update_critic(
     self,
