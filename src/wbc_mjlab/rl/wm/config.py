@@ -70,6 +70,10 @@ class WmAlgorithmCfg:
   """Cap bootstrap values at the task reward upper bound / (1-gamma)."""
   termination_mode: Literal["learned", "hybrid"] = "learned"
   """Hybrid uses task tracking thresholds as a lower bound on imagined termination."""
+  termination_margin_weight: float = 0.0
+  """Reward rate subtracted per tracking term at its failure threshold; zero disables."""
+  termination_margin_start: float = 0.5
+  """Fraction of the configured threshold where the margin cost starts, in [0, 1)."""
   policy_ema: float = 0.0
   """Deployment policy exponential average; zero disables. Live weights resume training."""
   mirror_probability: float = 0.0
@@ -152,6 +156,19 @@ class WmAlgorithmCfg:
   lr_decay_updates: int = 250_000
   """...over this many updates, then stay constant."""
   max_grad_norm: float = 1.0
+  actor_update: Literal["pathwise", "action_targets"] = field(
+    default="pathwise", metadata={"checkpoint": True}
+  )
+  """Direct return gradient, or regress onto gradient-improved actions (Nabla-inspired)."""
+  action_target_steps: int = 8
+  action_target_windows: int = field(default=1, metadata={"checkpoint": True})
+  action_target_batch: int = 4096
+  action_target_delta: float = 0.03
+  """Initial RMS target displacement in joint-setpoint radians."""
+  action_target_delta_floor: float = 0.3
+  """Cosine annealing floor relative to delta, using lr_decay_updates."""
+  action_gradient_clip_ratio: float = 0.0
+  """Per-step action cotangent limit / median live norm (NablaMimic: 3); 0 disables."""
   actor_grad_clip: float = 0.1
   """Element-wise clip of actor gradients, after the norm clip."""
   critic_epochs: int = 5

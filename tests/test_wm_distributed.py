@@ -80,6 +80,25 @@ def _rank_worker(rank, rendezvous):
     weight = critic.weight.detach().clone()
     dist.broadcast(weight, src=0)
     assert torch.allclose(critic.weight, weight)
+    # Action targets normalize over live samples across ranks, including an
+    # entirely empty rank, rather than averaging local RMS values.
+    from wbc_mjlab.rl.action_targets import action_targets
+
+    actions = torch.zeros(2, 3, 2)
+    valid = torch.full((2, 3), rank == 0, dtype=torch.bool)
+    target, weight, stats = action_targets(
+      actions,
+      torch.ones_like(actions),
+      valid,
+      torch.tensor([0.1, 2.0]),
+      0.03,
+      3,
+    )
+    assert torch.isfinite(target).all()
+    if rank == 0:
+      torch.testing.assert_close(stats["action_target_rms_rad"], torch.tensor(0.03))
+    else:
+      assert not weight.any() and not target.any()
   finally:
     dist.destroy_process_group()
 

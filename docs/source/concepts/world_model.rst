@@ -25,8 +25,8 @@ state.
 Recipes and presets
 -------------------
 
-All six world-model recipes (``wm``, ``wm-24gb``, ``wm-encoder``, ``wm-blink``,
-``wm-party`` and ``wm-supermimic``) compose with the flat-ground motion presets: WBC, Zest,
+All world-model recipes (``wm``, ``wm-24gb``, ``wm-encoder``, ``wm-blink``,
+``wm-party``, ``wm-supermimic`` and ``wm-nabla``) compose with the flat-ground motion presets: WBC, Zest,
 BinaryFailure, Lookahead, Blink, EE and their SE variants. The preset supplies
 observations, history, reference frames, action semantics and rewards; the recipe
 supplies the learner. Selecting an encoder recipe does not add joint lookahead or
@@ -483,3 +483,88 @@ normalization, Muon/Adam, EMA deployment, failure-directed probes and execution
 optimizations, with optional reference-action residuals and mirrored dynamics windows, to this
 same trainer. See :doc:`../tasks/wbc-g1-blink` for launch commands, compatibility,
 checkpoint semantics, benchmark differences and upstream citations.
+
+
+Nabla-inspired actor updates (PyTorch)
+--------------------------------------
+
+``wm-nabla`` adds two independent options to the existing learned-world-model
+trainer. It does not reproduce NablaMimic's differentiable simulator and introduces
+no JAX dependency or physics-engine changes. The preset continues to own its
+observations, rewards, actions and sampling (including SGS).
+
+First, ``algorithm.action_gradient_clip_ratio`` clips each sample's action
+cotangent during backpropagation to a multiple of the median live row norm.
+The forward action is unchanged. Zero disables this guard; the Nabla-inspired
+recipe uses 3. Invalid rows are zeroed, and masked/zero rows do not reduce the
+median. Existing actor parameter-gradient clipping remains in place. Thresholds
+are computed locally per rank.
+
+Second, ``algorithm.actor_update=action_targets`` replaces the direct actor
+optimizer step with regression onto detached actions improved in the direction
+of the imagined return gradient. Targets and regression error account for the
+robot's action scale, so ``action_target_delta=0.03`` means an initial RMS
+joint-setpoint displacement of 0.03 radians, before applying action limits.
+This is a batch RMS, not a per-joint maximum or a guarantee of policy improvement.
+The displacement anneals to ``action_target_delta_floor`` times its initial value
+using the cosine schedule over ``lr_decay_updates``. The recipe uses a 0.3 floor.
+
+``action_target_steps`` (8) controls regression steps per rollout;
+``action_target_batch`` (4096) is the regression batch size;
+``action_target_windows`` (1) bounds the retained target windows. The existing
+actor optimizer and its learning-rate schedule are reused. Full checkpoints save
+the target buffer, optimizer and update counter. Changing actor-update mode when
+resuming is rejected; use an actor-only warm start for a new experiment instead.
+Policy exports remain ordinary observation-to-action networks.
+
+The target-update path retains compiled imagination steps and world-model CUDA
+update graphs, but its policy update is not captured as a whole CUDA graph:
+it maintains a bounded Python FIFO and runs multiple regression steps. Plain
+pathwise updates retain their existing graph capture. Self-imitation,
+value-gradient consistency and latent auxiliary loss must currently be disabled
+with action targets; unsupported combinations fail explicitly.
+
+.. code-block:: bash
+
+   # Gradient guard alone on the existing trainer.
+   uv run wbc-mjlab-train --task Wbc-G1-Lookahead --dataset samples --algo wm \
+     --agent.algorithm.action-gradient-clip-ratio 3
+
+   # Both additions, with an end-effector motion preset.
+   uv run wbc-mjlab-train --task Wbc-G1-EE --dataset samples --recipe wm-nabla
+
+Log fields include ``action_target_loss``, ``action_target_rms_rad``,
+``action_target_valid_fraction``, ``action_gradient_clipped_fraction`` and
+``action_gradient_invalid_fraction``. The clipping fraction describes the target
+construction pass, not all internal backward calls. These guards cannot fix a
+world model whose gradients point in the wrong direction. Compare baseline,
+clipping alone, targets alone and both on held-out clips at equal wall-clock
+budgets before adopting a new default.
+
+Source: `NablaMimic nets.py and train.py, bfbb2a6
+<https://github.com/sailab-ai/NablaMimic/tree/bfbb2a6773b4776c17402a34a93ec7589d9c7c18>`_
+(Apache-2.0; see ``THIRD_PARTY_NOTICES``). Encoder precomputation and sharded
+motion working sets are separate future extensions, not part of this recipe.
+
+Tracking termination margin
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An optional training cost gives the policy a gradient as tracking error
+approaches a failure threshold. It uses the preset's anchor position, height
+and orientation termination terms, with each error measured relative to its
+own threshold. The cost starts at ``termination_margin_start`` (default 0.5),
+grows quadratically to ``termination_margin_weight`` per term at the threshold,
+and grows linearly beyond it. Weights use the same time scaling as task rewards.
+
+Set a positive weight on any compatible world-model recipe. For example,
+this enables a weight of 1 with a margin starting at 60% of each threshold:
+
+.. code-block:: bash
+
+   uv run wbc-mjlab-train --task Wbc-G1-Lookahead --dataset samples --recipe wm-nabla \
+     --agent.algorithm.termination-margin-weight 1 \
+     --agent.algorithm.termination-margin-start 0.6
+
+The cost is included in imagined actor and critic returns and, when enabled,
+the computed returns used for self-imitation. Simulator rewards, reset
+conditions and evaluation scores are unaffected. The default weight is zero.

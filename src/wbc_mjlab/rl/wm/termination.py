@@ -7,6 +7,9 @@ https://github.com/nico-bohlinger/xmimic/blob/54860e100251fa80143627565568d5e6b0
 This adapter uses WBC's configured anchor, error definitions and thresholds rather
 than importing upstream's robot/task constants. Other failures retain SuperMimic's
 learned termination head (https://arxiv.org/abs/2610.28480).
+
+The optional termination-margin cost adapts NablaMimic's train.py at bfbb2a6
+(Apache-2.0; see THIRD_PARTY_NOTICES).
 """
 
 import math
@@ -26,7 +29,7 @@ class TrackingTermination:
   supported term is required so selecting hybrid cannot silently have no effect.
   """
 
-  def __init__(self, configured):
+  def __init__(self, configured, *, option="hybrid termination"):
     self.terms = []
     supported = (
       terms.bad_anchor_pos,
@@ -38,17 +41,22 @@ class TrackingTermination:
         continue
       threshold = cfg.params["threshold"]
       if not math.isfinite(threshold) or threshold <= 0:
-        raise ValueError(
-          "hybrid termination requires positive finite tracking thresholds"
-        )
+        raise ValueError(f"{option} requires positive finite tracking thresholds")
       self.terms.append((cfg.func, dict(cfg.params)))
     if not self.terms:
-      raise ValueError(
-        "hybrid termination needs an anchor position/height/orientation term"
-      )
+      raise ValueError(f"{option} needs an anchor position/height/orientation term")
 
   def __call__(self, env):
+    return self.outcome(env, soft=True)[0]
+
+  def outcome(self, env, *, soft: bool, margin_start: float | None = None):
+    """Return soft failure probability and an unweighted, nonnegative margin cost.
+
+    The cost is quadratic between the margin start and the task threshold and
+    continues linearly past the threshold to limit its slope on failed states.
+    """
     survive = torch.ones(env.num_envs, device=env.device)
+    cost = torch.zeros_like(survive)
     for func, params in self.terms:
       command = env.command_manager.get_term(params["command_name"])
       if func is terms.bad_anchor_ori:
@@ -64,5 +72,11 @@ class TrackingTermination:
           else delta.norm(dim=-1)
         )
         width = 0.02
-      survive = survive * (1 - torch.sigmoid((error - params["threshold"]) / width))
-    return 1 - survive
+      threshold = params["threshold"]
+      if soft:
+        survive = survive * (1 - torch.sigmoid((error - threshold) / width))
+      if margin_start is not None:
+        excess = ((error / threshold - margin_start) / (1 - margin_start)).relu()
+        quadratic = excess.clamp_max(1.0)
+        cost = cost + quadratic.square() + 2 * (excess - quadratic)
+    return 1 - survive, cost

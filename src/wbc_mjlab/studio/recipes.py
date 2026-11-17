@@ -72,6 +72,12 @@ _COMMON_SECTIONS = (
 )
 
 HELP = {
+  "algorithm.actor_update": "direct rollout gradient or regression onto improved action targets",
+  "algorithm.action_gradient_clip_ratio": "per-sample action gradient limit relative to the live median; 0 disables",
+  "algorithm.action_target_delta": "RMS target step in joint-setpoint radians, before action bounds",
+  "algorithm.action_target_windows": "recent target windows to retain and save in full checkpoints",
+  "algorithm.termination_margin_weight": "reward rate subtracted at a tracking failure threshold; 0 disables",
+  "algorithm.termination_margin_start": "fraction of each tracking failure threshold where the penalty starts",
   "algorithm.learning_rate": "base learning rate (actor multiplier configured separately)",
   "algorithm.entropy_coef": "exploration bonus",
   "actor.hidden_dims": "the policy both methods train and export; checkpoints of other sizes won't load",
@@ -122,6 +128,27 @@ _OFFICIAL_OPTIONS = {
 }
 
 BUILTIN: dict[str, dict] = {
+  "wm-nabla": {
+    "algo": "wm",
+    "label": "World model · Nabla-inspired",
+    "description": "Experimental action-gradient clipping and action-target regression through the learned world model. No JAX or differentiable simulator; not a NablaMimic reproduction.",
+    "settings": {
+      "algorithm.actor_update": "action_targets",
+      "algorithm.action_gradient_clip_ratio": 3.0,
+      "algorithm.action_target_steps": 8,
+      "algorithm.action_target_windows": 1,
+      "algorithm.action_target_batch": 4096,
+      "algorithm.action_target_delta": 0.03,
+      "algorithm.action_target_delta_floor": 0.3,
+      "algorithm.imagined_rollouts": 1024,
+      "algorithm.skip_nonfinite_updates": True,
+      "algorithm.critic_norm_eps": 0.01,
+      "algorithm.bound_critic": True,
+      "algorithm.termination_mode": "hybrid",
+      "clip_actions": 20.0,
+      "light_checkpoints": False,
+    },
+  },
   "wm-supermimic": {
     "algo": "wm",
     "label": "World model · official-inspired",
