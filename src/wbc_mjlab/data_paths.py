@@ -147,9 +147,7 @@ def list_datasets(robot_id: str | RobotId = "g1") -> list[str]:
     if not robot_root.is_dir():
       continue
     names.update(
-      p.name
-      for p in robot_root.iterdir()
-      if p.is_dir() and not p.name.startswith(".")
+      p.name for p in robot_root.iterdir() if p.is_dir() and not p.name.startswith(".")
     )
   return sorted(names)
 
@@ -275,7 +273,9 @@ def resolve_conversion_paths(
     else:
       root = root.resolve()
     if root.is_file():
-      raise ValueError("--dataset-path must be a directory for conversion, not a .npz file")
+      raise ValueError(
+        "--dataset-path must be a directory for conversion, not a .npz file"
+      )
     if not root.is_dir():
       raise FileNotFoundError(f"Dataset path does not exist: {root}")
     out = str(output_dir or root)

@@ -73,6 +73,7 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
   ):
     from wbc_mjlab.rl.policy import actor_options
 
+    self._keypoint_skip_steps = train_cfg["actor"].get("keypoint_skip_steps", 20000)
     train_cfg["actor"] = actor_options(env.unwrapped, train_cfg)
     super().__init__(env, train_cfg, log_dir, device)
     self.registry_name = registry_name
@@ -95,7 +96,30 @@ class PolicyOnlyMotionTrackingRunner(MotionTrackingOnPolicyRunner):
       if task:
         (params / "run.yaml").write_text(yaml.safe_dump({"task_id": task}))
 
+  def warm_start(self, path: str) -> None:
+    """Networks of ``path`` (actor, its EMA, critic, world model); training state fresh."""
+    if self.current_learning_iteration:
+      raise ValueError("init_checkpoint starts a new run; use resume to continue one")
+    self.load(
+      path,
+      {"actor": True, "live_actor": True, "critic": True, "optimizer": False},
+    )
+    self._warm_started = True
+    print(f"[INFO] Warm start from {path}: optimizers, schedules and RSI start fresh")
+
   def learn(self, num_learning_iterations, *args, **kwargs):
+    init = self.cfg.get("init_checkpoint")
+    if init and not getattr(self, "_warm_started", False):
+      self.warm_start(init)
+    from torch import nn
+
+    from wbc_mjlab.rl.policy import fit_keypoint_skips
+
+    fit_keypoint_skips(
+      [m for m in vars(self.alg).values() if isinstance(m, nn.Module)],
+      self.env.unwrapped.command_manager.get_term("motion").motion,
+      self._keypoint_skip_steps,
+    )
     self._last_save_iteration = (
       self.current_learning_iteration + num_learning_iterations - 1
     )

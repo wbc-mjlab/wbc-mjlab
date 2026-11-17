@@ -58,6 +58,10 @@ class WmAlgorithmCfg:
   )
   model_optimizer: Literal["adam", "muon"] = "adam"
   actor_optimizer: Literal["adam", "muon"] = "adam"
+  muon_weight_decay: float = 0.0
+  """Decoupled weight decay of the Muon groups (world model and actor); PartyMimic: 0.1."""
+  actor_muon_io: bool = False
+  """Muon also on the first and last Linear of the actor's MLPs (PartyMimic default)."""
   fused_optimizer: bool = False
   skip_nonfinite_updates: bool = False
   critic_norm_eps: float = 1e-4
@@ -99,6 +103,27 @@ class WmAlgorithmCfg:
   """Compile the collection actor and critic loss; simulation uses mjlab's own graphs."""
   separate_action_noise: bool = False
   """Exploration only in execution; observations and action-rate reward use clean actions."""
+  self_imitation: float = 0.0
+  """Weight of self-imitation at imagination starts: regress the actor onto the recorded
+  (exploring) action where the return the simulator recorded beats V(s₀), weighted by
+  the advantage (PartyMimic ``--sil``: 1.0). Zero disables."""
+  self_imitation_max_weight: float = 5.0
+  """Cap of the advantage weight, in units of the batch's mean absolute advantage."""
+  value_gradient: float = 0.0
+  """Critic loss weight on matching ∇ₛV to the backpropagated imagined-return gradient at
+  imagined states (PartyMimic ``--v_gcons``: 0.5). Zero disables."""
+  value_gradient_states: int = 4096
+  """Imagined states per critic minibatch in the value-gradient loss."""
+  value_gradient_epochs: int = 1
+  """Critic epochs whose minibatches include the value-gradient loss."""
+  bf16: bool = False
+  """Run the networks' matmuls (world model, critic, policy head) in bfloat16 autocast;
+  integration, kinematics, rewards and normalization stay float32 (PartyMimic
+  ``--amp bf16``). CUDA only; exported policies stay float32."""
+  latent_aux: float = 0.0
+  """Weight of predicting the goal frames' joint positions from the actor's reference
+  latent (``actor.latent_aux`` head; PartyMimic ``--kp_aux``: 1.0 with keypoint goals).
+  Zero disables."""
   scale_lr_by_world_size: bool = True
   """Distributed runs use sqrt(world_size) times the configured learning rate."""
   diagnostic_interval: int = 100

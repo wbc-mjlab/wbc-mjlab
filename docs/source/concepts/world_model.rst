@@ -25,8 +25,8 @@ state.
 Recipes and presets
 -------------------
 
-All five world-model recipes (``wm``, ``wm-24gb``, ``wm-encoder``, ``wm-blink``
-and ``wm-supermimic``) compose with the flat-ground motion presets: WBC, Zest,
+All six world-model recipes (``wm``, ``wm-24gb``, ``wm-encoder``, ``wm-blink``,
+``wm-party`` and ``wm-supermimic``) compose with the flat-ground motion presets: WBC, Zest,
 BinaryFailure, Lookahead, Blink, EE and their SE variants. The preset supplies
 observations, history, reference frames, action semantics and rewards; the recipe
 supplies the learner. Selecting an encoder recipe does not add joint lookahead or

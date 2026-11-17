@@ -122,6 +122,12 @@ class RsiCfg:
   """Blink reset mixtures: base RSI, recent failures, then independent policy probes."""
   memory_alpha: float = 0.001
   """Rate of that running average, per sampling call."""
+  diversity_clusters: int = 0
+  """> 0: spread ``uniform_ratio`` evenly over k-means clusters of the bins' reference
+  motion (root height mean/std, horizontal speed, yaw rate, joint speed) instead of by
+  duration, so rare motion types are not drowned by common ones (PartyMimic ``--div_k``)."""
+  diversity_tau: float = 0.0
+  """Cluster mass ∝ (bins in the cluster)^tau: 0 equal per cluster, 1 by duration."""
   # ``success_target`` (SGS) kernel: w = (p+ε)^(κt) · (1−p+ε)^(κ(1−t)) over bin
   # success rate p, sampled with softmax(log w / T). Unvisited bins start at t.
   target_success: float = 0.66
@@ -354,11 +360,13 @@ def bin_probabilities(
   memory: torch.Tensor | None = None,
   memory_ratio: float = 0.0,
   success_target: SuccessTargetKernel | None = None,
+  uniform: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
   """Start probability of each valid bin from its failure level, and the softmax part.
 
-  ``uniform_ratio`` uniform, ``memory_ratio`` in proportion to ``memory`` (running-average
-  softmax weights), the rest ``softmax(level / temperature)``.
+  ``uniform_ratio`` uniform (or distributed as ``uniform``, a distribution over valid
+  bins), ``memory_ratio`` in proportion to ``memory`` (running-average softmax weights),
+  the rest ``softmax(level / temperature)``.
   """
   num_valid = max(1, levels.shape[0])
   if success_target is None:
@@ -375,7 +383,9 @@ def bin_probabilities(
     )
     logits = log_w / max(k.temperature, 1.0e-6)
   softmax = torch.softmax(logits, dim=0)
-  probs = (1.0 - uniform_ratio - memory_ratio) * softmax + uniform_ratio / num_valid
+  probs = (1.0 - uniform_ratio - memory_ratio) * softmax + uniform_ratio * (
+    uniform.to(softmax.dtype) if uniform is not None else 1.0 / num_valid
+  )
   if memory is not None and memory_ratio > 0.0:
     total = memory.sum()
     keep = torch.where(
@@ -441,6 +451,7 @@ def compute_sampling_prob_matrix(
   memory: torch.Tensor | None = None,
   memory_ratio: float = 0.0,
   success_target: SuccessTargetKernel | None = None,
+  uniform: torch.Tensor | None = None,
 ) -> torch.Tensor:
   """Per-(trajectory, bin) sampling probability (same policy as the sampler)."""
   valid = bin_valid_mask.nonzero(as_tuple=False)
@@ -455,9 +466,79 @@ def compute_sampling_prob_matrix(
     memory=memory,
     memory_ratio=memory_ratio,
     success_target=success_target,
+    uniform=uniform,
   )
   probs[valid[:, 0], valid[:, 1]] = probs_valid
   return probs
+
+
+def bin_motion_features(
+  motion, valid, *, bin_width_frames, anchor_index, frames_per_bin=8, chunk=4096
+) -> torch.Tensor:
+  """``(V, 5)`` reference features of each valid bin: anchor height mean and std,
+  log(1 + horizontal anchor speed), |yaw rate|, log(1 + joint speed norm).
+
+  PartyMimic (Roboparty, 2026) motion.py ``MotionLib.bin_features``, MIT; see
+  THIRD_PARTY_NOTICES. Frames are sampled evenly inside each bin.
+  """
+  device = valid.device
+  starts = motion.segment_start_idx[valid[:, 0]] + valid[:, 1] * bin_width_frames
+  span = torch.minimum(
+    motion.segment_length[valid[:, 0]] - valid[:, 1] * bin_width_frames,
+    torch.full_like(starts, bin_width_frames),
+  ).clamp_min(1)
+  offsets = torch.arange(frames_per_bin, device=device) / frames_per_bin
+  steps = (starts[:, None] + (offsets[None] * span[:, None]).long()).flatten()
+  rows = []
+  for part in steps.split(chunk):
+    f = motion.frame(part)
+    anchor_pos = f.body_pos_w[:, anchor_index]
+    rows.append(
+      torch.stack(
+        [
+          anchor_pos[:, 2],
+          f.body_lin_vel_w[:, anchor_index, :2].norm(dim=-1),
+          f.body_ang_vel_w[:, anchor_index, 2].abs(),
+          f.joint_vel.norm(dim=-1),
+        ],
+        dim=-1,
+      )
+    )
+  x = torch.cat(rows).view(-1, frames_per_bin, 4)
+  return torch.stack(
+    [
+      x[..., 0].mean(1),
+      x[..., 0].std(1, unbiased=False),
+      torch.log1p(x[..., 1].mean(1)),
+      x[..., 2].mean(1),
+      torch.log1p(x[..., 3].mean(1)),
+    ],
+    dim=-1,
+  )
+
+
+def kmeans_labels(x: torch.Tensor, k: int, iters: int = 50, seed: int = 0):
+  """Labels of k-means on standardized ``x`` (seeded, deterministic initialization)."""
+  x = (x - x.mean(0)) / x.std(0).clamp_min(1e-6)
+  k = min(k, x.shape[0])
+  g = torch.Generator(device="cpu").manual_seed(seed)
+  centers = x[torch.randperm(x.shape[0], generator=g)[:k].to(x.device)].clone()
+  for _ in range(iters):
+    labels = torch.cdist(x, centers).argmin(1)
+    sums = torch.zeros_like(centers).index_add_(0, labels, x)
+    counts = torch.bincount(labels, minlength=k).to(x.dtype)
+    centers = torch.where(
+      counts[:, None] > 0, sums / counts.clamp_min(1)[:, None], centers
+    )
+  return torch.cdist(x, centers).argmin(1)
+
+
+def diversity_weights(labels: torch.Tensor, tau: float = 0.0) -> torch.Tensor:
+  """Distribution over bins: cluster mass ∝ size^tau, uniform within each cluster."""
+  counts = torch.bincount(labels).to(torch.float)
+  mass = torch.where(counts > 0, counts.clamp_min(1) ** tau, torch.zeros_like(counts))
+  mass = mass / mass.sum()
+  return mass[labels] / counts[labels]
 
 
 def trajectory_conditional_prob_row(

@@ -6,16 +6,19 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 import torch
-
 from mjlab.entity import Entity
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import (
   matrix_from_quat,
+  quat_apply,
   quat_apply_inverse,
   quat_box_minus,
+  quat_conjugate,
+  quat_mul,
   subtract_frame_transforms,
+  yaw_quat,
 )
 
 from wbc_mjlab.env.mdp.torque_envelope import torque_speed_limits
@@ -418,9 +421,96 @@ def ref_body_ori_b(
   )
 
 
-def motion_body_lin_vel(
-  env: ManagerBasedRlEnv, command_name: str
+def heading_frame_poses(
+  body_pos: torch.Tensor,
+  body_quat: torch.Tensor,
+  anchor_pos: torch.Tensor,
+  anchor_quat: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+  """Body poses ``[..., n, 3 / 4]`` relative to the anchor's position and heading (yaw)
+  ``[..., 3 / 4]``: invariant to where the motion is and which way it faces."""
+  heading = yaw_quat(anchor_quat.reshape(-1, 4)).reshape(anchor_quat.shape)
+  inverse = quat_conjugate(heading).unsqueeze(-2).expand(body_quat.shape).contiguous()
+  pos = quat_apply(inverse, body_pos - anchor_pos.unsqueeze(-2))
+  return pos, quat_mul(inverse, body_quat.contiguous())
+
+
+def keypoint_features(
+  body_pos: torch.Tensor,
+  body_quat: torch.Tensor,
+  anchor_pos: torch.Tensor,
+  anchor_quat: torch.Tensor,
 ) -> torch.Tensor:
+  """Position + 6D orientation of each body in the anchor's heading frame, flattened."""
+  pos, quat = heading_frame_poses(body_pos, body_quat, anchor_pos, anchor_quat)
+  mat = matrix_from_quat(quat)
+  return torch.cat([pos, mat[..., :2].flatten(-2)], dim=-1).flatten(-2)
+
+
+def ref_keypoints(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  body_names: tuple[str, ...],
+  frames: int = 1,
+  stride: int = 1,
+) -> torch.Tensor:
+  """Poses of reference keypoints over the frames ahead, all in the current reference
+  anchor's heading frame: the reference alone, no joint or velocity channel.
+
+  PartyMimic (Roboparty, 2026) ``--interface sparse5`` goal, motion.py, MIT; see
+  THIRD_PARTY_NOTICES. Unlike there, every keypoint carries position and orientation and
+  the current frame comes first.
+  """
+  command = _motion_command(env, command_name)
+  indexes = _ref_body_indexes(command, body_names)
+  views = command.ahead(frames, stride)
+  now = views[0]
+  return torch.cat(
+    [
+      keypoint_features(
+        v.body_pos_w[:, indexes],
+        v.body_quat_w[:, indexes],
+        now.anchor_pos_w,
+        now.anchor_quat_w,
+      )
+      for v in views
+    ],
+    dim=-1,
+  )
+
+
+def keypoint_error(
+  env: ManagerBasedRlEnv, command_name: str, body_names: tuple[str, ...]
+) -> torch.Tensor:
+  """Robot keypoint poses against the reference's, each relative to its own anchor
+  position and heading: position errors (3 each) and orientation errors (axis-angle, 3
+  each). Joint encoders and the IMU's tilt determine the robot side (forward kinematics).
+
+  PartyMimic (Roboparty, 2026) ``--interface sparse5`` ``MDP.kp_err``, MIT; see
+  THIRD_PARTY_NOTICES.
+  """
+  command = _motion_command(env, command_name)
+  indexes = _ref_body_indexes(command, body_names)
+  robot_pos, robot_quat = heading_frame_poses(
+    command.robot_body_pos_w[:, indexes],
+    command.robot_body_quat_w[:, indexes],
+    command.robot_anchor_pos_w,
+    command.robot_anchor_quat_w,
+  )
+  ref_pos, ref_quat = heading_frame_poses(
+    command.body_pos_w[:, indexes],
+    command.body_quat_w[:, indexes],
+    command.anchor_pos_w,
+    command.anchor_quat_w,
+  )
+  n = len(indexes)
+  ori = quat_box_minus(robot_quat.reshape(-1, 4), ref_quat.reshape(-1, 4))
+  return torch.cat(
+    [(robot_pos - ref_pos).reshape(env.num_envs, -1), ori.reshape(-1, n * 3)], dim=-1
+  )
+
+
+def motion_body_lin_vel(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
   """Actual keybody linear velocities in the robot anchor frame."""
   command = _motion_command(env, command_name)
   return _body_lin_vel_in_anchor_frame(
@@ -428,9 +518,7 @@ def motion_body_lin_vel(
   )
 
 
-def motion_body_ang_vel(
-  env: ManagerBasedRlEnv, command_name: str
-) -> torch.Tensor:
+def motion_body_ang_vel(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
   """Actual keybody angular velocities in the robot anchor frame."""
   command = _motion_command(env, command_name)
   return _body_ang_vel_in_anchor_frame(

@@ -146,16 +146,24 @@ class ClipResult:
   failure_terms: list[str]
   reward_terms: dict[str, float]
   drift: dict[str, float | None]
+  tracking: dict[str, float] | None = None
 
 
 def summarize(results: list[ClipResult]) -> dict:
   n = len(results)
   steps = sum(r.steps for r in results)
   normalized = [r for r in results if r.normalized_return is not None]
+  tracked = [r.tracking for r in results if r.tracking]
+  tracking = {
+    f"mean_{k}": sum(t[k] for t in tracked) / len(tracked)
+    for k in (tracked[0] if tracked else ())
+  }
   return {
     "clips": n,
     "failed": sum(r.failed for r in results),
     "failure_rate": sum(r.failed for r in results) / n if n else 0.0,
+    "completion_rate": 1 - sum(r.failed for r in results) / n if n else 0.0,
+    **tracking,
     "steps": steps,
     "mean_normalized_return": sum(r.normalized_return for r in normalized)
     / len(normalized)
@@ -244,6 +252,52 @@ class DriftMeter:
     self.crossing[ids] = -1
 
 
+def _anchor_local(pos, anchor_pos, anchor_quat):
+  """Body positions relative to the anchor's ground point, in its heading frame."""
+  origin = anchor_pos.clone()
+  origin[:, 2] = 0.0
+  inv = quat_conjugate(yaw_quat(anchor_quat))[:, None, :].expand(-1, pos.shape[1], -1)
+  return quat_apply(inv, pos - origin[:, None, :])
+
+
+class TrackingErrorMeter:
+  """Per-step tracking errors averaged over each clip's alive steps.
+
+  ``local_body_pos_mm`` is the sim2real leaderboard's MPJPE (robot and reference each
+  re-anchored to their own anchor's ground point and heading), as used to score
+  PartyMimic (Roboparty/PartyMimic, tools/sim2real.patch, MIT).
+  """
+
+  names = ("local_body_pos_mm", "global_body_pos_mm", "joint_pos_deg")
+
+  def __init__(self, num_envs, device):
+    self.sums = torch.zeros(num_envs, len(self.names), device=device)
+
+  def update(self, command, active):
+    ref, robot = command.body_pos_w, command.robot_body_pos_w
+    local = (
+      _anchor_local(ref, command.anchor_pos_w, command.anchor_quat_w)
+      - _anchor_local(robot, command.robot_anchor_pos_w, command.robot_anchor_quat_w)
+    ).norm(dim=-1)
+    joint = command._tracked_joint_pos_error().abs().mean(-1)
+    values = torch.stack(
+      [
+        1000 * local.mean(-1),
+        1000 * (ref - robot).norm(dim=-1).mean(-1),
+        joint * (180 / math.pi),
+      ],
+      dim=-1,
+    )
+    self.sums += values * active[:, None]
+
+  def result(self, env_id, steps):
+    values = (self.sums[env_id] / max(steps, 1)).tolist()
+    return dict(zip(self.names, values, strict=True))
+
+  def reset(self, ids):
+    self.sums[ids] = 0
+
+
 @torch.no_grad()
 def run_benchmark(
   env, policy, *, trajectories=None, max_step_reward=None, clip_actions=None
@@ -282,10 +336,12 @@ def run_benchmark(
   reward_names = env.reward_manager.active_terms
   terms = torch.zeros(n, len(reward_names), device=device)
   drift = DriftMeter(n, device)
+  tracking = TrackingErrorMeter(n, device)
   results = []
   policy.eval()
   while len(results) < len(selected):
     drift.update(command, active, steps, env.step_dt)
+    tracking.update(command, active)
     action = policy(TensorDict(obs, batch_size=[n]))
     if clip_actions is not None:
       action = action.clamp(-clip_actions, clip_actions)
@@ -317,6 +373,7 @@ def run_benchmark(
         ],
         {name: terms[e, i].item() / count for i, name in enumerate(reward_names)},
         drift.result(e, count),
+        tracking.result(e, count),
       )
       results.append(result)
     # Inactive envs still auto-reset. Advance only active queue slots; their reset
@@ -328,6 +385,7 @@ def run_benchmark(
       print(f"[EVAL] clips {len(results)}/{len(selected)}", flush=True)
     returns[ids], steps[ids], terms[ids] = 0, 0, 0
     drift.reset(ids)
+    tracking.reset(ids)
   order = {trajectory: i for i, trajectory in enumerate(selected)}
   results.sort(key=lambda r: order[r.trajectory])
   return {"summary": summarize(results), "clips": [asdict(r) for r in results]}
@@ -422,3 +480,49 @@ def evaluate_checkpoint(config: EvaluationConfig):
     return result, out
   finally:
     env.close()
+
+
+SPLIT_METRICS = (
+  "mean_local_body_pos_mm",
+  "mean_global_body_pos_mm",
+  "completion_rate",
+  "mean_normalized_return",
+)
+
+
+def evaluate_splits(config: EvaluationConfig, splits: dict[str, str]):
+  """Evaluate one checkpoint on named held-out sets (``name -> dataset path``).
+
+  Each split runs in its own environment; the combined summary is the unweighted mean
+  over splits, as in PartyMimic's five-set mean.
+  """
+  import json
+
+  if not splits:
+    raise ValueError("evaluate_splits needs at least one split")
+  checkpoint = Path(config.checkpoint_file).resolve()
+  root = (
+    Path(config.out) if config.out else checkpoint.parent / f"splits_{checkpoint.stem}"
+  )
+  per_split = {}
+  for name, path in splits.items():
+    split_cfg = EvaluationConfig(
+      **{
+        **asdict(config),
+        "dataset": None,
+        "dataset_path": path,
+        "clips": None,
+        "out": root / f"{name}.json",
+      }
+    )
+    result, _ = evaluate_checkpoint(split_cfg)
+    per_split[name] = result["summary"]
+  mean = {}
+  for key in SPLIT_METRICS:
+    values = [s[key] for s in per_split.values() if s.get(key) is not None]
+    mean[key] = sum(values) / len(values) if len(values) == len(per_split) else None
+  combined = {"checkpoint": str(checkpoint), "splits": per_split, "mean": mean}
+  out = root / "summary.json"
+  out.parent.mkdir(parents=True, exist_ok=True)
+  out.write_text(json.dumps(combined, indent=2, allow_nan=False) + "\n")
+  return combined, out

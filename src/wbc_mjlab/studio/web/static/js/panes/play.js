@@ -34,7 +34,7 @@ export class PlayPane {
     this.app = app;
     this.topics = ["play", "robot", "jobs", "data", "presets"];
     this.live = ["play"];
-    this.width = 420;
+    this.width = 480;
     this.frame = new PaneFrame("Play", "Run a policy on many envs — the ghost is the reference it tracks.");
     this.state = null;
     this.runs = [];
@@ -58,7 +58,7 @@ export class PlayPane {
     if (s.active && !this.picking) {
       Object.assign(this.choice, { run: s.run, checkpoint: s.checkpoint === s.zero ? ZERO : s.checkpoint, motion: s.motion, num_envs: s.num_envs, terminations: s.terminations, gpu_uuid: s.gpu_uuid ?? null });
     }
-    if (!this.runs.some((r) => r.label === this.choice.run)) this.choice.run = this.runs.find((r) => !r.demo)?.label || this.runs[0]?.label || "";
+    if (!this.runs.some((r) => r.label === this.choice.run)) this.pickRun(this.runs.find((r) => !r.demo)?.label || this.runs[0]?.label || "");
     this.gpuSelector.setValue(this.choice.gpu_uuid);
     await Promise.all([this.loadLibraries(), this.gpuSelector.refresh()]);
     this.render();
@@ -95,8 +95,14 @@ export class PlayPane {
     await this.refresh();
   }
 
+  /** Another run: its own checkpoints and its own library, not the last run's. */
+  pickRun(label) {
+    if (label === this.choice.run) return;
+    Object.assign(this.choice, { run: label, checkpoint: "", motion: "" });
+  }
+
   openRun(label) {
-    this.choice.run = label;
+    this.pickRun(label);
     this.choice.checkpoint = "";
     this.picking = true;
     this.app.select("play");
@@ -144,7 +150,8 @@ export class PlayPane {
         sub: `${preset ? `${r.task.split("--")[0]} + preset · ` : ""}${r.updated_text} · ${r.checkpoints.length} ckpt${r.name.includes("_", 19) ? ` · ${r.name.slice(20)}` : ""}`,
         trail: r.demo ? tag("demo", "accent") : r.algo === "wm" ? tag("world model", "", "Trained with the world model (--algo wm)") : null,
         active: r.label === c.run,
-        onClick: async () => { c.run = r.label; c.checkpoint = ""; await this.loadLibraries(); this.render(); },
+        attrs: { title: r.label },
+        onClick: async () => { this.pickRun(r.label); await this.loadLibraries(); this.render(); },
       });
     });
     const run = this.runs.find((r) => r.label === c.run);
@@ -158,7 +165,7 @@ export class PlayPane {
             : h("span.aside", `${this.runs.length} on disk`),
           h("a.link", { href: "/tensorboard", target: "_blank", rel: "noopener", title: "Every run's training curves" }, "All in TensorBoard"),
           iconButton("database", () => openStorage({ onChange: () => this.refresh() }), "Runs on disk: sizes, delete runs, prune old checkpoints")),
-      }, h("div.list", rows)),
+      }, h("div.list.wrap", rows)),
       group("Setup", {},
         h("div.stack",
           field("Checkpoint", select([...ckpts.map((x) => ({ value: x, label: x })), { value: ZERO, label: "Zero action · PD on the reference" }], c.checkpoint, (v) => { c.checkpoint = v; this.render(); })),
@@ -219,7 +226,7 @@ export class PlayPane {
     this.barsHost ||= h("div", help("No step yet."));
     this.frame.setBody(
       group("Policy", { action: h("button.link", { on: { click: () => { this.picking = true; this.render(); } } }, "Change") },
-        h("div.list", listRow({
+        h("div.list.wrap", listRow({
           lead: run?.demo ? "bolt" : "layers",
           title: run?.demo ? "Bundled demo" : (s.task.includes("--") ? s.task.split("--").pop() : s.task),
           sub: `${run?.algo === "wm" ? "world model · " : ""}${run?.updated_text || ""} · ${s.checkpoint === s.zero ? "zero action" : s.checkpoint} · ${lib} · ${s.num_envs} envs · ${s.device}`,

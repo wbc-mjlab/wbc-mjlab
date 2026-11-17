@@ -65,6 +65,7 @@ wbc-mjlab-export-tracking-params = "wbc_mjlab.export.export_cli:main"
 wbc-mjlab-export-web-reference = "wbc_mjlab.export.web_reference_bundle:main"
 wbc-mjlab-data-vis = "wbc_mjlab.scripts.vis_data:cli"
 wbc-mjlab-plot-rsi-bins = "wbc_mjlab.scripts.plot_rsi_bins:main"
+wbc-mjlab-motion-data = "wbc_mjlab.scripts.motion_data:main"
 wbc-mjlab-studio = "wbc_mjlab.scripts.studio:cli"
 
 [project.entry-points."mjlab.tasks"]

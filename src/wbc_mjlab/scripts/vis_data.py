@@ -100,7 +100,11 @@ def _resolve_motion_dir_and_npz_any(
   if dataset_path is not None:
     from wbc_mjlab.data_paths import resolve_dataset_root as _resolve_root
 
-    root = _resolve_root(robot_id, dataset_path) if not Path(dataset_path).is_dir() else Path(dataset_path).resolve()
+    root = (
+      _resolve_root(robot_id, dataset_path)
+      if not Path(dataset_path).is_dir()
+      else Path(dataset_path).resolve()
+    )
     if not root.is_dir():
       root = Path(dataset_path).expanduser().resolve()
     clips = list_clip_npz_files(root)
@@ -122,9 +126,7 @@ def _resolve_motion_dir_and_npz_any(
         return root / "npz", npz_path if npz_path in clips else clips[0]
     return None, npz_path
 
-  raise ValueError(
-    "Provide --motion-file, --dataset <name>, or --dataset-path <dir>"
-  )
+  raise ValueError("Provide --motion-file, --dataset <name>, or --dataset-path <dir>")
 
 
 def _qpos_v_addresses(
@@ -151,7 +153,12 @@ def _qpos_v_addresses(
     joint_v.extend(range(adr_v, next_v))
   if free_q is None or free_v is None:
     raise RuntimeError("Model has no free joint (expected floating base).")
-  return free_q, np.asarray(joint_q, dtype=np.int64), free_v, np.asarray(joint_v, dtype=np.int64)
+  return (
+    free_q,
+    np.asarray(joint_q, dtype=np.int64),
+    free_v,
+    np.asarray(joint_v, dtype=np.int64),
+  )
 
 
 def _load_wbc_npz_trajectory(
@@ -281,9 +288,7 @@ class MotionNpzViewer:
         initial_value=0,
       )
       self._time_label = self.server.gui.add_html("")
-      self._play_btn = self.server.gui.add_button(
-        "Pause", icon=viser.Icon.PLAYER_PAUSE
-      )
+      self._play_btn = self.server.gui.add_button("Pause", icon=viser.Icon.PLAYER_PAUSE)
 
       @self._play_btn.on_click
       def _(_) -> None:

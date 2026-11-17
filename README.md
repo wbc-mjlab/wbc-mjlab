@@ -71,6 +71,8 @@ uv run wbc-mjlab-train --task Wbc-G1 --dataset samples --mirror
 # Optional recovery kicks: add --env.events.wm-velocity-kick.params.enabled True
 uv run wbc-mjlab-train --task Wbc-G1-Blink --dataset samples --recipe wm-blink
 uv run wbc-mjlab-train --task Wbc-G1-Lookahead --dataset samples --recipe wm-supermimic
+# PartyMimic-inspired: self-imitation, value gradients, bf16; Sparse5 follows keypoints
+uv run wbc-mjlab-train --task Wbc-G1-Party --dataset samples --recipe wm-party
 
 # the same task through a learned world model instead of PPO (one GPU)
 uv run wbc-mjlab-train --task Wbc-G1 --dataset samples --algo wm

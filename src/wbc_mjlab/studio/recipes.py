@@ -9,7 +9,7 @@ custom edits use ``--agent.<key> <value>``. Resolved configs are saved in the ru
 for reproducibility and resume.
 
 Built-in recipes: ``ppo`` and ``wm`` (task defaults), ``wm-24gb`` (2048 imagined
-rollouts), ``wm-encoder`` and ``wm-blink`` (optional experiments). Yours live in
+rollouts), ``wm-encoder``, ``wm-blink`` and ``wm-party`` (optional experiments). Yours live in
 ``<config dir>/recipes/<name>.yaml`` (:func:`wbc_mjlab.studio.presets.config_dir`).
 """
 
@@ -88,6 +88,12 @@ HELP = {
   "algorithm.dynamics_mode": "full state increments, integrated pose residuals, or velocity-only integration",
   "algorithm.separate_action_noise": "keep clean actions in history and smoothing reward; noise only at execution",
   "algorithm.diagnostic_interval": "updates between independent replay diagnostics; 0 disables",
+  "algorithm.muon_weight_decay": "decoupled weight decay of Muon matrices (PartyMimic: 0.1)",
+  "algorithm.actor_muon_io": "Muon on the policy's first and last layers too",
+  "algorithm.self_imitation": "imitate recorded actions whose simulated return beat the critic; 0 disables",
+  "algorithm.value_gradient": "fit the critic's state gradient to the imagined return's; 0 disables",
+  "algorithm.bf16": "run the network matmuls in bfloat16 (CUDA); integration and rewards stay float32",
+  "algorithm.latent_aux": "predict the goal frames' joints from the reference latent (needs actor.latent_aux); 0 disables",
   "num_steps_per_env": "env steps of every env per iteration",
 }
 
@@ -165,6 +171,12 @@ BUILTIN: dict[str, dict] = {
       "light_checkpoints": False,
     },
   },
+  "wm-party": {
+    "algo": "wm",
+    "label": "World model · PartyMimic",
+    "description": "Experimental BlinkMimic learner with PartyMimic's additions: Muon weight decay on every policy matrix, self-imitation and value-gradient consistency; no curriculum probes. Use Wbc-G1-Party for its narrower pose kernels and diversity-balanced resets. Single GPU.",
+    "settings": {},  # filled below from wm-blink
+  },
   "ppo": {
     "algo": "ppo",
     "label": "PPO",
@@ -196,6 +208,18 @@ BUILTIN: dict[str, dict] = {
       "actor.activation": "silu",
     },
   },
+}
+# PartyMimic (Roboparty, 2026) train.py defaults, MIT; see THIRD_PARTY_NOTICES. Its
+# reference residual and symmetry augmentation stay opt-ins here, as in wm-blink.
+BUILTIN["wm-party"]["settings"] = {
+  **{k: v for k, v in BUILTIN["wm-blink"]["settings"].items() if "probe" not in k},
+  "algorithm.probe_interval": 0,
+  "algorithm.warmup_steps": 64,
+  "algorithm.muon_weight_decay": 0.1,
+  "algorithm.actor_muon_io": True,
+  "algorithm.self_imitation": 1.0,
+  "algorithm.value_gradient": 0.5,
+  "algorithm.bf16": True,
 }
 
 
@@ -254,7 +278,7 @@ def check_settings(task: str, algo: Algo, settings: dict | None) -> dict:
       raise ValueError(f"{key} is not a setting of {ALGORITHMS[algo].label}")
   actor = rl_cfg(task, algo).actor
   architecture = settings.get("actor.architecture", actor.architecture)
-  if architecture == "motion_encoder":
+  if architecture in ("motion_encoder", "xattn"):
     from mjlab.tasks.registry import load_env_cfg
 
     from wbc_mjlab.rl.policy import goal_term_names

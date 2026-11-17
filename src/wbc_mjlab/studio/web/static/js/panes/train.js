@@ -354,8 +354,10 @@ export class TrainPane {
       }
       return knob(s, f.algo_settings[s.key], (v) => this.setSetting(s, v), "", { pretty });
     };
-    const visible = m.settings.filter((s) => Object.entries(s.visible_if || {}).every(([key, value]) =>
-      (run?.network?.[key] ?? f.algo_settings[key] ?? m.settings.find((x) => x.key === key)?.value) === value));
+    const visible = m.settings.filter((s) => Object.entries(s.visible_if || {}).every(([key, value]) => {
+      const current = run?.network?.[key] ?? f.algo_settings[key] ?? m.settings.find((x) => x.key === key)?.value;
+      return Array.isArray(value) ? value.includes(current) : current === value;
+    }));
     const main = visible.filter((s) => s.main);
     const rest = visible.filter((s) => !s.main);
     const sections = [...new Set(rest.map((s) => s.section))];

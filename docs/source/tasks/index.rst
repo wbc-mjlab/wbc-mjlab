@@ -53,6 +53,13 @@ By goal
       ``Wbc-G1-Blink`` — Lookahead with pelvis tracking and contact shaping;
       pair with the modular ``wm-blink`` world-model recipe.
 
+   .. grid-item-card:: :octicon:`rocket` PartyMimic recipe
+      :link: wbc-g1-party
+      :link-type: doc
+
+      ``Wbc-G1-Party`` / ``Wbc-G1-Sparse5`` — Blink with narrower pose kernels and
+      diversity-balanced resets, or keypoint inputs; pair with ``wm-party``.
+
    .. grid-item-card:: :octicon:`beaker` Success-guided sampling
       :link: wbc-g1-sgs
       :link-type: doc
@@ -175,6 +182,7 @@ To add a task in code: :doc:`adding`.
    wbc-g1-binary-failure
    wbc-g1-lookahead
    wbc-g1-blink
+   wbc-g1-party
    wbc-g1-sgs
    wbc-g1-se
    wbc-g1-ee

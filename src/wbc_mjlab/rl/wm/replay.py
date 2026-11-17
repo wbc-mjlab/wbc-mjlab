@@ -22,6 +22,7 @@ class Batch:
   next_state: torch.Tensor  # actual successor, including pre-reset terminal states
   valid: torch.Tensor  # successor was captured (never a reset state)
   setpoint: torch.Tensor  # PD targets it produced
+  action: torch.Tensor  # the actor's (exploring) action of the step
   last_action: torch.Tensor  # action of the step before (the actor's ``actions`` obs)
   time_step: torch.Tensor  # reference frame index (global)
   trajectory: torch.Tensor  # reference segment
@@ -33,6 +34,7 @@ class Batch:
   observed: torch.Tensor  # this step's values of the history observation terms
   env_ids: torch.Tensor
   past: torch.Tensor | None = None  # earlier ``observed`` values, oldest first
+  age: torch.Tensor | None = None  # sampled rows, counted from the oldest held
 
 
 class Replay:
@@ -62,6 +64,7 @@ class Replay:
       "next_state": buf(state_dim),
       "valid": buf(dtype=torch.bool),
       "setpoint": buf(num_actions),
+      "action": buf(num_actions),
       "last_action": buf(num_actions),
       "time_step": buf(dtype=torch.long),
       "trajectory": buf(dtype=torch.long),
@@ -114,7 +117,9 @@ class Replay:
     age = torch.randint(past_steps, self.size, (batch,), device=self.device)
     env = torch.randint(0, self.num_envs, (batch,), device=self.device)
     rows = self._rows(age)
-    out = Batch(**{k: v[rows, env] for k, v in self._fields.items()}, env_ids=env)
+    out = Batch(
+      **{k: v[rows, env] for k, v in self._fields.items()}, env_ids=env, age=age
+    )
     if past_steps:
       observed, done = self._fields["observed"], self._fields["done"]
       value, alive, past = out.observed, torch.ones_like(out.done), []
@@ -125,6 +130,17 @@ class Replay:
         past.append(value)
       out.past = torch.stack(past[::-1], dim=1)
     return out
+
+  def forward(
+    self, age: torch.Tensor, env: torch.Tensor, length: int
+  ) -> tuple[Batch, torch.Tensor]:
+    """The ``length`` rows from ``age`` on (fields ``[length, B]``), and whether all of
+    them are held: rows past the newest one wrap onto old data and must be ignored."""
+    steps = age.unsqueeze(0) + torch.arange(length, device=age.device).unsqueeze(1)
+    rows = self._rows(steps.clamp_max(self.size - 1))
+    cols = env.unsqueeze(0).expand(length, -1)
+    out = Batch(**{k: v[rows, cols] for k, v in self._fields.items()}, env_ids=env)
+    return out, age + length <= self.size
 
 
 def transition_mask(continues: torch.Tensor, captured: torch.Tensor) -> torch.Tensor:

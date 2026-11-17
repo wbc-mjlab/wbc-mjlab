@@ -28,8 +28,17 @@ class MuonAdam:
   tensor learning rate (torch.optim.Muon reads a tensor lr on the host, so a captured step would freeze it)."""
 
   def __init__(self, model: nn.Module, mlps: list[nn.Module], lr: float, betas=(0.9, 0.95), fused: bool = True,
-                 capturable: bool = False):  # fmt: skip
-    hidden = {id(layer.weight) for m in mlps for layer in _linears(m)[1:-1]}
+                 capturable: bool = False, io: bool = False, weight_decay: float = 0.0):  # fmt: skip
+    """``io``: each MLP's first and last Linear on Muon too (Adam only on vectors).
+    ``weight_decay``: decoupled decay of the Muon group, as torch.optim.Muon (PartyMimic
+    optim.py, MIT; its recipe uses 0.1)."""
+    if weight_decay < 0:
+      raise ValueError("weight decay must be nonnegative")
+    hidden = {
+      id(layer.weight)
+      for m in mlps
+      for layer in (_linears(m) if io else _linears(m)[1:-1])
+    }
     muon = [p for p in model.parameters() if id(p) in hidden]
     adam = [p for p in model.parameters() if id(p) not in hidden and p.requires_grad]
     self.capturable = capturable
@@ -38,7 +47,7 @@ class MuonAdam:
       self.muon = torch.optim.Muon(
         muon,
         lr=torch.tensor(float(lr), device=dev),
-        weight_decay=0.0,
+        weight_decay=weight_decay,
         adjust_lr_fn="match_rms_adamw",
       )
       self.adam = torch.optim.Adam(
@@ -50,7 +59,7 @@ class MuonAdam:
       )
     else:
       self.muon = torch.optim.Muon(
-        muon, lr=lr, weight_decay=0.0, adjust_lr_fn="match_rms_adamw"
+        muon, lr=lr, weight_decay=weight_decay, adjust_lr_fn="match_rms_adamw"
       )
       self.adam = torch.optim.Adam(adam, lr=lr, betas=betas, fused=fused)
 
@@ -70,7 +79,6 @@ class MuonAdam:
     from torch.optim._muon import _adjust_lr, _zeropower_via_newtonschulz
 
     for g in self.muon.param_groups:
-      assert g["weight_decay"] == 0.0
       for p in g["params"]:
         if p.grad is None:
           continue
@@ -92,6 +100,11 @@ class MuonAdam:
         d = update.to(p.dtype) * (
           g["lr"] * -ratio
         )  # fp32 product (a bf16 update x 0-dim tensor stays bf16)
+        if (
+          g["weight_decay"] != 0.0
+        ):  # torch.optim.Muon: p *= 1 - lr·wd, then the update
+          shrink = 1 - g["lr"] * g["weight_decay"]
+          p.mul_(shrink if ok is None else torch.where(ok, shrink, 1.0))
         p.add_(d if ok is None else torch.where(ok, d, 0.0))
 
   @torch.no_grad()
@@ -147,7 +160,16 @@ class MuonAdam:
 
 
 def make_optimizer(
-  model, mlps, *, kind, lr, betas=(0.9, 0.999), fused=False, capturable=False
+  model,
+  mlps,
+  *,
+  kind,
+  lr,
+  betas=(0.9, 0.999),
+  fused=False,
+  capturable=False,
+  muon_io=False,
+  weight_decay=0.0,
 ):
   """One optimizer boundary for the shared WM trainer; CPU Adam remains supported."""
   if kind == "muon":
@@ -164,9 +186,13 @@ def make_optimizer(
       ) from exc
     if not any(len(_linears(m)) > 2 for m in mlps):
       raise ValueError("Muon needs an MLP with at least two hidden layers")
-    return MuonAdam(model, mlps, float(lr), betas, fused, capturable)
+    return MuonAdam(
+      model, mlps, float(lr), betas, fused, capturable, muon_io, weight_decay
+    )
   if kind != "adam":
     raise ValueError(f"unknown optimizer: {kind}")
+  if weight_decay:
+    raise ValueError("weight decay applies to Muon only")
   return torch.optim.Adam(
     [p for p in model.parameters() if p.requires_grad],
     lr=lr.clone(),

@@ -105,7 +105,9 @@ def _clearance_by_body(
   """Robot body clearance above terrain ``[B, len(body_names)]`` from a per-body
   :class:`~mjlab.sensor.TerrainHeightSensor` (one frame per body, ``reduction="min"``)."""
   sensor = env.scene[sensor_name]
-  frames = sensor.cfg.frame if isinstance(sensor.cfg.frame, tuple) else (sensor.cfg.frame,)
+  frames = (
+    sensor.cfg.frame if isinstance(sensor.cfg.frame, tuple) else (sensor.cfg.frame,)
+  )
   frame_names = [f.name for f in frames]
   missing = [name for name in body_names if name not in frame_names]
   if missing:
@@ -148,8 +150,7 @@ def bad_motion_body_pos_z_terrain(
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
   body_indexes = _get_body_indexes(command, body_names)
   ref_clearance = (
-    command.body_pos_relative_w[:, body_indexes, -1]
-    - env.scene.env_origins[:, None, 2]
+    command.body_pos_relative_w[:, body_indexes, -1] - env.scene.env_origins[:, None, 2]
   )
   robot_clearance = _clearance_by_body(env, sensor_name, body_names)
   return torch.any(torch.abs(ref_clearance - robot_clearance) > threshold, dim=-1)
