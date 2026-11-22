@@ -80,7 +80,8 @@ def apply_wbc(
   rw["actuator_torque_soft_limit"].weight = -0.1
   rw["actuator_torque_soft_limit"].params["soft_ratio"] = 0.9
 
-  rw["foot_slip"].weight = -0.0
+  if "foot_slip" in rw:
+    rw["foot_slip"].weight = -0.0
   rw["anti_shake"].weight = 0.0
   # rw["anti_shake"].params["body_names"] = ("left_wrist_yaw_link", "right_wrist_yaw_link")
   # rw["anti_shake"].params["threshold"] = 1.5

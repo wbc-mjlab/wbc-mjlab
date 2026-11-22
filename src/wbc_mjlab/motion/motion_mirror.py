@@ -28,10 +28,18 @@ def build_joint_mirror_map(
   return indices, scales
 
 
-def build_body_swap_indices(body_names: list[str]) -> np.ndarray:
-  """Permutation swapping ``left_*`` and ``right_*`` body link names."""
+def build_body_swap_indices(
+  body_names: list[str], body_pairs: tuple[tuple[str, str], ...] | None = None
+) -> np.ndarray:
+  """Swap configured body pairs, or infer conventional left/right names."""
   perm = np.arange(len(body_names), dtype=np.int64)
   name_to_idx = {name: idx for idx, name in enumerate(body_names)}
+  if body_pairs is not None:
+    for a, b in body_pairs:
+      if a in name_to_idx and b in name_to_idx:
+        i, j = name_to_idx[a], name_to_idx[b]
+        perm[i], perm[j] = j, i
+    return perm
   for idx, name in enumerate(body_names):
     if "left" in name:
       mirror_name = name.replace("left", "right", 1)
@@ -66,6 +74,7 @@ def mirror_body_arrays(
   body_ang_vel_w: np.ndarray,
   *,
   body_names: list[str],
+  body_pairs: tuple[tuple[str, str], ...] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
   """Mirror body kinematics in world frame (reflection across the XZ plane, ``y -> -y``).
 
@@ -76,7 +85,7 @@ def mirror_body_arrays(
   - **Orientation**: body quat components ``x`` and ``z`` negated after L/R swap
     (equivalent to ``R' = S R S`` with ``S = diag(1, -1, 1)``)
   """
-  perm = build_body_swap_indices(body_names)
+  perm = build_body_swap_indices(body_names, body_pairs)
 
   pos = body_pos_w[:, perm].copy()
   pos[:, :, 1] *= -1.0
@@ -117,6 +126,7 @@ def mirror_motion_log(
     np.asarray(log["body_lin_vel_w"]),
     np.asarray(log["body_ang_vel_w"]),
     body_names=body_names,
+    body_pairs=config.body_pairs,
   )
   return {
     "fps": list(log["fps"]) if isinstance(log["fps"], list) else log["fps"],

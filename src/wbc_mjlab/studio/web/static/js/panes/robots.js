@@ -74,7 +74,7 @@ export class RobotsPane {
         sub: r.error || `${r.dof} dof · ${r.nbody - 1} bodies · ${r.datasets} datasets · ${r.runs} runs`,
         trail: [
           r.builtin ? tag("built-in") : r.custom ? tag("added", "accent", "added in the Studio (~/.config/wbc-mjlab/robots)") : tag("extension", "accent"),
-          r.custom ? iconButton("sliders", (e) => { e.stopPropagation(); this.editRobot(r.id); }, "Edit wiring and gains") : null,
+          r.custom ? iconButton("sliders", (e) => { e.stopPropagation(); this.editRobot(r.id); }, "Edit wiring, symmetry and gains") : null,
           r.custom ? iconButton("trash", (e) => { e.stopPropagation(); this.deleteRobot(r.id); }, "Delete this robot") : null,
         ],
         active: r.selected,
@@ -230,10 +230,12 @@ export class RobotsPane {
       init_joint_pos: Object.fromEntries(info.joints.map((j) => [j.name, j.default])),
       joints: Object.fromEntries(info.joints.map((j) => [j.name, { effort: round(j.effort), stiffness: round(j.stiffness), damping: round(j.damping), armature: j.armature }])),
       action_scale: 0.25,
+      symmetry: null,
       description: "",
       nconmax: s.nconmax,
       njmax: s.njmax,
     };
+    im.symmetryDraft = im.spec.symmetry ?? s.symmetry;
     this.render();
     this.preview();
     this.app.touch();
@@ -288,7 +290,7 @@ export class RobotsPane {
     const idHint = h("div.hint");
     const syncId = () => {
       const ok = ID_RE.test(im.id);
-      idHint.textContent = ok ? `registers robot ${im.id} · tasks ${taskId(im.id)}, -SE, -Terrain-Scan · data in data/${im.id}/` : "lowercase letters, digits and _, starting with a letter";
+      idHint.textContent = ok ? `registers robot ${im.id} · tasks ${taskId(im.id)}, -Lookahead, -SE, -Terrain-Scan · data in data/${im.id}/` : "lowercase letters, digits and _, starting with a letter";
       idHint.classList.toggle("bad", !!im.id && !ok);
     };
     idInput.addEventListener("input", () => { im.id = idInput.value.trim(); syncId(); });
@@ -347,6 +349,7 @@ export class RobotsPane {
       group("Actuators", { collapsible: true, key: "import-act", aside: `${info.joints.length} joints` },
         help(`PD per joint. Defaults: the model's armature / force limits when it has them, else G1's per joint kind scaled by mass; stiffness = armature·ω², damping = 2ζ·armature·ω (ω = ${info.pd.natural_freq_hz} Hz, ζ = ${info.pd.damping_ratio}, as the H2 extension).`),
         this.jointTable("gains")),
+      this.symmetryGroup(),
       group("Check", { aside: "0.5 s on a floor, no policy" }, this.checkHost = h("div")),
     ];
     this.renderCheck();
@@ -376,6 +379,54 @@ export class RobotsPane {
 
   bodyChips(key, label, text, bodies) {
     return this.chips(key, label, text, bodies);
+  }
+
+  symmetryGroup() {
+    const im = this.importing;
+    const symmetry = im.spec.symmetry;
+    const enable = switchEl("Configure sagittal symmetry", !!symmetry, (on) => {
+      im.spec.symmetry = on ? im.symmetryDraft : null;
+      this.render();
+    });
+    const mapped = new Set(symmetry?.joints.flatMap(e => [e.name_a, e.name_b])).size;
+    return group("Symmetry", { collapsible: true, key: "import-symmetry", aside: symmetry ? `${mapped}/${im.info.joints.length} joints mapped` : "off" },
+      enable,
+      symmetry ? help("Review the suggested mirror partners and signs. Choose the joint itself for a center joint. Every joint needs a partner before saving.") : null,
+      symmetry ? this.symmetryTable(true) : null,
+      symmetry ? help("Body pairs swap during mirrored NPZ export. Unpaired bodies reflect onto themselves.") : null,
+      symmetry ? this.symmetryTable(false) : null);
+  }
+
+  symmetryTable(isJoint) {
+    const { info, spec } = this.importing;
+    const sym = spec.symmetry;
+    const names = (isJoint ? info.joints : info.bodies).map(x => x.name);
+    const entries = isJoint ? sym.joints : sym.body_pairs.map(([name_a, name_b]) => ({ name_a, name_b }));
+    const rows = names.map(name => {
+      const entry = entries.find(e => e.name_a === name || e.name_b === name);
+      const partner = entry?.name_a === name ? entry.name_b : entry?.name_a;
+      const options = [{ value: "", label: isJoint ? "Choose partner…" : "Self" }, ...names.filter(n => isJoint || n !== name)];
+      const pick = select(options, partner ?? "", other => {
+        const keep = entries.filter(e => ![name, other].includes(e.name_a) && ![name, other].includes(e.name_b));
+        if (isJoint) {
+          if (other) keep.push({ name_a: name, name_b: other, scale: 1 });
+          sym.joints = keep;
+        } else {
+          if (other) keep.push({ name_a: name, name_b: other });
+          sym.body_pairs = keep.map(e => [e.name_a, e.name_b]);
+        }
+        this.render();
+      });
+      const sign = isJoint && entry ? select(["1", "-1"], String(entry.scale), v => {
+        entry.scale = Number(v);
+        this.render();
+      }) : null;
+      pick.setAttribute("aria-label", `Mirror partner for ${name}`);
+      sign?.setAttribute("aria-label", `Mirror sign for ${name}`);
+      return h("tr", h("td", name), h("td", pick), isJoint ? h("td", sign) : null);
+    });
+    return h("div.table-scroll", h("table.table", h("thead", h("tr",
+      h("th", isJoint ? "Joint" : "Body"), h("th", "Mirror partner"), isJoint ? h("th", "Sign") : null)), h("tbody", rows)));
   }
 
   jointTable(kind) {

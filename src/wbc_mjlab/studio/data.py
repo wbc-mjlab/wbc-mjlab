@@ -598,7 +598,7 @@ class DataService:
       if self.c.robot_id != "g1" and get_robot_symmetry_config(self.c.robot_id) is None:
         raise ValueError(
           f"mirroring needs a left/right symmetry config for {self.c.robot_id} "
-          "(RobotSymmetryConfig in an extension): convert without mirror"
+          "(configure Symmetry in the robot editor or register it in the extension)"
         )
     idx = self.index(dataset)
     root = self._root(dataset)

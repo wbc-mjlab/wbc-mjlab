@@ -221,6 +221,11 @@ Robot spec (``robot.yaml``)
      - Per joint: ``effort`` (N·m), ``stiffness``, ``damping``, ``armature`` (kg·m²)
    * - ``action_scale``
      - Policy action = ``action_scale`` × effort / stiffness (default 0.25)
+   * - ``symmetry``
+     - Optional sagittal mirror map (omitted or null disables it). Each entry of
+       ``symmetry.joints`` has ``name_a``, ``name_b`` and ``scale`` (+1 or −1).
+       Include each joint in one entry, repeating its name for a self-pair.
+       ``symmetry.body_pairs`` lists pairs of body names to swap during export.
    * - ``nconmax``, ``njmax``
      - Contact / constraint buffers per env
    * - ``description``

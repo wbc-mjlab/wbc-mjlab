@@ -38,7 +38,8 @@ Task registration
 
 Robots added in the Studio (``robots/custom.py``) follow the same pipeline: their
 ``<robot>_base_cfg`` is built from ``robot.yaml`` (model, PD gains, body names) and their
-tasks stack ``apply_wbc`` (+ ``apply_se_actor`` for ``-SE``). Studio presets add one more
+tasks apply either ``apply_lookahead`` or ``apply_wbc`` (with ``apply_se_actor`` for ``-SE``
+or ``apply_terrain_scan`` for ``-Terrain-Scan``). Studio presets add one more
 step after ``build_env_cfg``: modules, then the preset's own overrides
 (``studio/presets.py``), registered as ``<task>--<name>``.
 

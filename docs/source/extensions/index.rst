@@ -15,7 +15,7 @@ the shared MDP without touching it. There are two ways to register one.
       :link-type: doc
 
       Upload the MJCF / URDF in the Studio. Wiring and PD gains are suggested, checked on a
-      floor and saved per user; tasks ``Wbc-<Id>``, ``-SE`` and ``-Terrain-Scan`` appear at
+      floor and saved per user; tasks ``Wbc-<Id>``, ``-Lookahead``, ``-SE`` and ``-Terrain-Scan`` appear at
       once.
 
       **Best for** trying a robot, research across embodiments.

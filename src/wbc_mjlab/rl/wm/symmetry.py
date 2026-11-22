@@ -48,10 +48,16 @@ class DynamicsMirror(nn.Module):
       elif cfg.func is dr.body_com_offset:
         body_ids = cfg.params["asset_cfg"].body_ids
         names = [im.body_names[i] for i in body_ids]
-        swaps = [
-          n.replace("left", "RIGHT").replace("right", "left").replace("RIGHT", "right")
-          for n in names
-        ]
+        if config.body_pairs is None:
+          swaps = [
+            n.replace("left", "RIGHT")
+            .replace("right", "left")
+            .replace("RIGHT", "right")
+            for n in names
+          ]
+        else:
+          partners = dict(config.body_pairs) | {b: a for a, b in config.body_pairs}
+          swaps = [partners.get(n, n) for n in names]
         if set(swaps) != set(names):
           raise ValueError("COM randomization must cover mirrored body pairs")
         idx = [3 * names.index(n) + k for n in swaps for k in range(3)]

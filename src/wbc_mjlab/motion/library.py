@@ -337,7 +337,7 @@ def mirror_spec_for(robot_id: str, joint_names: Sequence[str]) -> MirrorSpec:
   if sym is None:
     raise ValueError(
       f"mirror needs a left/right symmetry config for robot {robot_id!r} "
-      "(robots/<id>/symmetry.py, or symmetry_config on an extension's WbcRobotSpec)"
+      "(configure Symmetry in the Studio robot editor, or set symmetry_config on WbcRobotSpec)"
     )
   idx, scale = build_joint_mirror_map(list(joint_names), sym)
   return MirrorSpec(

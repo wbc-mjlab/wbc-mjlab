@@ -23,13 +23,13 @@ with a YAML spec; :mod:`wbc_mjlab.robots.custom` registers it in every process (
      - ``~/.config/wbc-mjlab/robots/<id>/`` (per user)
      - Its own repo, installed next to wbc-mjlab
    * - **Tasks**
-     - ``Wbc-<Id>`` (default WBC stack), ``Wbc-<Id>-SE``, ``Wbc-<Id>-Terrain-Scan``
+     - ``Wbc-<Id>``, ``Wbc-<Id>-Lookahead``, ``Wbc-<Id>-SE``, ``Wbc-<Id>-Terrain-Scan``
      - Any task table
    * - **Actuators**
      - Ideal PD per joint
      - Anything mjlab supports (grouped motors, torque-speed envelopes …)
    * - **Mirroring**
-     - Not available (no symmetry config)
+     - Optional joint signs and mirror partners, editable in the robot editor
      - ``RobotSymmetryConfig``
    * - **Best for**
      - Trying a robot, research on many embodiments
@@ -93,8 +93,27 @@ the floor, it lands on bodies other than its feet, torque limits saturate. Warns
 (plain PD isn't expected to balance for long — G1 with its own gains sags after about a
 second; the policy does the balancing).
 
+**Symmetry.** Enable *Configure sagittal symmetry* to review mirror partners. Studio
+pairs common left/right names and estimates the sign by reflecting each joint axis in
+the robot's XZ plane. Choose a partner for every unresolved joint. A center joint can
+map to itself. A sign of +1 copies the partner's coordinate and −1 negates it.
+Review the body pairs used for mirrored NPZ exports too. Unpaired bodies map to
+themselves. Save the robot, then select *Mirror* in Train or Export to mirror clips.
+Existing robots can enable symmetry through the same editor.
+
+For example, a robot with two knee hinges and a center yaw hinge could use this map:
+
+.. code-block:: yaml
+
+   symmetry:
+     joints:
+       - {name_a: knee_L, name_b: knee_R, scale: 1}
+       - {name_a: waist_yaw, name_b: waist_yaw, scale: -1}
+     body_pairs:
+       - [foot_L, foot_R]
+
 **Save.** Validates the names, writes ``wbc_robot.xml`` and ``robot.yaml`` and registers the
-robot immediately with three tasks:
+robot immediately with four tasks:
 
 .. list-table::
    :header-rows: 1
@@ -106,20 +125,24 @@ robot immediately with three tasks:
      - ``apply_wbc`` — the default WBC tracking stack with RSI
    * - ``Wbc-<Id>-SE``
      - also ``apply_se_actor`` (state-estimation actor, IMU base velocity)
+   * - ``Wbc-<Id>-Lookahead``
+     - ``apply_lookahead`` on the robot's base configuration, with ten reference frames
+       and ten steps of proprioceptive history (see :doc:`../tasks/wbc-g1-lookahead`)
    * - ``Wbc-<Id>-Terrain-Scan``
      - also ``apply_terrain_scan``: curriculum terrain, a height scan hanging from the root body
        (offset by the root height), terrain-aware anchor / end-effector terminations — as
        :doc:`../tasks/wbc-g1-terrain-scan`
 
 Data goes to ``data/<id>/``, runs to ``logs/rsl_rl/wbc_<id>/`` (``wbc_<id>_se``,
-``wbc_<id>_terrain_scan``).
+``wbc_<id>_lookahead``, ``wbc_<id>_terrain_scan``).
 
 After that the robot is like any other:
 
 .. code-block:: bash
 
-   uv run wbc-mjlab-list-envs                     # Robots: g1, h1 … Wbc-H1, Wbc-H1-SE, Wbc-H1-Terrain-Scan
+   uv run wbc-mjlab-list-envs
    uv run wbc-mjlab-train --task Wbc-H1 --dataset my_clips --debias-z
+   uv run wbc-mjlab-train --task Wbc-H1-Lookahead --dataset my_clips --mirror
 
 Clips must be retargeted to the robot (joint order of the model, see :doc:`../data`).
 

@@ -116,11 +116,14 @@ package. Details and the file format: :doc:`extensions/custom_robots`.
    height used to correct clip heights in conversion, joint defaults.
 6. **Actuators** — effort, stiffness, damping, armature per joint. Values taken from the
    model are kept; others are G1-based guesses (marked ``*``).
-7. **Check** — drops the robot on a floor in its initial pose and holds it with these gains
+7. **Symmetry** — optionally enable the mirror map. Review suggested joint partners, signs
+   and body pairs. Save it to use mirroring in Train and Export.
+8. **Check** — drops the robot on a floor in its initial pose and holds it with these gains
    for 0.5 s (no policy): stable simulation, starts above the floor, lands on its feet,
    holds the pose, torque within limits.
-8. **Save robot** — registers it immediately with three tasks — ``Wbc-<Id>`` (default WBC
-   stack), ``Wbc-<Id>-SE`` (state-estimation actor) and ``Wbc-<Id>-Terrain-Scan`` (curriculum
+9. **Save robot** — registers it immediately with four tasks — ``Wbc-<Id>`` (default WBC
+   stack), ``Wbc-<Id>-Lookahead`` (future reference frames), ``Wbc-<Id>-SE``
+   (state-estimation actor) and ``Wbc-<Id>-Terrain-Scan`` (curriculum
    terrain + height scan under the root body) — and selects it. Edit (sliders icon) or delete
    (trash icon) it later from the robot list.
 

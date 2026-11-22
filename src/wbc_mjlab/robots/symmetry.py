@@ -24,6 +24,8 @@ class RobotSymmetryConfig:
   joints: tuple[JointSymmetryEntry, ...]
   mirror_suffix: str = "_mirror"
   """Appended to the source clip stem for mirrored NPZ exports."""
+  body_pairs: tuple[tuple[str, str], ...] | None = None
+  """Explicit body swaps. Omitted uses the conventional left/right body names."""
 
 
 _REGISTRY: dict[str, RobotSymmetryConfig] = {}
@@ -37,3 +39,7 @@ def register_robot_symmetry_config(robot_id: str, config: RobotSymmetryConfig) -
 def get_robot_symmetry_config(robot_id: str) -> RobotSymmetryConfig | None:
   rid = resolve_robot_id(robot_id)
   return _REGISTRY.get(rid)
+
+
+def unregister_robot_symmetry_config(robot_id: str) -> None:
+  _REGISTRY.pop(robot_id.strip().lower(), None)
