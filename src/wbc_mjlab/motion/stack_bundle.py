@@ -213,7 +213,7 @@ def resolve_training_motion_source(
   convert) or converted ``npz/*.npz`` clips (stacked in memory); else its bundled
   ``<name>.npz``. ``cache_motion_bundle`` writes / uses that bundle from the NPZ clips.
   """
-  from wbc_mjlab.motion.library import has_sources
+  from wbc_mjlab.motion.dataset import has_sources
 
   root = dataset_root.resolve()
   bundle = dataset_bundle_path(root)

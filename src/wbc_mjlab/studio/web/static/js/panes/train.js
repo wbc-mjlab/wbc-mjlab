@@ -58,6 +58,7 @@ export class TrainPane {
     this.timing = {}; // method → measured seconds per iteration of its runs here
     this.checks = {}; // `${task}|${algo}|${dataset}` → { busy } | { ok, error, details }
     // algo_settings: the recipe's settings, as edited here
+    this.previewVersion = 0;
     this.form = { task: "", dataset: "", algo: "ppo", recipe: "ppo", algo_settings: {}, num_envs: 4096, max_iterations: 30000, run_name: "", logger: "tensorboard", mirror: false, debias_z: false, resume_run: "", resume_checkpoint: "", extra: "" };
     this.openJob = "";
     this.form.gpu_uuids = null;
@@ -282,10 +283,32 @@ export class TrainPane {
       this.checks[key] = { busy: true };
       post("/api/train/check", { task: f.task, algo: f.algo, dataset: f.dataset })
         .then((r) => { this.checks[key] = r; })
-        .catch((e) => { this.checks[key] = { ok: false, error: String(e.message || e) }; })
-        .finally(() => { if (this.tab === "new" && this.checkKey() === key) this.render(); });
+        .catch((e) => { this.checks[key] = { ok: false, retryable: true, error: String(e.message || e) }; })
+        .finally(() => { if (this.tab === "new" && this.checkKey() === key) this.refreshCompatibility(); });
     }
     return this.checks[key];
+  }
+
+  refreshCompatibility() {
+    const c = this.check();
+    let status = null;
+    if (c?.busy) {
+      status = h("div.check", dot("accent"), h("span", "Checking that the world model can train this preset — building a 2-env copy (~10 s)…"));
+    } else if (c && !c.ok) {
+      status = h("div.check", dot("bad"), h("span", h("b", c.retryable ? "Check incomplete. " : "Preset incompatible. "), c.error), c.retryable ? button("Retry", () => { delete this.checks[this.checkKey()]; this.refreshCompatibility(); }) : null);
+    } else if (c?.ok) {
+      const d = c.details || {};
+      const learned = d.learned_rewards?.length ? `learned from the simulator: ${d.learned_rewards.join(", ")}` : "every reward computed exactly";
+      status = h("div.check", dot("ok"), h("span", h("b", "Preset compatible. "), `${d.exact_rewards?.length || 0} rewards computed exactly in imagination, ${learned}; randomization given to the model: ${d.context?.join(", ") || "none"}.`));
+    }
+    if (this.checkStatus) this.checkStatus.replaceChildren(...(status ? [status] : []));
+    this.updateLaunchButton();
+  }
+
+  updateLaunchButton() {
+    if (!this.launchButton) return;
+    const c = this.checks[this.checkKey()];
+    this.launchButton.disabled = !this.form.task || !this.form.dataset || !this.previewValid || !!(c && (c.busy || !c.ok));
   }
 
   /** Method + recipe: how the preset is trained. */
@@ -293,17 +316,7 @@ export class TrainPane {
     const f = this.form;
     const m = this.method();
     if (!m) return group("How to train", {}, help("loading…"));
-    const c = this.check();
-    let status = null;
-    if (c?.busy) {
-      status = h("div.check", dot("accent"), h("span", "Checking that the world model can train this preset — building a 2-env copy (~10 s)…"));
-    } else if (c && !c.ok) {
-      status = h("div.check", dot("bad"), h("span", h("b", "The world model can't train this preset. "), c.error));
-    } else if (c?.ok) {
-      const d = c.details || {};
-      const learned = d.learned_rewards?.length ? `learned from the simulator: ${d.learned_rewards.join(", ")}` : "every reward computed exactly";
-      status = h("div.check", dot("ok"), h("span", h("b", "Ready. "), `${d.exact_rewards?.length || 0} rewards computed exactly in imagination, ${learned}; randomization given to the model: ${d.context?.join(", ") || "none"}.`));
-    }
+    this.checkStatus = h("div");
     const methodSel = select(this.methods.map((x) => ({ value: x.id, label: METHOD_OPTION[x.id] || x.label })), f.algo, (v) => this.setAlgo(v));
     this.recipeRow = h("div.input-row");
     this.renderRecipeRow();
@@ -313,7 +326,7 @@ export class TrainPane {
         this.recipeRow),
       h("div.stack", { style: { marginTop: "10px" } },
         help(m.summary),
-        status,
+        this.checkStatus,
         m.notes ? help(m.notes) : null));
   }
 
@@ -336,6 +349,13 @@ export class TrainPane {
     this.recipeRow.replaceChildren(h("span", "Recipe"), sel, h("div.row", save, remove));
     if (this.settingsAside) {
       const n = Object.keys(this.ownSettings()).length;
+      if (this.overrideList) {
+        const method = this.method();
+        this.overrideList.replaceChildren(...Object.entries(this.ownSettings()).map(([key, value]) => {
+          const setting = method?.settings.find(s => s.key === key);
+          return h("div.help", key + ": " + valueText(setting?.value) + " → " + valueText(value));
+        }));
+      }
       this.settingsAside.textContent = `${n ? `${n} changed` : "preset defaults"}${modified && r ? " · not saved" : ""}`;
     }
   }
@@ -362,9 +382,11 @@ export class TrainPane {
     const rest = visible.filter((s) => !s.main);
     const sections = [...new Set(rest.map((s) => s.section))];
     this.settingsAside = h("span");
+    this.overrideList = h("div");
     this.renderRecipeRow();
     return group("Settings", { collapsible: true, closed: true, key: `train-settings-${f.algo}`, aside: this.settingsAside },
       help(`Defaults are the preset's. Changes apply to this run; save them as a recipe to reuse with any preset.${run ? " Continuing a run keeps its networks." : ""}`),
+      this.overrideList,
       main.length ? h("div.knobs", { style: { marginTop: "10px" } }, main.map(row)) : null,
       sections.map((title) => h("div.obs-section", { style: { marginTop: "14px" } },
         h("div.obs-section-title", title),
@@ -427,6 +449,7 @@ export class TrainPane {
     const iters = input(f.max_iterations, { type: "number", min: 1, step: 1000, onChange: (v) => { f.max_iterations = v; this.render(); } });
     this.estimateEl = h("p.help");
     this.cmdEl = h("div.cmd");
+    this.fieldErrors = Object.fromEntries(["dataset", "recipe", "gpu", "extra", "resume", "mirror"].map(k => [k, h("div.help", { role: "status" })]));
     const running = this.jobs.filter((x) => x.status === "running");
     const busy = running.length
       ? h("div.callouts", h("div.callout.warn", h("b", `${running.length} training job${running.length === 1 ? " is" : "s are"} running · `),
@@ -439,10 +462,11 @@ export class TrainPane {
           h("div.input-row", h("span", "Preset"), taskSel, button("", () => this.app.select("preset"), { cls: "ghost small", icon: "sliders", title: "Open in Preset" })),
           h("div.input-row", h("span", "Dataset"), dsSel, button("", () => this.app.select("data"), { cls: "ghost small", icon: "database", title: "Open in Data" })),
           h("div.input-row", h("span", "Start"), resume, run ? select([{ value: "", label: "latest" }, ...run.checkpoints.map((c) => ({ value: c, label: c }))], f.resume_checkpoint, set("resume_checkpoint")) : h("span"))),
+        this.fieldErrors.dataset, this.fieldErrors.resume,
         t ? h("p.help", { style: { marginTop: "8px" } }, t.description) : null),
-      this.methodGroup(),
+      this.methodGroup(), this.fieldErrors.recipe,
       this.settingsGroup(),
-      group("GPUs", {}, this.gpuPicker()),
+      group("GPUs", {}, this.gpuPicker(), this.fieldErrors.gpu),
       group("Budget", {},
         h("div.stack",
           h("div.grid2",
@@ -457,6 +481,7 @@ export class TrainPane {
       group("Motion", {},
         h("div.stack",
           switchEl("Mirror — add a left/right mirrored copy of every clip", f.mirror, set("mirror")),
+          this.fieldErrors.mirror,
           switchEl("Height debias — lowest foot on the ground in each clip", f.debias_z, set("debias_z")),
           h("p.help", ds && !ds.raw
             ? "This dataset has converted clips only: mirror and debias were set when it was converted."
@@ -467,50 +492,65 @@ export class TrainPane {
           field("Logger", seg(["tensorboard", "wandb"], f.logger, set("logger"), { block: true })))),
       group("Advanced", { collapsible: true, closed: true, key: "train-adv" },
         field("Extra arguments", input(f.extra, { placeholder: "--env.commands.motion.rsi.bin-width-s 2.0", onInput: set("extra") })),
+        this.fieldErrors.extra,
         field("Equivalent command", this.cmdEl)),
     );
     this.renderCmd();
     this.renderEstimate();
-    const c = this.check();
-    const blocked = !!(c && !c.busy && !c.ok);
-    const r = this.recipe();
-    const how = m ? ` · ${r ? r.label : METHOD_LABEL[m.id]}${this.modified() ? " (edited)" : ""}` : "";
-    this.frame.setFooter(
-      h("div.note", f.task ? h("b", t?.custom ? t.preset : f.task) : "", f.dataset ? ` on ${f.dataset}` : "", how),
-      button("Launch", () => this.launch(), { cls: "primary", icon: "play", disabled: !f.task || !f.dataset || blocked, title: blocked ? "This method can't train the preset (see How to train)" : undefined }),
-    );
+    this.launchButton = button("Launch", () => this.launch(), { cls: "primary", icon: "play", disabled: true });
+    this.refreshCompatibility();
+    this.launchSummary = h("div.note");
+    this.frame.setFooter(this.launchSummary, this.launchButton);
+    this.renderSummary();
+  }
+
+  renderSummary(message = "") {
+    if (!this.launchSummary) return;
+    const f = this.form;
+    const devices = f.gpu_uuids?.map(id => {
+      const gpu = this.gpuSelector.gpus.find(g => g.uuid === id);
+      return gpu ? `GPU ${gpu.index}` : id;
+    }).join(", ") || "default GPU selection";
+    const start = f.resume_run ? `Continue ${f.resume_run} (${f.resume_checkpoint || "latest checkpoint"})` : "Fresh policy";
+    this.launchSummary.textContent = message || [f.task, f.dataset, this.recipe()?.label || f.algo, devices, start].filter(Boolean).join(" · ");
+  }
+
+  launchRequest() {
+    const named = !this.resumed() && this.recipe() && !this.modified();
+    return { ...this.form, algo_settings: this.ownSettings(), recipe: named ? this.form.recipe : "" };
   }
 
   renderCmd() {
     if (!this.cmdEl) return;
-    const f = this.form;
-    const t = this.tasks.find((x) => x.id === f.task);
-    const run = this.runs.find((r) => r.label === f.resume_run);
-    const parts = t?.custom
-      ? ["python -m wbc_mjlab.studio.train_preset", `--preset ${t.preset}`]
-      : ["uv run wbc-mjlab-train", `--task ${f.task}`];
-    parts.push(`--dataset ${f.dataset}`, `--env.scene.num-envs ${f.num_envs}`, `--agent.max-iterations ${f.max_iterations}`);
-    if (f.algo !== "ppo") parts.push(`--algo ${f.algo}`);
-    const settings = { ...this.ownSettings(), ...(run?.network || {}) };
-    const namedRecipe = !run && this.recipe() && !this.modified();
-    if (namedRecipe) parts.push(`--recipe ${f.recipe}`);
-    for (const [k, v] of Object.entries(namedRecipe ? {} : (run ? settings : f.algo_settings))) parts.push(`--agent.${k.replace(/_/g, "-")} ${Array.isArray(v) ? `"(${v.join(", ")}${v.length === 1 ? "," : ""})"` : v}`);
-    if (f.mirror) parts.push("--mirror");
-    if (f.debias_z) parts.push("--debias-z");
-    if (f.run_name) parts.push(`--agent.run-name ${f.run_name}`);
-    if (f.logger === "wandb") parts.push("--use_wandb");
-    if (run) parts.push(`--agent.resume True --agent.load-run ${run.name}`, f.resume_checkpoint ? `--agent.load-checkpoint ${f.resume_checkpoint}` : "");
-    if (f.extra) parts.push(f.extra);
-    if (f.gpu_uuids?.length) parts.unshift(`CUDA_VISIBLE_DEVICES=${f.gpu_uuids.join(",")}`);
-    if (f.gpu_uuids?.length) parts.push(`--gpu-ids '${JSON.stringify(f.gpu_uuids.map((_, i) => i))}'`);
-    this.cmdEl.textContent = parts.filter(Boolean).join(" ");
+    const version = ++this.previewVersion;
+    clearTimeout(this.previewTimer);
+    this.renderSummary();
+    this.previewValid = false;
+    this.updateLaunchButton();
+    for (const node of Object.values(this.fieldErrors)) node.textContent = "";
+    const request = this.launchRequest();
+    if (!request.task || !request.dataset) {
+      this.cmdEl.textContent = "Select a preset and dataset.";
+      return;
+    }
+    this.cmdEl.textContent = "Checking launch settings…";
+    this.previewTimer = setTimeout(async () => {
+      let result;
+      try { result = await post("/api/train/preview", request); }
+      catch (e) { result = { error: e.message }; }
+      if (version !== this.previewVersion) return;
+      this.cmdEl.textContent = result.command || result.error;
+      this.renderSummary(result.error);
+      if (!result.command && !result.field) this.launchSummary.append(button("Retry", () => this.renderCmd()));
+      const field = this.fieldErrors[result.field];
+      if (field) field.textContent = result.error;
+      this.previewValid = !!result.command;
+      this.updateLaunchButton();
+    }, 250);
   }
 
   async launch() {
-    const f = this.form;
-    if (Array.isArray(f.gpu_uuids) && !f.gpu_uuids.length) { toast("Choose at least one GPU", "warn"); return; }
-    const namedRecipe = !this.resumed() && this.recipe() && !this.modified();
-    const r = await post("/api/train/launch", { ...f, algo_settings: this.ownSettings(), recipe: namedRecipe ? f.recipe : "" });
+    const r = await post("/api/train/launch", this.launchRequest());
     toast(`training started`, "ok");
     this.openJob = r.job;
     this.tab = "jobs";

@@ -16,6 +16,7 @@ import json
 import math
 import struct
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from pathlib import Path
 
 import mujoco
@@ -39,6 +40,7 @@ from fastapi.staticfiles import StaticFiles
 
 from wbc_mjlab.studio.core import StudioCore
 from wbc_mjlab.studio.plots import encode_rows
+from wbc_mjlab.studio.training import LaunchFieldError, TrainRequest
 
 STATIC = Path(__file__).parent / "static"
 FRAME_HZ = 60.0  # poll rate; a frame is only sent when the scene changed
@@ -721,42 +723,18 @@ def create_app(core: StudioCore, token: str | None = None) -> FastAPI:
   def runs_prune(labels: list[str] = Body(), every: int = Body(0)):
     return {"freed": guard(core.training.prune_runs, labels, every)}
 
+  @app.post("/api/train/preview")
+  def train_preview(request: TrainRequest):
+    try:
+      return {"command": core.training.preview(**asdict(request))}
+    except LaunchFieldError as exc:
+      return {"error": str(exc), "field": exc.field}
+    except (ValueError, RuntimeError, KeyError, OSError) as exc:
+      return {"error": str(exc)}
+
   @app.post("/api/train/launch")
-  def train_launch(
-    task: str = Body(),
-    dataset: str = Body(),
-    num_envs: int = Body(4096),
-    max_iterations: int = Body(30000),
-    run_name: str = Body(""),
-    resume_run: str = Body(""),
-    resume_checkpoint: str = Body(""),
-    logger: str = Body("tensorboard"),
-    mirror: bool = Body(False),
-    debias_z: bool = Body(False),
-    algo: str = Body("ppo"),
-    algo_settings: dict = Body({}),
-    recipe: str = Body(""),
-    extra: str = Body(""),
-    gpu_uuids: list[str] | None = Body(None),
-  ):
-    job = guard(
-      core.training.launch,
-      task,
-      dataset,
-      num_envs=num_envs,
-      max_iterations=max_iterations,
-      run_name=run_name,
-      resume_run=resume_run,
-      resume_checkpoint=resume_checkpoint,
-      logger=logger,
-      mirror=mirror,
-      debias_z=debias_z,
-      algo=algo,
-      algo_settings=algo_settings,
-      recipe=recipe,
-      extra=extra,
-      gpu_uuids=gpu_uuids,
-    )
+  def train_launch(request: TrainRequest):
+    job = guard(core.training.launch, **asdict(request))
     return ok(job=job.name)
 
   @app.get("/api/gpus")

@@ -190,7 +190,7 @@ def resolve_motion_path(
     return p
 
   if p.is_dir():
-    from wbc_mjlab.motion.library import has_sources
+    from wbc_mjlab.motion.dataset import has_sources
 
     if has_sources(p) and not cache_motion_bundle:
       return p
