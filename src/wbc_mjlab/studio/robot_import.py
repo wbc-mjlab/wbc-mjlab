@@ -204,10 +204,8 @@ class RobotImportService:
     self._forget_cached()
     self.draft = ""
     self._model = None
-    self.c.log(
-      f"robot {spec.id} saved: tasks {spec.task_id}, {spec.task_id}-SE, {spec.task_id}-Terrain-Scan",
-      "ok",
-    )
+    tasks = ", ".join(t.task_id for t in custom.tasks_for(spec))
+    self.c.log(f"robot {spec.id} saved: tasks {tasks}", "ok")
     self.c.emit("robots")
     self.c.select_robot(spec.id)
     return {"id": spec.id, "task": spec.task_id}

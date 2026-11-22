@@ -393,7 +393,7 @@ def main(
   if mirror and symmetry_config is None:
     raise ValueError(
       f"--mirror requires a symmetry config for robot {robot_id!r}. "
-      "Add robots/<id>/symmetry.py and register it, or pass symmetry_config "
+      "Configure Symmetry in the Studio robot editor, or pass symmetry_config "
       "on WbcRobotSpec for extensions."
     )
   if debias_z and (

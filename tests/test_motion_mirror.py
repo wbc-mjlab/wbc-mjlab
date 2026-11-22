@@ -91,6 +91,21 @@ def _synthetic_log(t: int = 4) -> dict:
   }
 
 
+def test_export_uses_explicit_body_pairs() -> None:
+  from dataclasses import replace
+
+  log = _synthetic_log()
+  names = [f"link_{i}" for i in range(len(_G1_BODY_NAMES))]
+  config = replace(G1_SYMMETRY_CONFIG, body_pairs=(("link_1", "link_3"),))
+  mirrored = mirror_motion_log(
+    log, joint_names=_G1_JOINT_NAMES, body_names=names, config=config
+  )
+  for to, source in [(0, 0), (1, 3), (3, 1)]:
+    np.testing.assert_allclose(
+      mirrored["body_pos_w"][:, to], log["body_pos_w"][:, source] * [1, -1, 1]
+    )
+
+
 def test_mirror_twice_restores_joint_channels() -> None:
   log = _synthetic_log()
   once = mirror_motion_log(

@@ -875,15 +875,20 @@ def _robot_folder(cfg_dir: Path, robot_id: str) -> Path:
 
 def test_robot_suggestions_match_g1() -> None:
   from wbc_mjlab.robots import custom
+  from wbc_mjlab.robots.custom_symmetry import CustomSymmetry
   from wbc_mjlab.robots.g1.constants import (
     G1_ANCHOR_BODY_NAME,
     G1_MOTION_BODY_NAMES,
     G1_XML,
     MOTION_Z_DEBIAS_FOOT_SOLE_Z,
   )
+  from wbc_mjlab.robots.g1.symmetry import G1_SYMMETRY_CONFIG
 
   info = custom.inspect_model(G1_XML)
   s = info["suggested"]
+  assert set(CustomSymmetry.from_dict(s["symmetry"]).joints) == set(
+    G1_SYMMETRY_CONFIG.joints
+  )
   assert sorted(s["keybodies"]) == sorted(G1_MOTION_BODY_NAMES)
   assert s["anchor_body"] == G1_ANCHOR_BODY_NAME
   assert s["feet_bodies"] == ["left_ankle_roll_link", "right_ankle_roll_link"]
@@ -895,11 +900,51 @@ def test_robot_suggestions_match_g1() -> None:
   assert custom.task_id_for("h2x") == "Wbc-H2X"
 
 
+def test_symmetry_handles_slide_axes_and_unmatched_names() -> None:
+  import mujoco
+
+  from wbc_mjlab.robots.custom_symmetry import (
+    CustomSymmetry,
+    suggest_symmetry,
+    validate_symmetry,
+  )
+
+  model = mujoco.MjModel.from_xml_string("""
+    <mujoco><worldbody><body name="root"><freejoint/><geom size=".1"/>
+      <body name="foot_L" pos="0 .1 0"><joint name="LHip" axis="0 1 0"/><geom size=".1"/></body>
+      <body name="foot_R" pos="0 -.1 0" quat="0 1 0 0"><joint name="RHip" axis="0 1 0"/><geom size=".1"/></body>
+      <body name="slider"><joint name="shift" type="slide" axis="0 1 0"/><geom size=".1"/></body>
+      <body name="single" pos="0 .2 0"><joint name="odd" axis="0 1 0"/><geom size=".1"/></body>
+    </body></worldbody></mujoco>""")
+  suggested = suggest_symmetry(model)
+  assert suggested == {
+    "joints": [
+      {"name_a": "LHip", "name_b": "RHip", "scale": -1},
+      {"name_a": "shift", "name_b": "shift", "scale": -1},
+    ],
+    "body_pairs": [["foot_L", "foot_R"]],
+  }
+  with pytest.raises(ValueError, match="choose mirror partners for odd"):
+    validate_symmetry(CustomSymmetry.from_dict(suggested), model)
+  suggested["joints"].append(dict(name_a="odd", name_b="odd", scale=1))
+  validate_symmetry(CustomSymmetry.from_dict(suggested), model)
+  for extra, error in (
+    ({"body_pairs": [["foot_L", "missing"]]}, "unknown body"),
+    ({"body_pairs": [["foot_L", "foot_R"], ["foot_R", "root"]]}, "repeated body"),
+    ({"joints": suggested["joints"] * 2}, "repeated joint"),
+    ({"joints": [dict(name_a="odd", name_b="odd", scale=0)]}, "joint scale"),
+  ):
+    with pytest.raises(ValueError, match=error):
+      validate_symmetry(CustomSymmetry.from_dict(suggested | extra), model)
+
+
 def test_custom_robot_save_register_delete(preset_dir) -> None:
   from mjlab.tasks.registry import load_env_cfg
 
+  from wbc_mjlab.motion.library import mirror_spec_for
   from wbc_mjlab.motion.robot_assets import get_robot_mjcf_path
   from wbc_mjlab.robots import custom
+  from wbc_mjlab.robots.symmetry import get_robot_symmetry_config
   from wbc_mjlab.tasks import list_wbc_task_ids
 
   folder = _robot_folder(preset_dir.parent, "zz_bot")
@@ -912,7 +957,6 @@ def test_custom_robot_save_register_delete(preset_dir) -> None:
     keybodies=s["keybodies"],
     ee_bodies=s["ee_bodies"],
     feet_bodies=s["feet_bodies"],
-    foot_sites=s["foot_sites"],
     foot_sole_z=s["foot_sole_z"],
     init_height=info["init_height"],
     joints={
@@ -930,8 +974,30 @@ def test_custom_robot_save_register_delete(preset_dir) -> None:
   assert not bad["ok"]
   with pytest.raises(ValueError):
     custom.save_spec(dataclasses.replace(spec, keybodies=["no_such_body"]))
+  legacy = spec.to_dict()
+  del legacy["symmetry"]
+  assert custom.CustomRobotSpec.from_dict(legacy).symmetry is None
+  spec = custom.CustomRobotSpec.from_dict(legacy | {"symmetry": s["symmetry"]})
   custom.save_spec(spec)
   try:
+    assert custom.load_spec("zz_bot").symmetry == spec.symmetry
+    assert "zz_bot" in custom.register_all()
+    assert get_robot_symmetry_config("zz_bot") == spec.symmetry.config()
+    names = list(spec.joints)
+    mirror = mirror_spec_for("zz_bot", names)
+    i = names.index("left_hip_roll_joint")
+    assert names[mirror.joint_index[i]] == "right_hip_roll_joint"
+    assert mirror.joint_scale[i] == -1
+    for play in (False, True):
+      ahead = load_env_cfg("Wbc-Zz-Bot-Lookahead", play=play)
+      actor = ahead.observations["actor"]
+      assert actor.terms["ref_joint_pos"].params["frames"] == 10
+      assert actor.terms["base_ang_vel"].history_length == 10
+      assert actor.enable_corruption == (not play)
+      assert ahead.commands["motion"].robot_id == spec.id
+      assert ahead.commands["motion"].body_names == tuple(spec.keybodies)
+      assert "foot_friction" not in ahead.events
+      assert set(ahead.terminations) == {"time_out", "anchor_pos", "anchor_ori"}
     assert {"Wbc-Zz-Bot", "Wbc-Zz-Bot-SE", "Wbc-Zz-Bot-Terrain-Scan"} <= set(
       list_wbc_task_ids()
     )
@@ -958,10 +1024,20 @@ def test_custom_robot_save_register_delete(preset_dir) -> None:
     assert "base_lin_vel" in se and "ref_base_height" not in se
     assert custom.load_spec("zz_bot").keybodies == spec.keybodies
     assert [r.id for r in custom.list_specs()] == ["zz_bot"]
+    broken = dataclasses.replace(spec.symmetry, joints=spec.symmetry.joints[:-1])
+    with pytest.raises(ValueError, match="choose mirror partners"):
+      custom.save_spec(dataclasses.replace(spec, symmetry=broken))
+    assert custom.load_spec("zz_bot").symmetry.config() == get_robot_symmetry_config(
+      "zz_bot"
+    )
+    custom.save_spec(dataclasses.replace(spec, symmetry=None))
+    assert get_robot_symmetry_config("zz_bot") is None
+    custom.save_spec(spec)
   finally:
     custom.delete("zz_bot")
   assert not [t for t in list_wbc_task_ids() if t.startswith("Wbc-Zz-Bot")]
   assert not folder.exists()
+  assert get_robot_symmetry_config("zz_bot") is None
 
 
 def test_prepare_cleans_models(tmp_path) -> None:

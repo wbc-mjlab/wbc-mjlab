@@ -98,7 +98,8 @@ def apply_lookahead(cfg: ManagerBasedRlEnvCfg) -> None:
   # --- Domain randomization (Table A.3): physical parameters only, no pushes ---
   for name in ("push_robot", "pull_robot", "assistive_wrench"):
     cfg.events.pop(name, None)
-  cfg.events["foot_friction"].params["ranges"] = (0.3, 1.2)
+  if "foot_friction" in cfg.events:
+    cfg.events["foot_friction"].params["ranges"] = (0.3, 1.2)
 
   # --- Episode starts (Appendix D.1): 1 s bins, 50 % uniform, 40 % low return, 10 % memory ---
   motion = cfg.commands["motion"]

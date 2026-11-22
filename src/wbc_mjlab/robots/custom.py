@@ -14,7 +14,7 @@ Each robot is a folder in ``<config>/robots/<id>/`` (:func:`wbc_mjlab.user_confi
 
 :func:`register_all` (run by the ``mjlab.tasks`` entry point, so in every CLI and the Studio)
 registers each robot like an extension: robot id ``<id>``, tasks ``Wbc-<Id>`` (the default WBC
-stack), ``Wbc-<Id>-SE`` (state-estimation actor) and ``Wbc-<Id>-Terrain-Scan`` (curriculum
+stack), ``Wbc-<Id>-Lookahead``, ``Wbc-<Id>-SE`` (state-estimation actor) and ``Wbc-<Id>-Terrain-Scan`` (curriculum
 terrain + height scan), data in ``data/<id>/``.
 """
 
@@ -30,6 +30,13 @@ from pathlib import Path
 import mujoco
 import numpy as np
 import yaml
+
+from wbc_mjlab.robots.custom_symmetry import (
+  CustomSymmetry,
+  suggest_symmetry,
+  validate_symmetry,
+)
+from wbc_mjlab.robots.symmetry import unregister_robot_symmetry_config
 
 SPEC_FILE = "robot.yaml"
 PREPARED = "wbc_robot.xml"
@@ -78,6 +85,7 @@ class CustomRobotSpec:
   description: str = ""
   nconmax: int = 64
   njmax: int = 400
+  symmetry: CustomSymmetry | None = None
 
   # ------------------------------------------------------------------ paths
   @property
@@ -97,13 +105,13 @@ class CustomRobotSpec:
     return task_id_for(self.id)
 
   def to_dict(self) -> dict:
-    d = dataclasses.asdict(self)
-    d["joints"] = {k: dataclasses.asdict(v) for k, v in self.joints.items()}
-    return d
+    return dataclasses.asdict(self)
 
   @classmethod
   def from_dict(cls, d: dict) -> CustomRobotSpec:
     d = dict(d)
+    if d.get("symmetry") is not None:
+      d["symmetry"] = CustomSymmetry.from_dict(d["symmetry"])
     d["joints"] = {k: JointGains(**v) for k, v in (d.get("joints") or {}).items()}
     known = {f.name for f in dataclasses.fields(cls)}
     return cls(**{k: v for k, v in d.items() if k in known})
@@ -557,7 +565,11 @@ def inspect_model(path: Path) -> dict:
     "collision_geoms": ncollide,
     "pd": {"natural_freq_hz": NATURAL_FREQ_HZ, "damping_ratio": DAMPING_RATIO},
     "suggested": suggest(m, d, root)
-    | {"nconmax": max(35, 4 * ncollide), "njmax": max(250, 12 * ncollide)},
+    | {
+      "nconmax": max(35, 4 * ncollide),
+      "njmax": max(250, 12 * ncollide),
+      "symmetry": suggest_symmetry(m),
+    },
   }
 
 
@@ -744,6 +756,8 @@ def save_spec(spec: CustomRobotSpec) -> CustomRobotSpec:
     if m.jnt_type[j] in _HINGE
   }
   unknown = set(spec.joints) - joints
+  if spec.symmetry is not None:
+    validate_symmetry(spec.symmetry, m)
   if unknown:
     raise ValueError(f"gains for unknown joints: {', '.join(sorted(unknown))}")
   for j in joints - set(spec.joints):
@@ -904,20 +918,28 @@ def _root_name(spec: CustomRobotSpec) -> str:
 
 
 def env_cfg(
-  spec: CustomRobotSpec, *, se: bool = False, terrain: bool = False, play: bool = False
+  spec: CustomRobotSpec,
+  *,
+  se: bool = False,
+  terrain: bool = False,
+  lookahead: bool = False,
+  play: bool = False,
 ):
-  """``Wbc-<Id>`` (``se``: ``-SE``, ``terrain``: ``-Terrain-Scan`` — procedural curriculum
-  terrain, a height scan under the root body and terrain-aware terminations, as G1)."""
+  """Build the selected preset on the imported robot's base configuration."""
+  from wbc_mjlab.presets.lookahead import apply_lookahead
   from wbc_mjlab.presets.se_actor import apply_se_actor
   from wbc_mjlab.presets.terrain import apply_terrain_scan
   from wbc_mjlab.presets.wbc import apply_wbc
 
   cfg = base_env_cfg(spec)
-  apply_wbc(
-    cfg,
-    motion_body_names=tuple(spec.keybodies),
-    ee_termination_bodies=tuple(spec.ee_bodies),
-  )
+  if lookahead:
+    apply_lookahead(cfg)
+  else:
+    apply_wbc(
+      cfg,
+      motion_body_names=tuple(spec.keybodies),
+      ee_termination_bodies=tuple(spec.ee_bodies),
+    )
   if se:
     apply_se_actor(cfg)
     for group in ("actor", "critic"):
@@ -964,6 +986,13 @@ def tasks_for(spec: CustomRobotSpec):
       build_env_cfg=lambda: env_cfg(spec),
     ),
     WbcTaskConfig(
+      task_id=f"{tid}-Lookahead",
+      robot_id=spec.id,
+      description=f"{base}: tracking with proprioceptive history and future reference frames.",
+      experiment_name=f"wbc_{spec.id}_lookahead",
+      build_env_cfg=lambda: env_cfg(spec, lookahead=True),
+    ),
+    WbcTaskConfig(
       task_id=f"{tid}-Terrain-Scan",
       robot_id=spec.id,
       description=f"{tid} on curriculum terrain + actor height scan; terrain-aware terminations.",
@@ -985,6 +1014,7 @@ def _unregister(robot_id: str) -> None:
 
   from wbc_mjlab import tasks as wbc_tasks
 
+  unregister_robot_symmetry_config(robot_id)
   for tid in [t for t, c in wbc_tasks._TASK_BY_ID.items() if c.robot_id == robot_id]:  # noqa: SLF001
     wbc_tasks._TASK_BY_ID.pop(tid, None)  # noqa: SLF001
     wbc_tasks._MJLAB_REGISTERED.discard(tid)  # noqa: SLF001
@@ -1007,8 +1037,9 @@ def register(spec: CustomRobotSpec) -> None:
       raise KeyError(f"unknown task {task_id!r} for {spec.id}: {', '.join(by_id)}")
     return env_cfg(
       spec,
-      se=task_id.endswith("-SE"),
-      terrain=task_id.endswith("-Terrain-Scan"),
+      se=task_id == f"{spec.task_id}-SE",
+      terrain=task_id == f"{spec.task_id}-Terrain-Scan",
+      lookahead=task_id == f"{spec.task_id}-Lookahead",
       play=play,
     )
 
@@ -1017,6 +1048,7 @@ def register(spec: CustomRobotSpec) -> None:
       robot_id=spec.id,
       make_env_cfg=make_env_cfg,
       make_rl_cfg=g1_wbc_rl_cfg,
+      symmetry_config=spec.symmetry.config() if spec.symmetry else None,
       motion_spec=RobotMotionSpec(
         scene_cfg_fn=lambda: env_cfg(spec).scene,
         foot_body_names=tuple(spec.feet_bodies),
@@ -1036,6 +1068,10 @@ def register_all() -> list[str]:
     try:
       if not spec.prepared.is_file():
         raise FileNotFoundError(f"{spec.prepared} is missing: re-save the robot")
+      if spec.symmetry is not None:
+        validate_symmetry(
+          spec.symmetry, mujoco.MjModel.from_xml_path(str(spec.prepared))
+        )
       register(spec)
       done.append(spec.id)
     except Exception as exc:  # noqa: BLE001

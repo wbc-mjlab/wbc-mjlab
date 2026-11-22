@@ -89,7 +89,7 @@ By goal
       terrain-aware terminations.
 
 Tasks of other robots follow the same names: ``Wbc-H2`` (extension), ``Wbc-<Id>``,
-``Wbc-<Id>-SE`` and ``Wbc-<Id>-Terrain-Scan`` for robots added in the Studio.
+``Wbc-<Id>-Lookahead``, ``Wbc-<Id>-SE`` and ``Wbc-<Id>-Terrain-Scan`` for robots added in the Studio.
 
 Compare
 -------

@@ -58,8 +58,8 @@ The clips weren't retargeted to this robot: the joint count must match the model
 ``mirror needs a left/right symmetry config``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Train without ``--mirror``. Mirroring needs a ``RobotSymmetryConfig`` — G1 and extensions
-that register one have it; robots added in the Studio don't.
+For a robot added in Studio, open its robot editor, enable **Symmetry**, review the
+joint partners and signs, then save. Extensions can register a ``RobotSymmetryConfig``.
 
 A clip edit doesn't show up
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
