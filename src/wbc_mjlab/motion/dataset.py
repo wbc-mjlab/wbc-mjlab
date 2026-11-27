@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 CACHE_DIR = ".cache"
-CACHE_SCHEMA = 1
+CACHE_SCHEMA = 2
 """Bump when the packed layout changes (old caches are then rebuilt)."""
 
 
@@ -36,6 +36,11 @@ def list_source_files(root: Path, *, format_name: str | None = None) -> list[Pat
   root = Path(root)
   if root.is_file():
     return [root]
+  if (root / "manifest.json").is_file():
+    from wbc_mjlab.motion.custom_dataset import dataset_records
+
+    records = dataset_records(root)
+    return [(root / record["motion"]).resolve() for record in records]
   src = dataset_sources_dir(root)
   if not src.is_dir():
     return []
@@ -89,7 +94,15 @@ def _cache_key(
   )
   for p in files:
     st = p.stat()
-    h.update(f"{p.name}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
+    h.update(f"{p}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
+  if files:
+    common = Path(os.path.commonpath([str(p.resolve().parent) for p in files]))
+    for parent in (common, *common.parents):
+      manifest = parent / "manifest.json"
+      if manifest.is_file():
+        st = manifest.stat()
+        h.update(f"{manifest}\0{st.st_size}\0{st.st_mtime_ns}".encode())
+        break
   return h.hexdigest()[:16]
 
 
@@ -99,6 +112,7 @@ def _load_one(
   format_name: str | None,
   input_fps: float | None,
   line_range: tuple[int, int] | None = None,
+  source_joint_names: Sequence[str] | None = None,
 ) -> tuple[np.ndarray, float]:
   from wbc_mjlab.motion.motion_formats import load_motion_clip
   from wbc_mjlab.motion.robot_assets import remap_dof_columns
@@ -107,11 +121,14 @@ def _load_one(
     path, format_name=format_name, input_fps=input_fps, line_range=line_range
   )
   dof = raw.dof_pos
-  if raw.source_joint_names is not None:
-    missing = [n for n in joint_names if n not in raw.source_joint_names]
+  source_names = (
+    raw.source_joint_names if raw.source_joint_names is not None else source_joint_names
+  )
+  if source_names is not None:
+    missing = [n for n in joint_names if n not in source_names]
     if missing:
       raise ValueError(f"{path.name}: no column for joints {missing}")
-    dof = remap_dof_columns(dof, list(raw.source_joint_names), list(joint_names))
+    dof = remap_dof_columns(dof, list(source_names), list(joint_names))
   if dof.shape[1] != len(joint_names):
     raise ValueError(
       f"{path.name}: {dof.shape[1]} joint columns, the robot has {len(joint_names)} "
@@ -136,11 +153,34 @@ def pack_sources(
   files = [Path(p) for p in files]
   if not files:
     raise FileNotFoundError("no source clips to pack")
+  names = [f.stem for f in files]
+  fps_by_path = {}
+  source_joint_names = None
+  common = Path(os.path.commonpath([str(f.resolve().parent) for f in files]))
+  for parent in (common, *common.parents):
+    manifest = parent / "manifest.json"
+    if manifest.is_file():
+      from wbc_mjlab.motion.custom_dataset import dataset_records
+
+      records = dataset_records(parent)
+      by_path = {(parent / record["motion"]).resolve(): record for record in records}
+      names = [by_path[f.resolve()]["id"] for f in files]
+      fps_by_path = {path: float(record["fps"]) for path, record in by_path.items()}
+      source_joint_names = json.loads(manifest.read_text()).get("joint_names")
+      break
   workers = workers or min(8, os.cpu_count() or 1)
   with ThreadPoolExecutor(max_workers=workers) as pool:
     loaded = list(
       pool.map(
-        lambda p: _load_one(p, joint_names, format_name, input_fps, line_range), files
+        lambda p: _load_one(
+          p,
+          joint_names,
+          format_name,
+          input_fps if input_fps is not None else fps_by_path.get(p.resolve()),
+          line_range,
+          source_joint_names,
+        ),
+        files,
       )
     )
   length = np.array([rows.shape[0] for rows, _ in loaded], np.int64)
@@ -149,7 +189,7 @@ def pack_sources(
     raise ValueError(f"empty clips: {', '.join(empty[:5])}")
   start = np.concatenate([[0], np.cumsum(length)[:-1]]).astype(np.int64)
   return PackedClips(
-    names=[f.stem for f in files],
+    names=names,
     sources=[str(f) for f in files],
     joint_names=list(joint_names),
     fps=np.array([fps for _, fps in loaded], np.float64),
@@ -197,6 +237,7 @@ def load_dataset(
   input_fps: float | None = None,
   cache: bool = True,
   verbose: bool = True,
+  clip_ids: tuple[str, ...] | None = None,
 ) -> PackedClips:
   """Packed source clips of a dataset folder (or one clip file), through the cache.
 
@@ -209,6 +250,10 @@ def load_dataset(
   started = time.perf_counter()
   root = Path(root).expanduser().resolve()
   files = list_source_files(root, format_name=format_name)
+  if clip_ids is not None:
+    from wbc_mjlab.motion.custom_dataset import dataset_records
+
+    files = [(root / r["motion"]).resolve() for r in dataset_records(root, clip_ids)]
   if not files:
     raise FileNotFoundError(f"No source clips (CSV / PKL) in {root} or {root / 'raw'}")
   if not cache or root.is_file():

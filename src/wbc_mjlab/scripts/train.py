@@ -15,6 +15,11 @@ import sys
 
 import mjlab.utils.os as _mjlab_os
 
+from wbc_mjlab.scripts.terrain_subset import (
+  apply_training_trajectory_limit,
+  pop_exclude_sources,
+  pop_num_trajectories,
+)
 from wbc_mjlab.scripts.wbc_cli import (
   apply_dataset_motion_file,
   ensure_task_id,
@@ -143,6 +148,8 @@ def main() -> None:
   )
   if legacy:
     log.warning("Legacy task id mapped to --task / --no-state-estimation")
+  rest, num_trajectories = pop_num_trajectories(rest)
+  rest, exclude_sources = pop_exclude_sources(rest)
   prepare_wbc_run(task_id=task_id)
   explicit_algo = any(a == "--algo" or a.startswith("--algo=") for a in rest)
   rest, algo = _pop_algo(rest)
@@ -239,6 +246,9 @@ def main() -> None:
   )
   rest = _apply_motion_file_shortcut(rest)
   rest = _apply_default_logger(rest, use_wandb=use_wandb)
+  apply_training_trajectory_limit(
+    task_id, rest, num_trajectories, exclude_sources=exclude_sources
+  )
   rest = ensure_task_id(rest, task_id)
   sys.argv = [prog, *rest]
 

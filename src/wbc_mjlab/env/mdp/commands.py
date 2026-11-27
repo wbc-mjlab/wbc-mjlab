@@ -520,6 +520,17 @@ class MotionCommand(MotionViewerMixin, TrackingView, CommandTerm):
     )
 
     self.motion: MotionLoader | OnlineMotion
+    terrain_clip_ids = None
+    if cfg.dataset_terrain:
+      if cfg.ground_reference or cfg.mirror or cfg.debias_z:
+        raise ValueError("Dataset terrain requires original motion coordinates")
+      terrain_cfg = env.cfg.scene.terrain
+      generator = terrain_cfg.terrain_generator if terrain_cfg is not None else None
+      if generator is None:
+        raise ValueError("Dataset terrain generator is not configured")
+      terrain_clip_ids = tuple(
+        sub_cfg.trajectory_name for sub_cfg in generator.sub_terrains.values()
+      )
     if _uses_online_motion(cfg):
       self.motion = OnlineMotion(
         cfg.motion_file,
@@ -538,6 +549,7 @@ class MotionCommand(MotionViewerMixin, TrackingView, CommandTerm):
         storage=cfg.motion_storage,
         format_name=cfg.source_format,
         input_fps=cfg.source_fps,
+        clip_ids=terrain_clip_ids,
       )
     else:
       if cfg.mirror or cfg.debias_z:
@@ -559,6 +571,56 @@ class MotionCommand(MotionViewerMixin, TrackingView, CommandTerm):
     self.trajectory_ids = torch.zeros(
       self.num_envs, dtype=torch.long, device=self.device
     )
+    self._trajectory_terrain_columns = None
+    self._trajectory_terrain_quats = None
+    if cfg.dataset_terrain:
+      from wbc_mjlab.terrains.dataset import XmlTerrainCfg
+
+      terrain_cfg = env.cfg.scene.terrain
+      generator = terrain_cfg.terrain_generator if terrain_cfg is not None else None
+      if generator is None or not generator.curriculum or generator.num_rows != 1:
+        raise ValueError("Dataset terrain requires one row and one column per clip")
+      columns = {}
+      if not isinstance(self.motion, OnlineMotion):
+        raise ValueError("Dataset terrain requires manifest-backed online motion")
+      source_by_name = dict(
+        zip(
+          self.motion.library.packed.names,
+          self.motion.library.packed.sources,
+          strict=True,
+        )
+      )
+      for column, sub_cfg in enumerate(generator.sub_terrains.values()):
+        if not isinstance(sub_cfg, XmlTerrainCfg):
+          raise ValueError("Dataset terrain requires XmlTerrainCfg patches")
+        columns[sub_cfg.trajectory_name] = column
+        if sub_cfg.motion_path and (
+          Path(source_by_name[sub_cfg.trajectory_name]).resolve()
+          != Path(sub_cfg.motion_path).resolve()
+        ):
+          raise ValueError(
+            f"Motion source differs from terrain pair: {sub_cfg.trajectory_name}"
+          )
+      missing = set(self.motion.segment_names) - columns.keys()
+      if missing:
+        raise ValueError(
+          f"Motion clips have no matching terrain: {sorted(missing)[:5]}"
+        )
+      self._trajectory_terrain_columns = torch.tensor(
+        [columns[name] for name in self.motion.segment_names],
+        device=self.device,
+        dtype=torch.long,
+      )
+      yaw_by_name = {
+        sub.trajectory_name: sub.yaw for sub in generator.sub_terrains.values()
+      }
+      angles = torch.tensor(
+        [yaw_by_name[name] for name in self.motion.segment_names],
+        device=self.device,
+      )
+      self._trajectory_terrain_quats = torch.zeros(len(angles), 4, device=self.device)
+      self._trajectory_terrain_quats[:, 0] = torch.cos(angles / 2)
+      self._trajectory_terrain_quats[:, 3] = torch.sin(angles / 2)
     # Per-episode world offset added to reference positions (``ground_reference``).
     self.reference_offset_w = torch.zeros(self.num_envs, 3, device=self.device)
     self.body_pos_relative_w = torch.zeros(
@@ -962,6 +1024,25 @@ class MotionCommand(MotionViewerMixin, TrackingView, CommandTerm):
       bins_per_trajectory=self.bins_per_trajectory,
     )
 
+  def _rotate_terrain_reference(
+    self, frame: MotionFrame, trajectory_ids
+  ) -> MotionFrame:
+    table = getattr(self, "_trajectory_terrain_quats", None)
+    if table is None:
+      return frame
+    quat = table[trajectory_ids]
+    body_quat = quat[:, None, :].expand_as(frame.body_quat_w)
+    return MotionFrame(
+      joint_pos=frame.joint_pos,
+      joint_vel=frame.joint_vel,
+      body_pos_w=quat_apply(body_quat, frame.body_pos_w),
+      body_quat_w=quat_mul(body_quat, frame.body_quat_w),
+      body_lin_vel_w=quat_apply(body_quat, frame.body_lin_vel_w),
+      body_ang_vel_w=quat_apply(body_quat, frame.body_ang_vel_w),
+      anchor_lin_acc_w=quat_apply(quat, frame.anchor_lin_acc_w),
+      anchor_ang_acc_w=quat_apply(quat, frame.anchor_ang_acc_w),
+    )
+
   def reference(self) -> MotionFrame:
     """Reference at the current ``time_steps``: computed once per change of the frame
     indices (any write to ``time_steps`` bumps its version), then shared by every term."""
@@ -972,7 +1053,9 @@ class MotionCommand(MotionViewerMixin, TrackingView, CommandTerm):
       or self._ref_key[0] is not ts
       or self._ref_key[1] != ts._version
     ):
-      self._ref_frame = self.motion.frame(ts)
+      self._ref_frame = self._rotate_terrain_reference(
+        self.motion.frame(ts), self.trajectory_ids
+      )
       self._ref_key = (ts, ts._version)
     return self._ref_frame
 
@@ -990,7 +1073,10 @@ class MotionCommand(MotionViewerMixin, TrackingView, CommandTerm):
       seg_end = self.motion.segment_end_idx[self.trajectory_ids]
       offsets = torch.arange(num_frames, device=self.device)
       steps = torch.minimum(ts[:, None] + offsets, (seg_end - 1)[:, None])
-      frame = self.motion.frame(steps.reshape(-1))
+      frame = self._rotate_terrain_reference(
+        self.motion.frame(steps.reshape(-1)),
+        self.trajectory_ids[:, None].expand(-1, num_frames).reshape(-1),
+      )
       window = MotionFrame(
         *(
           getattr(frame, f.name).unflatten(0, (self.num_envs, num_frames))
@@ -1010,7 +1096,9 @@ class MotionCommand(MotionViewerMixin, TrackingView, CommandTerm):
     ts, key, ref = self.time_steps, self._ref_key, self._ref_frame
     if ref is None or key is None or key[0] is not ts or ts._version != key[1] + 1:
       return
-    part = self.motion.frame(ts[env_ids])
+    part = self._rotate_terrain_reference(
+      self.motion.frame(ts[env_ids]), self.trajectory_ids[env_ids]
+    )
     for f in dataclasses.fields(MotionFrame):
       getattr(ref, f.name)[env_ids] = getattr(part, f.name)
     self._ref_key = (ts, ts._version)
@@ -1095,6 +1183,7 @@ class MotionCommand(MotionViewerMixin, TrackingView, CommandTerm):
       assert rsi.sampling_mode == "adaptive"
       self._adaptive_sampling(env_ids)
 
+    self._update_terrain_origin(env_ids)
     self._patch_reference(env_ids)
     self._update_reference_offset(env_ids)
     root_pos = self.body_pos_w[env_ids, 0].clone()
@@ -1194,6 +1283,16 @@ class MotionCommand(MotionViewerMixin, TrackingView, CommandTerm):
     ):
       raise ValueError("probe start frame lies outside its clip")
     self._forced_start_frames = frames.to(device=self.device, dtype=torch.long).clone()
+
+  def _update_terrain_origin(self, env_ids: torch.Tensor) -> None:
+    """Move only resampled environments to the scene paired with their clip."""
+    if self._trajectory_terrain_columns is None:
+      return
+    terrain = self._env.scene.terrain
+    columns = self._trajectory_terrain_columns[self.trajectory_ids[env_ids]]
+    terrain.terrain_types[env_ids] = columns
+    terrain.terrain_levels[env_ids] = 0
+    terrain.env_origins[env_ids] = terrain.terrain_origins[0, columns]
 
   def _update_reference_offset(self, env_ids: torch.Tensor) -> None:
     """Center the start-frame anchor XY on the env origin (``ground_reference``).
@@ -1383,6 +1482,8 @@ class MotionCommandCfg(MjlabMotionCommandCfg):
   """Shift each episode's reference so its start-frame anchor XY sits on the env
   origin. Needed on generated terrain, where env origins are sub-terrain centers
   and clips recorded far from (0, 0) would otherwise start off-tile."""
+  dataset_terrain: bool = False
+  """Select each reset's terrain origin by the sampled trajectory's manifest ID."""
 
   @dataclass
   class VizCfg:

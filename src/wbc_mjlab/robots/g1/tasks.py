@@ -13,6 +13,7 @@ from wbc_mjlab.presets.party import apply_party, apply_sparse_keypoints
 from wbc_mjlab.presets.se_actor import apply_se_actor
 from wbc_mjlab.presets.sgs import apply_sgs
 from wbc_mjlab.presets.terrain import apply_terrain_scan
+from wbc_mjlab.presets.terrain_dataset import apply_terrain_dataset
 from wbc_mjlab.presets.wbc import apply_wbc
 from wbc_mjlab.presets.zest import apply_zest
 from wbc_mjlab.robots.g1.base import g1_base_cfg, wire_g1_imu_sensors
@@ -45,6 +46,25 @@ def g1_wbc_terrain_scan_env_cfg() -> ManagerBasedRlEnvCfg:
     scan_body_name=G1_HEIGHT_SCAN_BODY_NAME,
     scan_offset=G1_HEIGHT_SCAN_OFFSET,
     ee_termination_bodies=G1_EE_TERMINATION_BODY_NAMES,
+  )
+  return cfg
+
+
+def g1_wbc_terrain_dataset_env_cfg(
+  *,
+  dataset_root: str = "data/g1/custom",
+  clip_ids: tuple[str, ...] | None = None,
+  size: tuple[float, float] = (10.0, 10.0),
+) -> ManagerBasedRlEnvCfg:
+  cfg = g1_wbc_env_cfg()
+  apply_terrain_dataset(
+    cfg,
+    scan_body_name=G1_HEIGHT_SCAN_BODY_NAME,
+    scan_offset=G1_HEIGHT_SCAN_OFFSET,
+    ee_termination_bodies=G1_EE_TERMINATION_BODY_NAMES,
+    dataset_root=dataset_root,
+    clip_ids=clip_ids,
+    size=size,
   )
   return cfg
 
@@ -181,6 +201,15 @@ G1_WBC_TASKS: tuple[WbcTaskConfig, ...] = (
     build_env_cfg=g1_wbc_terrain_scan_env_cfg,
   ),
   WbcTaskConfig(
+    task_id="Wbc-G1-Terrain-Dataset",
+    robot_id="g1",
+    description=(
+      "Wbc-G1 with paired XML scenes, original reference coordinates, and actor height scan."
+    ),
+    experiment_name="wbc_g1_terrain_dataset",
+    build_env_cfg=g1_wbc_terrain_dataset_env_cfg,
+  ),
+  WbcTaskConfig(
     task_id="Wbc-G1-SE",
     robot_id="g1",
     description="Wbc-G1 + SE obs (anchor pose tracking error, base lin vel).",
@@ -299,6 +328,7 @@ __all__ = [
   "g1_wbc_se_env_cfg",
   "g1_wbc_sgs_env_cfg",
   "g1_wbc_terrain_scan_env_cfg",
+  "g1_wbc_terrain_dataset_env_cfg",
   "g1_wbc_zest_env_cfg",
   "g1_wbc_zest_se_env_cfg",
   "make_g1_wbc_env_cfg",
