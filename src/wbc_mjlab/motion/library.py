@@ -635,6 +635,7 @@ class OnlineMotion:
     format_name: str | None = None,
     input_fps: float | None = None,
     cache: bool = True,
+    clip_ids: tuple[str, ...] | None = None,
   ):
     from wbc_mjlab.motion.robot_assets import (
       get_robot_motion_spec,
@@ -664,6 +665,7 @@ class OnlineMotion:
       storage,
       format_name,
       input_fps,
+      clip_ids,
       _kinematic_signature(mj_model),
     )
     shared = _shared_online_motion.get()
@@ -673,7 +675,12 @@ class OnlineMotion:
       )
     if shared is None:
       packed = load_dataset(
-        source, qpos_names, format_name=format_name, input_fps=input_fps, cache=cache
+        source,
+        qpos_names,
+        format_name=format_name,
+        input_fps=input_fps,
+        cache=cache,
+        clip_ids=clip_ids,
       )
       spec = mirror_spec_for(robot_id, qpos_names) if mirror else None
       self.library = MotionLibrary(packed, device=device, storage=storage, mirror=spec)

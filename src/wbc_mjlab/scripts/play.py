@@ -26,6 +26,7 @@ import sys
 import time as _time
 from dataclasses import asdict
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import cast
 
@@ -163,7 +164,13 @@ def _needs_auto_checkpoint() -> bool:
   return True
 
 
-def run_play(task_id: str, cfg: PlayConfig) -> None:
+def run_play(
+  task_id: str,
+  cfg: PlayConfig,
+  *,
+  num_trajectories: int | None = None,
+  exclude_sources: tuple[str, ...] = (),
+) -> None:
   """Same as ``mjlab.scripts.play.run_play`` plus pre-viewer ONNX export."""
 
   configure_torch_backends()
@@ -275,6 +282,11 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
       if motion_file is not None:
         env_cfg.commands["motion"].motion_file = motion_file
 
+  from wbc_mjlab.scripts.terrain_subset import configure_terrain_selection
+
+  configure_terrain_selection(
+    env_cfg, num_trajectories, exclude_sources=exclude_sources
+  )
   env_cfg.scene.num_envs = cfg.num_envs if cfg.num_envs is not None else 1
   if cfg.video_height is not None:
     env_cfg.viewer.height = cfg.video_height
@@ -422,6 +434,7 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
 
 
 def main() -> None:
+  from wbc_mjlab.scripts.terrain_subset import pop_exclude_sources, pop_num_trajectories
   from wbc_mjlab.scripts.wbc_cli import (
     apply_dataset_motion_file,
     ensure_task_id,
@@ -435,6 +448,8 @@ def main() -> None:
   )
   if legacy:
     print("[WARN] Legacy task id mapped to --task / --no-state-estimation")
+  rest, num_trajectories = pop_num_trajectories(rest)
+  rest, exclude_sources = pop_exclude_sources(rest)
   prepare_wbc_run(task_id=task_id)
   rest = apply_dataset_motion_file(
     rest,
@@ -470,7 +485,9 @@ def main() -> None:
 
   import mjlab.scripts.play as mjlab_play
 
-  mjlab_play.run_play = run_play
+  mjlab_play.run_play = partial(
+    run_play, num_trajectories=num_trajectories, exclude_sources=exclude_sources
+  )
   mjlab_play.main()
 
 
