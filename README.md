@@ -83,6 +83,32 @@ uv run wbc-mjlab-play --task Wbc-G1 --dataset samples --viewer viser
 
 More: [quickstart](https://wbc-mjlab.github.io/wbc-mjlab/source/workflows/quickstart.html) · [tasks](https://wbc-mjlab.github.io/wbc-mjlab/source/tasks/index.html) · [motion data](https://wbc-mjlab.github.io/wbc-mjlab/source/data.html) · [training & resume](https://wbc-mjlab.github.io/wbc-mjlab/source/workflows/training.html) · [deploy](https://wbc-mjlab.github.io/wbc-mjlab/source/workflows/deploy.html) · [all commands](https://wbc-mjlab.github.io/wbc-mjlab/source/usage.html).
 
+### G1 on dataset terrain
+
+`Wbc-G1-Terrain-Dataset` pairs motion clips with their MuJoCo XML scenes. See the [example terrain dataset on Hugging Face](https://huggingface.co/datasets/TerrainHumanoids/TerrainExampleDataset). Use `--dataset custom` for `data/g1/custom`, or replace it with `--dataset-path /path/to/dataset` to point to a directory containing `manifest.json` and the files it references.
+
+```bash
+# Preview a single clip with a zero-action agent.
+uv run wbc-mjlab-play --task Wbc-G1-Terrain-Dataset --dataset custom \
+  --num-trajectories 1 --agent zero --num-envs 1 --viewer native
+
+# Train on up to five clips after excluding GRAIL and LaFAN.
+uv run wbc-mjlab-train --task Wbc-G1-Terrain-Dataset --dataset custom \
+  --exclude-sources grail lafan --num-trajectories 5 --env.scene.num-envs 512
+
+# Play a saved checkpoint on the same subset. Replace the checkpoint path.
+uv run wbc-mjlab-play --task Wbc-G1-Terrain-Dataset --dataset custom \
+  --exclude-sources grail lafan --num-trajectories 5 \
+  --agent trained --checkpoint-file /path/to/model_1000.pt \
+  --num-envs 1 --viewer native
+```
+
+- `--num-trajectories N` loads the first `N` remaining clips in sorted manifest ID order and their paired terrain tiles. Omit it to use the full selection.
+- `--exclude-sources` filters source groups before the trajectory limit. Supported groups are `ego`, `grail`, and `lafan`. Adjust the filter to match your dataset.
+- `--env.scene.num-envs` in training and `--num-envs` in playback set the number of parallel simulation environments. Use `--viewer viser` for browser-based playback.
+
+For exact clip IDs, use a dataset directory with a filtered manifest or pass `clip_ids` when building the environment in Python. See the [Terrain Dataset task guide](docs/source/tasks/wbc-g1-terrain-dataset.rst) for the manifest format and Python example.
+
 ## Related repos
 
 | Repo | Role |

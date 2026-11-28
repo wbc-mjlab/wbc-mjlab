@@ -54,7 +54,7 @@ def g1_wbc_terrain_dataset_env_cfg(
   *,
   dataset_root: str = "data/g1/custom",
   clip_ids: tuple[str, ...] | None = None,
-  size: tuple[float, float] = (10.0, 10.0),
+  size: tuple[float, float] = (30.0, 30.0),
 ) -> ManagerBasedRlEnvCfg:
   cfg = g1_wbc_env_cfg()
   apply_terrain_dataset(
